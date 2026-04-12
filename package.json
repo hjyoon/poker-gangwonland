@@ -1,0 +1,20 @@
+{
+  "name": "poker-gangwonland",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "강원랜드 기준 텍사스 홀덤 Next.js 프로젝트",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "next": "^16.2.3",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  }
+}
