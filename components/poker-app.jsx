@@ -22,6 +22,7 @@ const CARD_RANK_ROWS = [
   "7. 쓰리 오브 카인드",
   "8. 투 페어",
   "9. 원 페어",
+  "10. 하이 카드",
 ];
 
 const TERM_ROWS = [
