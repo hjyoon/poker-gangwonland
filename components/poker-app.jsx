@@ -156,9 +156,16 @@ export default function PokerApp() {
   const [cpuCount, setCpuCount] = useState(3);
   const [dealerIndex, setDealerIndex] = useState(0);
   const [chipTotals, setChipTotals] = useState({});
-  const [state, setState] = useState(() => createInitialState(3));
+  const [state, setState] = useState(null);
 
   useEffect(() => {
+    setState(createInitialState(3));
+  }, []);
+
+  useEffect(() => {
+    if (!state) {
+      return undefined;
+    }
     if (state.finished || state.waitingForHuman) {
       return undefined;
     }
@@ -175,14 +182,9 @@ export default function PokerApp() {
     return () => window.clearTimeout(timer);
   }, [state]);
 
-  const activeStreet = STREETS[state.streetIndex];
-  const humanIndex = state.players.findIndex((player) => player.isHuman);
-  const humanActions = getAvailableActions(state, humanIndex);
-  const revealCards = state.finished;
-
   const showdownMap = useMemo(
-    () => Object.fromEntries(state.showdownResults.map((entry) => [entry.id, entry.label])),
-    [state.showdownResults],
+    () => (state ? Object.fromEntries(state.showdownResults.map((entry) => [entry.id, entry.label])) : {}),
+    [state],
   );
 
   function resetTable(nextCpuCount) {
@@ -217,10 +219,35 @@ export default function PokerApp() {
   }
 
   useEffect(() => {
+    if (!state) {
+      return;
+    }
     if (state.finished) {
       setChipTotals(state.chipTotals ?? {});
     }
   }, [state]);
+
+  if (!state) {
+    return (
+      <main className="app-shell">
+        <section className="hero panel">
+          <div>
+            <p className="eyebrow">Gangwon Land Hold&apos;em</p>
+            <h1>강원랜드 기준 베팅 시뮬레이터</h1>
+            <p>
+              강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 상대 수 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
+            </p>
+          </div>
+        </section>
+        <RulesPanel />
+      </main>
+    );
+  }
+
+  const activeStreet = STREETS[state.streetIndex];
+  const humanIndex = state.players.findIndex((player) => player.isHuman);
+  const humanActions = getAvailableActions(state, humanIndex);
+  const revealCards = state.finished;
 
   return (
     <main className="app-shell">
