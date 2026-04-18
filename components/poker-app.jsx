@@ -131,7 +131,8 @@ function RulesPanel() {
           <h3>핵심 액션</h3>
           <ul>
             <li>폴드 (Fold): 게임 포기</li>
-            <li>레이즈 (Raise): 기존 베팅보다 높게 추가 베팅</li>
+            <li>베팅 (Bet): 아직 베팅이 없을 때 처음 칩스 내기</li>
+            <li>레이즈 (Raise): 이미 있는 베팅보다 높게 추가 베팅</li>
             <li>콜 (Call): 현재 베팅 금액에 맞춤</li>
             <li>체크 (Check): 베팅 없이 순서 넘김</li>
           </ul>
