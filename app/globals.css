@@ -64,7 +64,8 @@ a {
 .table,
 .log-panel,
 .rules,
-.step-panel {
+.step-panel,
+.setup-panel {
   padding: 24px;
 }
 
@@ -213,6 +214,10 @@ button:disabled {
   opacity: 0.55;
 }
 
+.seat.is-eliminated {
+  opacity: 0.42;
+}
+
 .seat.is-turn {
   border-color: rgba(216, 162, 61, 0.72);
   box-shadow: 0 0 0 1px rgba(216, 162, 61, 0.28);
@@ -243,6 +248,14 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+.eliminated-badge {
+  min-height: 82px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .seat dl {
   margin: 0;
   display: grid;
@@ -258,6 +271,16 @@ button:disabled {
 .seat dt,
 .seat dd {
   margin: 0;
+}
+
+.seat dd.money-positive,
+.money-positive {
+  color: var(--green);
+}
+
+.seat dd.money-negative,
+.money-negative {
+  color: var(--red);
 }
 
 .controls {
@@ -318,6 +341,45 @@ td {
 
 .note {
   font-size: 0.92rem;
+}
+
+.setup-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.setup-controls {
+  max-width: 260px;
+}
+
+.setup-controls label,
+.balance-input {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.balance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.balance-input input {
+  min-height: 46px;
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(216, 162, 61, 0.24);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  padding: 0 14px;
+}
+
+.setup-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
 }
 
 @media (max-width: 900px) {

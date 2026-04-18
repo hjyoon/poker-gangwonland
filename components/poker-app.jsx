@@ -2,15 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  MIN_PLAYABLE_BALANCE,
   STREETS,
   applyAction,
   chooseComputerAction,
-  createInitialState,
   formatCard,
   formatMoney,
   getAvailableActions,
   startNewHand,
 } from "../lib/poker";
+
+const DEFAULT_STARTING_BALANCE = 100000;
 
 const CARD_RANK_ROWS = [
   "1. 로열 플러쉬",
@@ -32,6 +34,22 @@ const TERM_ROWS = [
   ["번 (Burn)", "제공된 기준에는 구체 설명이 명시되어 있지 않아 별도 운영 규정 확인 필요"],
 ];
 
+function buildSetupPlayers(cpuCount) {
+  return [
+    { id: "human", name: "플레이어" },
+    ...Array.from({ length: cpuCount }, (_, index) => ({
+      id: `cpu-${index + 1}`,
+      name: `컴퓨터 ${index + 1}`,
+    })),
+  ];
+}
+
+function buildSetupBalances(cpuCount, previous = {}) {
+  return Object.fromEntries(
+    buildSetupPlayers(cpuCount).map((player) => [player.id, previous[player.id] ?? DEFAULT_STARTING_BALANCE]),
+  );
+}
+
 function cardSuitClass(card) {
   if (!card) {
     return "";
@@ -40,21 +58,29 @@ function cardSuitClass(card) {
 }
 
 function Seat({ player, isTurn, revealCards, winner }) {
+  const chipBalance = player.chipBalance ?? 0;
+  const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
+  const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "사람" : "컴퓨터";
+
   return (
-    <article className={`seat${player.folded ? " is-folded" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
+    <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
       <header>
         <strong>{player.name}</strong>
-        <span>{player.isHuman ? "사람" : "컴퓨터"}</span>
+        <span>{seatLabel}</span>
       </header>
       <div className="seat-cards">
-        {player.cards.map((card, index) => {
-          const showCard = revealCards || player.isHuman || player.folded;
-          return (
-            <div className={`card${showCard ? cardSuitClass(card) : ""}`} key={`${player.id}-${index}`}>
-              {showCard ? formatCard(card) : "🂠"}
-            </div>
-          );
-        })}
+        {player.eliminated ? (
+          <div className="eliminated-badge">탈락</div>
+        ) : (
+          player.cards.map((card, index) => {
+            const showCard = revealCards || player.isHuman || player.folded;
+            return (
+              <div className={`card${showCard ? cardSuitClass(card) : ""}`} key={`${player.id}-${index}`}>
+                {showCard ? formatCard(card) : "🂠"}
+              </div>
+            );
+          })
+        )}
       </div>
       <dl>
         <div>
@@ -64,6 +90,10 @@ function Seat({ player, isTurn, revealCards, winner }) {
         <div>
           <dt>이번 핸드</dt>
           <dd>{formatMoney(player.totalContribution)}</dd>
+        </div>
+        <div>
+          <dt>보유 금액</dt>
+          <dd className={balanceClass}>{formatMoney(chipBalance)}</dd>
         </div>
         <div>
           <dt>누적 승리</dt>
@@ -165,13 +195,10 @@ function RulesPanel() {
 
 export default function PokerApp() {
   const [cpuCount, setCpuCount] = useState(3);
+  const [setupBalances, setSetupBalances] = useState(() => buildSetupBalances(3));
   const [dealerIndex, setDealerIndex] = useState(0);
   const [chipTotals, setChipTotals] = useState({});
   const [state, setState] = useState(null);
-
-  useEffect(() => {
-    setState(createInitialState(3));
-  }, []);
 
   useEffect(() => {
     if (!state) {
@@ -197,34 +224,69 @@ export default function PokerApp() {
     () => (state ? Object.fromEntries(state.showdownResults.map((entry) => [entry.id, entry.label])) : {}),
     [state],
   );
+  const setupPlayers = useMemo(() => buildSetupPlayers(cpuCount), [cpuCount]);
+  const playableSetupCount = setupPlayers.filter((player) => (setupBalances[player.id] ?? 0) >= MIN_PLAYABLE_BALANCE).length;
 
-  function resetTable(nextCpuCount) {
-    const nextState = startNewHand({
-      cpuCount: nextCpuCount,
-      dealerIndex: 0,
-      chipTotals: {},
-    });
+  function changeCpuCount(nextCpuCount) {
     setCpuCount(nextCpuCount);
-    setDealerIndex(0);
-    setChipTotals({});
+    setSetupBalances((current) => buildSetupBalances(nextCpuCount, current));
+  }
+
+  function updateSetupBalance(playerId, value) {
+    const numericValue = Math.max(0, Number(value) || 0);
+    setSetupBalances((current) => ({
+      ...current,
+      [playerId]: numericValue,
+    }));
+  }
+
+  function startGame() {
+    const initialChipTotals = Object.fromEntries(
+      setupPlayers.map((player) => [
+        player.id,
+        {
+          chipBalance: setupBalances[player.id] ?? 0,
+          chipsWon: 0,
+        },
+      ]),
+    );
+    const nextState = startNewHand({
+      cpuCount,
+      dealerIndex: 0,
+      chipTotals: initialChipTotals,
+    });
+    setDealerIndex(nextState.dealerIndex);
+    setChipTotals(nextState.chipTotals ?? initialChipTotals);
     setState(nextState);
   }
 
+  function openSetup() {
+    setDealerIndex(0);
+    setChipTotals({});
+    setState(null);
+  }
+
   function nextHand() {
+    if (!state?.finished || state.gameOver) {
+      return;
+    }
     const nextDealerIndex = (dealerIndex + 1) % (cpuCount + 1);
     const nextState = startNewHand({
       cpuCount,
       dealerIndex: nextDealerIndex,
-      chipTotals,
+      chipTotals: state?.chipTotals ?? chipTotals,
     });
-    setDealerIndex(nextDealerIndex);
+    setDealerIndex(nextState.dealerIndex);
+    setChipTotals(nextState.chipTotals ?? {});
     setState(nextState);
   }
 
   function onHumanAction(action) {
     setState((current) => {
       const next = applyAction(current, action, humanIndex);
-      setChipTotals(next.chipTotals ?? {});
+      if (next.chipTotals) {
+        setChipTotals(next.chipTotals);
+      }
       return next;
     });
   }
@@ -250,6 +312,46 @@ export default function PokerApp() {
             </p>
           </div>
         </section>
+        <section className="panel setup-panel">
+          <div>
+            <h2>게임 시작 설정</h2>
+            <p className="note">
+              시작 금액과 잔액 부족 탈락은 앱 진행용 설정입니다. 잔액 {formatMoney(MIN_PLAYABLE_BALANCE)} 미만인 플레이어는 다음 핸드를 진행할 수 없어 탈락 처리됩니다.
+            </p>
+          </div>
+          <div className="setup-controls">
+            <label>
+              앱 진행용 상대 수
+              <select value={cpuCount} onChange={(event) => changeCpuCount(Number(event.target.value))}>
+                {Array.from({ length: 7 }, (_, index) => (
+                  <option key={index + 1} value={index + 1}>
+                    {index + 1}명
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="balance-grid">
+            {setupPlayers.map((player) => (
+              <label className="balance-input" key={player.id}>
+                <span>{player.name}</span>
+                <input
+                  min="0"
+                  step="1000"
+                  type="number"
+                  value={setupBalances[player.id] ?? 0}
+                  onChange={(event) => updateSetupBalance(player.id, event.target.value)}
+                />
+              </label>
+            ))}
+          </div>
+          <div className="setup-actions">
+            <button onClick={startGame} disabled={playableSetupCount < 2}>
+              게임 시작
+            </button>
+            {playableSetupCount < 2 ? <p className="note">진행 가능한 플레이어가 2명 이상 필요합니다.</p> : null}
+          </div>
+        </section>
         <RulesPanel />
       </main>
     );
@@ -259,6 +361,13 @@ export default function PokerApp() {
   const humanIndex = state.players.findIndex((player) => player.isHuman);
   const humanActions = getAvailableActions(state, humanIndex);
   const revealCards = state.finished;
+  const statusText = state.gameOver
+    ? "게임이 종료되었습니다."
+    : state.waitingForHuman && !state.finished
+      ? "사람 차례입니다."
+      : "컴퓨터 진행 중이거나 핸드가 종료되었습니다.";
+  const dealerName = state.gameOver ? "-" : state.players[state.dealerIndex]?.name;
+  const turnName = state.gameOver ? "-" : state.players[state.currentPlayerIndex]?.name;
 
   return (
     <main className="app-shell">
@@ -271,19 +380,10 @@ export default function PokerApp() {
           </p>
         </div>
         <div className="hero-controls">
-          <label>
-            앱 진행용 상대 수
-            <select value={cpuCount} onChange={(event) => resetTable(Number(event.target.value))}>
-              {Array.from({ length: 7 }, (_, index) => (
-                <option key={index + 1} value={index + 1}>
-                  {index + 1}명
-                </option>
-              ))}
-            </select>
-          </label>
-          <button className="secondary" onClick={nextHand}>
+          <button className="secondary" onClick={nextHand} disabled={!state.finished || state.gameOver}>
             다음 핸드
           </button>
+          <button onClick={openSetup}>새 게임 설정</button>
         </div>
       </section>
 
@@ -296,8 +396,8 @@ export default function PokerApp() {
             </p>
           </div>
           <div>
-            <p>딜러: {state.players[state.dealerIndex]?.name}</p>
-            <p>현재 턴: {state.players[state.currentPlayerIndex]?.name}</p>
+            <p>딜러: {dealerName}</p>
+            <p>현재 턴: {turnName}</p>
           </div>
         </header>
 
@@ -331,7 +431,7 @@ export default function PokerApp() {
         <section className="controls">
           <div>
             <h3>플레이어 행동</h3>
-            <p>{state.waitingForHuman && !state.finished ? "사람 차례입니다." : "컴퓨터 진행 중이거나 핸드가 종료되었습니다."}</p>
+            <p>{statusText}</p>
           </div>
           <div className="action-row">
             {humanActions.map((action) => (
@@ -350,6 +450,7 @@ export default function PokerApp() {
             </p>
           ) : null}
           <p className="note">{state.note}</p>
+          <p className="note">보유 금액은 게임 시작 전에 입력한 앱 진행용 시작 금액에서 베팅과 정산을 반영한 값입니다.</p>
         </section>
       </section>
 
