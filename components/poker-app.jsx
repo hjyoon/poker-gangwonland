@@ -32,6 +32,13 @@ const TERM_ROWS = [
   ["번 (Burn)", "제공된 기준에는 구체 설명이 명시되어 있지 않아 별도 운영 규정 확인 필요"],
 ];
 
+function cardSuitClass(card) {
+  if (!card) {
+    return "";
+  }
+  return card.suit === "H" || card.suit === "D" ? " is-red" : " is-black";
+}
+
 function Seat({ player, isTurn, revealCards, winner }) {
   return (
     <article className={`seat${player.folded ? " is-folded" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
@@ -40,11 +47,14 @@ function Seat({ player, isTurn, revealCards, winner }) {
         <span>{player.isHuman ? "사람" : "컴퓨터"}</span>
       </header>
       <div className="seat-cards">
-        {player.cards.map((card, index) => (
-          <div className="card" key={`${player.id}-${index}`}>
-            {revealCards || player.isHuman || player.folded ? formatCard(card) : "🂠"}
-          </div>
-        ))}
+        {player.cards.map((card, index) => {
+          const showCard = revealCards || player.isHuman || player.folded;
+          return (
+            <div className={`card${showCard ? cardSuitClass(card) : ""}`} key={`${player.id}-${index}`}>
+              {showCard ? formatCard(card) : "🂠"}
+            </div>
+          );
+        })}
       </div>
       <dl>
         <div>
@@ -293,7 +303,7 @@ export default function PokerApp() {
 
         <div className="community">
           {state.communityCards.map((card, index) => (
-            <div className="card large" key={`${card.id}-${index}`}>
+            <div className={`card large${cardSuitClass(card)}`} key={`${card.id}-${index}`}>
               {formatCard(card)}
             </div>
           ))}

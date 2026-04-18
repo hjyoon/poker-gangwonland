@@ -176,6 +176,14 @@ button:disabled {
   border: 1px solid rgba(0, 0, 0, 0.08);
 }
 
+.card.is-red {
+  color: #c8322b;
+}
+
+.card.is-black {
+  color: #111;
+}
+
 .card.large {
   width: 72px;
   height: 102px;
