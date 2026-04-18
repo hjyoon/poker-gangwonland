@@ -135,7 +135,9 @@ function RulesPanel() {
             <li>콜 (Call): 현재 베팅 금액에 맞춤</li>
             <li>체크 (Check): 베팅 없이 순서 넘김</li>
           </ul>
-          <p className="note">체크는 이전 베팅이 없을 때만 가능하며, 프리 플랍 (Pre-flop)에서는 블라인드가 이미 있어 체크가 불가능합니다.</p>
+          <p className="note">
+            체크는 이전 베팅이 없을 때만 가능합니다. 프리 플랍 (Pre-flop)에서는 일반적으로 체크가 불가능하지만, 빅 블라인드 (Big Blind)가 추가로 맞출 금액이 없으면 체크할 수 있습니다.
+          </p>
         </div>
       </div>
       <div>
