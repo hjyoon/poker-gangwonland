@@ -5,6 +5,7 @@ import {
   MIN_PLAYABLE_BALANCE,
   STREETS,
   applyAction,
+  calculateFee,
   chooseComputerAction,
   formatCard,
   formatMoney,
@@ -254,6 +255,7 @@ export default function PokerApp() {
       cpuCount,
       dealerIndex: 0,
       chipTotals: initialChipTotals,
+      feeTotal: 0,
     });
     setDealerIndex(nextState.dealerIndex);
     setChipTotals(nextState.chipTotals ?? initialChipTotals);
@@ -275,6 +277,7 @@ export default function PokerApp() {
       cpuCount,
       dealerIndex: nextDealerIndex,
       chipTotals: state?.chipTotals ?? chipTotals,
+      feeTotal: state?.feeTotal ?? 0,
     });
     setDealerIndex(nextState.dealerIndex);
     setChipTotals(nextState.chipTotals ?? {});
@@ -368,6 +371,9 @@ export default function PokerApp() {
       : "컴퓨터 진행 중이거나 핸드가 종료되었습니다.";
   const dealerName = state.gameOver ? "-" : state.players[state.dealerIndex]?.name;
   const turnName = state.gameOver ? "-" : state.players[state.currentPlayerIndex]?.name;
+  const handFee = state.finished ? state.currentHandFee ?? 0 : calculateFee(state.pot);
+  const handFeeLabel = state.finished ? "이번 핸드 수수료" : "이번 핸드 예상 수수료";
+  const cumulativeFee = state.feeTotal ?? 0;
 
   return (
     <main className="app-shell">
@@ -393,6 +399,9 @@ export default function PokerApp() {
             <h2>{activeStreet.label}</h2>
             <p>
               먹(Pot) {formatMoney(state.pot)} / 현재 베팅 {formatMoney(state.currentBet)}
+            </p>
+            <p>
+              누적 수수료 {formatMoney(cumulativeFee)} / {handFeeLabel} {formatMoney(handFee)}
             </p>
           </div>
           <div>
