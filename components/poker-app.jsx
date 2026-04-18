@@ -28,7 +28,7 @@ const TERM_ROWS = [
   ["스몰 블라인드 (Small Blind)", "강제 베팅 2,000원"],
   ["빅 블라인드 (Big Blind)", "강제 베팅 5,000원"],
   ["먹 (Pot)", "원문 기준 표현. 일반 포커 용어와 다를 수 있어 별도 운영 규정 확인 필요"],
-  ["번 (Burn)", "공유 카드 공개 전 제외되는 카드"],
+  ["번 (Burn)", "제공된 기준에는 구체 설명이 명시되어 있지 않아 별도 운영 규정 확인 필요"],
 ];
 
 function Seat({ player, isTurn, revealCards, winner }) {
@@ -104,6 +104,7 @@ function RulesPanel() {
               <th>단계</th>
               <th>최초 베팅</th>
               <th>레이즈 증가</th>
+              <th>리레이즈 증가</th>
               <th>최대 총 베팅</th>
               <th>예시</th>
             </tr>
@@ -114,7 +115,8 @@ function RulesPanel() {
                 <td>{street.label}</td>
                 <td>{formatMoney(street.firstBet)}</td>
                 <td>{formatMoney(street.raiseSize)}</td>
-                <td>{formatMoney(street.maxBet)}</td>
+                <td>{formatMoney(street.reraiseSize)}</td>
+                <td>{street.maxLabel ?? formatMoney(street.maxBet)}</td>
                 <td>{street.example}</td>
               </tr>
             ))}
@@ -225,14 +227,14 @@ export default function PokerApp() {
       <section className="hero panel">
         <div>
           <p className="eyebrow">Gangwon Land Hold&apos;em</p>
-          <h1>사람 1명 vs 컴퓨터 1~7명</h1>
+          <h1>강원랜드 기준 베팅 시뮬레이터</h1>
           <p>
-            총 8인 테이블까지 플레이할 수 있는 강원랜드 기준 텍사스 홀덤 시뮬레이터입니다. 베팅 금액은 프리 플랍/플랍 5,000원 단위, 턴/리버 10,000원 단위, 리버는 40,000원 캡(Cap)까지 반영했습니다.
+            강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 상대 수 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
           </p>
         </div>
         <div className="hero-controls">
           <label>
-            컴퓨터 수
+            앱 진행용 상대 수
             <select value={cpuCount} onChange={(event) => resetTable(Number(event.target.value))}>
               {Array.from({ length: 7 }, (_, index) => (
                 <option key={index + 1} value={index + 1}>
@@ -252,7 +254,7 @@ export default function PokerApp() {
           <div>
             <h2>{activeStreet.label}</h2>
             <p>
-              팟 {formatMoney(state.pot)} / 현재 베팅 {formatMoney(state.currentBet)}
+              먹(Pot) {formatMoney(state.pot)} / 현재 베팅 {formatMoney(state.currentBet)}
             </p>
           </div>
           <div>
@@ -330,7 +332,7 @@ export default function PokerApp() {
           <li>`git init`으로 저장소를 초기화했습니다.</li>
           <li>Next.js 앱 구조를 `app/`, `components/`, `lib/`로 분리했습니다.</li>
           <li>강원랜드 기준 블라인드, 단계별 베팅 금액, 1인 최대 100,000원을 엔진에 고정했습니다.</li>
-          <li>사람 1명과 컴퓨터 최대 7명이 참여하는 8인 테이블 UI를 구성했습니다.</li>
+          <li>앱 진행용 상대 선택 UI를 구성했습니다. 이 값은 제공된 기준의 좌석 수 규정이 아닙니다.</li>
           <li>프리 플랍, 플랍, 턴, 리버, 쇼다운과 수수료 5% 정산을 연결했습니다.</li>
         </ol>
       </section>
