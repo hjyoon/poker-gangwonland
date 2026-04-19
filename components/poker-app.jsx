@@ -52,24 +52,46 @@ const TERM_ROWS = [
   ["번 (Burn)", "제공된 기준에는 구체 설명이 명시되어 있지 않아 별도 운영 규정 확인 필요"],
 ];
 
-function buildSetupPlayers(cpuCount, includeHuman = true) {
+function clampHumanSeatIndex(value, cpuCount, includeHuman = true) {
+  if (!includeHuman) {
+    return 0;
+  }
+  const maxIndex = cpuCount;
+  return Math.min(Math.max(0, Number(value) || 0), maxIndex);
+}
+
+function buildHumanSeatOptions(cpuCount) {
+  return Array.from({ length: cpuCount + 1 }, (_, index) => index);
+}
+
+function buildSetupPlayers(cpuCount, includeHuman = true, humanSeatIndex = 0) {
   const cpuPlayers = Array.from({ length: cpuCount }, (_, index) => ({
     id: `cpu-${index + 1}`,
     name: `컴퓨터 ${index + 1}`,
     isHuman: false,
   }));
-  return includeHuman ? [{ id: "human", name: "플레이어", isHuman: true }, ...cpuPlayers] : cpuPlayers;
+  if (!includeHuman) {
+    return cpuPlayers;
+  }
+
+  const players = [...cpuPlayers];
+  players.splice(clampHumanSeatIndex(humanSeatIndex, cpuCount, includeHuman), 0, {
+    id: "human",
+    name: "플레이어",
+    isHuman: true,
+  });
+  return players;
 }
 
-function buildSetupBalances(cpuCount, includeHuman = true, previous = {}) {
+function buildSetupBalances(cpuCount, includeHuman = true, previous = {}, humanSeatIndex = 0) {
   return Object.fromEntries(
-    buildSetupPlayers(cpuCount, includeHuman).map((player) => [player.id, previous[player.id] ?? DEFAULT_STARTING_BALANCE]),
+    buildSetupPlayers(cpuCount, includeHuman, humanSeatIndex).map((player) => [player.id, previous[player.id] ?? DEFAULT_STARTING_BALANCE]),
   );
 }
 
-function buildSetupComputerStyles(cpuCount, includeHuman = true, previous = {}) {
+function buildSetupComputerStyles(cpuCount, includeHuman = true, previous = {}, humanSeatIndex = 0) {
   return Object.fromEntries(
-    buildSetupPlayers(cpuCount, includeHuman)
+    buildSetupPlayers(cpuCount, includeHuman, humanSeatIndex)
       .filter((player) => !player.isHuman)
       .map((player) => [player.id, getComputerStyleSelection(previous[player.id]).key]),
   );
@@ -119,6 +141,57 @@ function clampDelay(value, min, max) {
 
 function clampHumanSlots(value) {
   return Math.min(Math.max(MIN_MULTIPLAYER_HUMAN_SLOTS, Number(value) || MIN_MULTIPLAYER_HUMAN_SLOTS), MAX_MULTIPLAYER_HUMAN_SLOTS);
+}
+
+function clampTableSeatIndex(value, totalSeatCount) {
+  return Math.min(Math.max(0, Number(value) || 0), Math.max(0, totalSeatCount - 1));
+}
+
+function buildTableSeatOptions(totalSeatCount) {
+  return Array.from({ length: totalSeatCount }, (_, index) => index);
+}
+
+function buildDefaultMultiplayerTableSeats(humanSlots, totalSeatCount) {
+  const slotCount = clampHumanSlots(humanSlots);
+  const seatCount = Math.max(slotCount, Math.min(MAX_TOTAL_PLAYERS, Number(totalSeatCount) || slotCount));
+  if (slotCount === 1) {
+    return [0];
+  }
+  return Array.from({ length: slotCount }, (_, index) => Math.round((index * (seatCount - 1)) / (slotCount - 1)));
+}
+
+function normalizeMultiplayerTableSeats(tableSeats, humanSlots, totalSeatCount) {
+  const slotCount = clampHumanSlots(humanSlots);
+  const seatCount = Math.max(slotCount, Math.min(MAX_TOTAL_PLAYERS, Number(totalSeatCount) || slotCount));
+  const defaults = buildDefaultMultiplayerTableSeats(slotCount, seatCount);
+  const values = Array.isArray(tableSeats) ? tableSeats : [];
+  const usedSeats = new Set();
+
+  return Array.from({ length: slotCount }, (_, index) => {
+    let seatIndex = clampTableSeatIndex(values[index] ?? defaults[index], seatCount);
+    if (usedSeats.has(seatIndex)) {
+      seatIndex = defaults.find((candidate) => !usedSeats.has(candidate)) ?? buildTableSeatOptions(seatCount).find((candidate) => !usedSeats.has(candidate)) ?? 0;
+    }
+    usedSeats.add(seatIndex);
+    return seatIndex;
+  });
+}
+
+function moveMultiplayerTableSeat(tableSeats, slotIndex, nextSeatIndex, humanSlots, totalSeatCount) {
+  const seats = normalizeMultiplayerTableSeats(tableSeats, humanSlots, totalSeatCount);
+  const targetSeatIndex = clampTableSeatIndex(nextSeatIndex, totalSeatCount);
+  const previousSeatIndex = seats[slotIndex];
+  const occupiedSlotIndex = seats.findIndex((seatIndex, index) => index !== slotIndex && seatIndex === targetSeatIndex);
+
+  if (occupiedSlotIndex >= 0) {
+    seats[occupiedSlotIndex] = previousSeatIndex;
+  }
+  seats[slotIndex] = targetSeatIndex;
+  return normalizeMultiplayerTableSeats(seats, humanSlots, totalSeatCount);
+}
+
+function sameNumberList(left, right) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function websocketUrl() {
@@ -277,8 +350,9 @@ function RulesPanel() {
 export default function PokerApp() {
   const [cpuCount, setCpuCount] = useState(3);
   const [includeHuman, setIncludeHuman] = useState(true);
-  const [computerStyles, setComputerStyles] = useState(() => buildSetupComputerStyles(3, true));
-  const [setupBalances, setSetupBalances] = useState(() => buildSetupBalances(3, true));
+  const [humanSeatIndex, setHumanSeatIndex] = useState(0);
+  const [computerStyles, setComputerStyles] = useState(() => buildSetupComputerStyles(3, true, {}, 0));
+  const [setupBalances, setSetupBalances] = useState(() => buildSetupBalances(3, true, {}, 0));
   const [dealerIndex, setDealerIndex] = useState(0);
   const [chipTotals, setChipTotals] = useState({});
   const [state, setState] = useState(null);
@@ -288,6 +362,8 @@ export default function PokerApp() {
   const [nextHandDelayMs, setNextHandDelayMs] = useState(DEFAULT_NEXT_HAND_DELAY_MS);
   const [multiplayerName, setMultiplayerName] = useState("플레이어");
   const [multiplayerSlots, setMultiplayerSlots] = useState(2);
+  const [multiplayerTableSeats, setMultiplayerTableSeats] = useState(() => buildDefaultMultiplayerTableSeats(2, 5));
+  const [randomizeMultiplayerHumanSeats, setRandomizeMultiplayerHumanSeats] = useState(false);
   const [multiplayerHumanBalance, setMultiplayerHumanBalance] = useState(DEFAULT_STARTING_BALANCE);
   const [multiplayerJoinCode, setMultiplayerJoinCode] = useState("");
   const [multiplayerRoom, setMultiplayerRoom] = useState(null);
@@ -303,6 +379,7 @@ export default function PokerApp() {
   const multiplayerPlayerIdRef = useRef(null);
   const multiplayerNameRef = useRef(multiplayerName);
   const multiplayerGameActiveRef = useRef(false);
+  const lastSentRoomSettingsRef = useRef("");
   const cpuCountSelectRef = useRef(null);
   const includeHumanInputRef = useRef(null);
   const hasSyncedRestoredCpuCountRef = useRef(false);
@@ -356,6 +433,7 @@ export default function PokerApp() {
 
     function handleRoomState(room) {
       multiplayerRoomIdRef.current = room.id;
+      applyMultiplayerRoomSettings(room);
       setMultiplayerRoom(room);
       setMultiplayerError("");
       if (room.gameState) {
@@ -455,7 +533,20 @@ export default function PokerApp() {
     [state],
   );
   const setupIncludesLocalHuman = !multiplayerRoom && includeHuman;
-  const setupPlayers = useMemo(() => buildSetupPlayers(cpuCount, setupIncludesLocalHuman), [cpuCount, setupIncludesLocalHuman]);
+  const resolvedHumanSeatIndex = clampHumanSeatIndex(humanSeatIndex, cpuCount, setupIncludesLocalHuman);
+  const setupPlayers = useMemo(
+    () => buildSetupPlayers(cpuCount, setupIncludesLocalHuman, resolvedHumanSeatIndex),
+    [cpuCount, resolvedHumanSeatIndex, setupIncludesLocalHuman],
+  );
+  const humanSeatOptions = useMemo(() => buildHumanSeatOptions(cpuCount), [cpuCount]);
+  const multiplayerHumanSlotCount = multiplayerRoom?.humanSlots ?? multiplayerSlots;
+  const multiplayerConfiguredSeatCount = multiplayerHumanSlotCount + cpuCount;
+  const multiplayerTableSeatCount = Math.min(MAX_TOTAL_PLAYERS, multiplayerConfiguredSeatCount);
+  const resolvedMultiplayerTableSeats = useMemo(
+    () => normalizeMultiplayerTableSeats(multiplayerTableSeats, multiplayerHumanSlotCount, multiplayerTableSeatCount),
+    [multiplayerHumanSlotCount, multiplayerTableSeatCount, multiplayerTableSeats],
+  );
+  const multiplayerTableSeatOptions = useMemo(() => buildTableSeatOptions(multiplayerTableSeatCount), [multiplayerTableSeatCount]);
   const cpuCountOptions = useMemo(() => buildCpuCountOptions(includeHuman), [includeHuman]);
   const effectiveCpuCountOptions = useMemo(
     () => (multiplayerRoom ? buildMultiplayerCpuCountOptions(multiplayerRoom.humanSlots) : cpuCountOptions),
@@ -465,7 +556,7 @@ export default function PokerApp() {
     multiplayerHumanBalance >= MIN_PLAYABLE_BALANCE ? (multiplayerRoom?.seats.filter((seat) => seat.playerId && seat.connected).length ?? 0) : 0;
   const playableComputerSetupCount = setupPlayers.filter((player) => !player.isHuman && (setupBalances[player.id] ?? 0) >= MIN_PLAYABLE_BALANCE).length;
   const multiplayerPlayableSetupCount = connectedMultiplayerHumans + playableComputerSetupCount;
-  const multiplayerConfiguredPlayerCount = multiplayerRoom ? multiplayerRoom.humanSlots + cpuCount : 0;
+  const multiplayerConfiguredPlayerCount = multiplayerRoom ? multiplayerConfiguredSeatCount : 0;
   const activeComputerStyleSummary = state
     ? showComputerStylesInGame
       ? state.players
@@ -478,12 +569,80 @@ export default function PokerApp() {
   const canStartSetupGame = multiplayerRoom
     ? multiplayerPlayableSetupCount >= 2 && multiplayerConfiguredPlayerCount <= MAX_TOTAL_PLAYERS
     : playableSetupCount >= 2;
+  const isMultiplayerHost = Boolean(multiplayerRoom && multiplayerPlayerId && multiplayerRoom.hostPlayerId === multiplayerPlayerId);
+  const canEditMultiplayerSettings = !multiplayerRoom || isMultiplayerHost;
+  const canEditActiveGameSettings = !multiplayerGameActive || isMultiplayerHost;
+  const multiplayerSettingsPayload = useMemo(
+    () => ({
+      humanStartingBalance: multiplayerHumanBalance,
+      humanSeatPlacements: resolvedMultiplayerTableSeats,
+      randomizeHumanSeats: randomizeMultiplayerHumanSeats,
+      computerPlayers: setupPlayers
+        .filter((player) => !player.isHuman)
+        .map((player) => ({
+          name: player.name,
+          startingBalance: setupBalances[player.id] ?? 0,
+          computerStyle: getComputerStyleSelection(computerStyles[player.id]).key,
+        })),
+      autoNextHand,
+      showComputerStyles: showComputerStylesInGame,
+      computerActionDelayMs,
+      nextHandDelayMs,
+    }),
+    [
+      autoNextHand,
+      computerActionDelayMs,
+      computerStyles,
+      multiplayerHumanBalance,
+      nextHandDelayMs,
+      randomizeMultiplayerHumanSeats,
+      resolvedMultiplayerTableSeats,
+      setupBalances,
+      setupPlayers,
+      showComputerStylesInGame,
+    ],
+  );
 
-  function applySetupShape(nextCpuCount, nextIncludeHuman, includeSetupHuman = nextIncludeHuman) {
+  function applyMultiplayerRoomSettings(room) {
+    const settings = room?.settings;
+    if (!settings) {
+      return;
+    }
+
+    const computerPlayers = Array.isArray(settings.computerPlayers) ? settings.computerPlayers : [];
+    const nextCpuCount = clampMultiplayerCpuCount(computerPlayers.length, room.humanSlots);
+    setMultiplayerSlots(room.humanSlots);
+    setCpuCount(nextCpuCount);
+    setSetupBalances((current) => {
+      const nextBalances = buildSetupBalances(nextCpuCount, false, current, 0);
+      computerPlayers.forEach((player, index) => {
+        nextBalances[`cpu-${index + 1}`] = Math.max(0, Number(player.startingBalance) || 0);
+      });
+      return nextBalances;
+    });
+    setComputerStyles((current) => {
+      const nextStyles = buildSetupComputerStyles(nextCpuCount, false, current, 0);
+      computerPlayers.forEach((player, index) => {
+        nextStyles[`cpu-${index + 1}`] = getComputerStyleSelection(player.computerStyle).key;
+      });
+      return nextStyles;
+    });
+    setMultiplayerHumanBalance(Math.max(0, Number(settings.humanStartingBalance) || 0));
+    setMultiplayerTableSeats(normalizeMultiplayerTableSeats(settings.humanSeatPlacements, room.humanSlots, room.humanSlots + nextCpuCount));
+    setRandomizeMultiplayerHumanSeats(Boolean(settings.randomizeHumanSeats));
+    setAutoNextHand(settings.autoNextHand !== false);
+    setShowComputerStylesInGame(settings.showComputerStyles !== false);
+    setComputerActionDelayMs(clampDelay(settings.computerActionDelayMs, MIN_COMPUTER_ACTION_DELAY_MS, MAX_COMPUTER_ACTION_DELAY_MS));
+    setNextHandDelayMs(clampDelay(settings.nextHandDelayMs, MIN_NEXT_HAND_DELAY_MS, MAX_NEXT_HAND_DELAY_MS));
+  }
+
+  function applySetupShape(nextCpuCount, nextIncludeHuman, includeSetupHuman = nextIncludeHuman, nextHumanSeatIndex = humanSeatIndex) {
+    const clampedHumanSeatIndex = clampHumanSeatIndex(nextHumanSeatIndex, nextCpuCount, includeSetupHuman);
     setCpuCount(nextCpuCount);
     setIncludeHuman(nextIncludeHuman);
-    setSetupBalances((current) => buildSetupBalances(nextCpuCount, includeSetupHuman, current));
-    setComputerStyles((current) => buildSetupComputerStyles(nextCpuCount, includeSetupHuman, current));
+    setHumanSeatIndex(clampedHumanSeatIndex);
+    setSetupBalances((current) => buildSetupBalances(nextCpuCount, includeSetupHuman, current, clampedHumanSeatIndex));
+    setComputerStyles((current) => buildSetupComputerStyles(nextCpuCount, includeSetupHuman, current, clampedHumanSeatIndex));
   }
 
   function reshapeSetup(nextCpuCount, nextIncludeHuman) {
@@ -493,10 +652,17 @@ export default function PokerApp() {
 
   function changeCpuCount(nextCpuCount) {
     if (multiplayerRoom) {
-      applySetupShape(clampMultiplayerCpuCount(nextCpuCount, multiplayerRoom.humanSlots), includeHuman, false);
+      if (!isMultiplayerHost) {
+        return;
+      }
+      applySetupShape(clampMultiplayerCpuCount(nextCpuCount, multiplayerRoom.humanSlots), includeHuman, false, humanSeatIndex);
       return;
     }
     reshapeSetup(nextCpuCount, includeHuman);
+  }
+
+  function changeHumanSeatIndex(nextHumanSeatIndex) {
+    setHumanSeatIndex(clampHumanSeatIndex(nextHumanSeatIndex, cpuCount, includeHuman));
   }
 
   useEffect(() => {
@@ -509,9 +675,9 @@ export default function PokerApp() {
     const restoredCpuCount = Number(cpuCountSelectRef.current?.value);
     const nextCpuCount = Number.isFinite(restoredCpuCount) ? clampCpuCount(restoredCpuCount, restoredIncludeHuman) : cpuCount;
     if (restoredIncludeHuman !== includeHuman || nextCpuCount !== cpuCount) {
-      reshapeSetup(nextCpuCount, restoredIncludeHuman);
+      applySetupShape(nextCpuCount, restoredIncludeHuman, restoredIncludeHuman, humanSeatIndex);
     }
-  }, [cpuCount, includeHuman, state]);
+  }, [cpuCount, humanSeatIndex, includeHuman, state]);
 
   useEffect(() => {
     if (!multiplayerRoom || state) {
@@ -520,11 +686,35 @@ export default function PokerApp() {
 
     const clampedCpuCount = clampMultiplayerCpuCount(cpuCount, multiplayerRoom.humanSlots);
     if (clampedCpuCount !== cpuCount) {
-      applySetupShape(clampedCpuCount, includeHuman, false);
+      applySetupShape(clampedCpuCount, includeHuman, false, humanSeatIndex);
     }
-  }, [cpuCount, includeHuman, multiplayerRoom, state]);
+  }, [cpuCount, humanSeatIndex, includeHuman, multiplayerRoom, state]);
+
+  useEffect(() => {
+    setMultiplayerTableSeats((current) => {
+      const nextSeats = normalizeMultiplayerTableSeats(current, multiplayerHumanSlotCount, multiplayerTableSeatCount);
+      return sameNumberList(current, nextSeats) ? current : nextSeats;
+    });
+  }, [multiplayerHumanSlotCount, multiplayerTableSeatCount]);
+
+  useEffect(() => {
+    if (!multiplayerRoom || multiplayerGameActive || !isMultiplayerHost) {
+      return;
+    }
+
+    const serializedSettings = JSON.stringify(multiplayerSettingsPayload);
+    if (lastSentRoomSettingsRef.current === serializedSettings) {
+      return;
+    }
+
+    lastSentRoomSettingsRef.current = serializedSettings;
+    sendMultiplayerMessage({ type: "updateRoomSettings", settings: multiplayerSettingsPayload });
+  }, [isMultiplayerHost, multiplayerGameActive, multiplayerRoom, multiplayerSettingsPayload]);
 
   function updateSetupBalance(playerId, value) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
     const numericValue = Math.max(0, Number(value) || 0);
     setSetupBalances((current) => ({
       ...current,
@@ -533,10 +723,34 @@ export default function PokerApp() {
   }
 
   function updateMultiplayerHumanBalance(value) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
     setMultiplayerHumanBalance(Math.max(0, Number(value) || 0));
   }
 
+  function updateMultiplayerSlots(value) {
+    if (multiplayerRoom) {
+      return;
+    }
+    const nextSlots = clampHumanSlots(value);
+    setMultiplayerSlots(nextSlots);
+    setMultiplayerTableSeats((current) => normalizeMultiplayerTableSeats(current, nextSlots, nextSlots + cpuCount));
+  }
+
+  function updateMultiplayerTableSeat(slotIndex, value) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
+    setMultiplayerTableSeats((current) =>
+      moveMultiplayerTableSeat(current, slotIndex, value, multiplayerHumanSlotCount, multiplayerTableSeatCount),
+    );
+  }
+
   function updateComputerStyle(playerId, styleKey) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
     setComputerStyles((current) => ({
       ...current,
       [playerId]: getComputerStyleSelection(styleKey).key,
@@ -545,13 +759,19 @@ export default function PokerApp() {
 
   function changeIncludeHuman(nextIncludeHuman) {
     if (multiplayerRoom) {
-      applySetupShape(clampMultiplayerCpuCount(cpuCount, multiplayerRoom.humanSlots), nextIncludeHuman, false);
+      if (!isMultiplayerHost) {
+        return;
+      }
+      applySetupShape(clampMultiplayerCpuCount(cpuCount, multiplayerRoom.humanSlots), nextIncludeHuman, false, humanSeatIndex);
       return;
     }
     reshapeSetup(cpuCount, nextIncludeHuman);
   }
 
   function updateAutoNextHand(enabled) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
     setAutoNextHand(enabled);
     if (multiplayerGameActive) {
       sendMultiplayerMessage({ type: "updateGameOptions", autoNextHand: enabled });
@@ -559,6 +779,9 @@ export default function PokerApp() {
   }
 
   function updateShowComputerStylesInGame(enabled) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
     setShowComputerStylesInGame(enabled);
     if (multiplayerGameActive) {
       sendMultiplayerMessage({ type: "updateGameOptions", showComputerStyles: enabled });
@@ -566,6 +789,9 @@ export default function PokerApp() {
   }
 
   function updateComputerActionDelay(value) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
     const nextValue = clampDelay(value, MIN_COMPUTER_ACTION_DELAY_MS, MAX_COMPUTER_ACTION_DELAY_MS);
     setComputerActionDelayMs(nextValue);
     if (multiplayerGameActive) {
@@ -574,6 +800,9 @@ export default function PokerApp() {
   }
 
   function updateNextHandDelay(value) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
     const nextValue = clampDelay(value, MIN_NEXT_HAND_DELAY_MS, MAX_NEXT_HAND_DELAY_MS);
     setNextHandDelayMs(nextValue);
     if (multiplayerGameActive) {
@@ -595,6 +824,7 @@ export default function PokerApp() {
       type: "createRoom",
       playerName: multiplayerName,
       humanSlots: multiplayerSlots,
+      settings: multiplayerSettingsPayload,
     });
   }
 
@@ -619,21 +849,13 @@ export default function PokerApp() {
 
   function startGame() {
     if (multiplayerRoom) {
+      if (!isMultiplayerHost) {
+        setMultiplayerError("방장만 게임을 시작할 수 있습니다.");
+        return;
+      }
       sendMultiplayerMessage({
         type: "startGame",
-        humanStartingBalance: multiplayerHumanBalance,
-        computerPlayers: setupPlayers
-          .filter((player) => !player.isHuman)
-          .map((player) => ({
-            id: player.id,
-            name: player.name,
-            startingBalance: setupBalances[player.id] ?? 0,
-            computerStyle: getComputerStyleSelection(computerStyles[player.id]).key,
-          })),
-        autoNextHand,
-        showComputerStyles: showComputerStylesInGame,
-        computerActionDelayMs,
-        nextHandDelayMs,
+        ...multiplayerSettingsPayload,
       });
       return;
     }
@@ -660,6 +882,7 @@ export default function PokerApp() {
       feeTotal: 0,
       handNumber: 1,
       computerStyles: initialComputerStyles,
+      playerConfigs: setupPlayers.map((player) => ({ id: player.id, name: player.name, isHuman: player.isHuman })),
     });
     setDealerIndex(nextState.dealerIndex);
     setChipTotals(nextState.chipTotals ?? initialChipTotals);
@@ -681,6 +904,10 @@ export default function PokerApp() {
 
   function nextHand() {
     if (multiplayerGameActive) {
+      if (!isMultiplayerHost) {
+        setMultiplayerError("방장만 다음 핸드를 시작할 수 있습니다.");
+        return;
+      }
       if (!state?.finished || state.gameOver) {
         return;
       }
@@ -701,6 +928,7 @@ export default function PokerApp() {
       handNumber: (state?.handNumber ?? 0) + 1,
       computerStyles: state?.computerStyles ?? computerStyles,
       playerStats: state?.playerStats ?? {},
+      playerConfigs: state?.playerConfigs,
     });
     setDealerIndex(nextState.dealerIndex);
     setChipTotals(nextState.chipTotals ?? {});
@@ -796,7 +1024,12 @@ export default function PokerApp() {
           <div className="setup-controls">
             <label>
               컴퓨터 플레이어 수
-              <select ref={cpuCountSelectRef} value={cpuCount} onChange={(event) => changeCpuCount(Number(event.target.value))}>
+              <select
+                ref={cpuCountSelectRef}
+                value={cpuCount}
+                onChange={(event) => changeCpuCount(Number(event.target.value))}
+                disabled={!canEditMultiplayerSettings}
+              >
                 {effectiveCpuCountOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}명
@@ -810,11 +1043,29 @@ export default function PokerApp() {
                 type="checkbox"
                 checked={includeHuman}
                 onChange={(event) => changeIncludeHuman(event.target.checked)}
+                disabled={Boolean(multiplayerRoom)}
               />
               사람 플레이어 포함
             </label>
+            {!multiplayerRoom && includeHuman ? (
+              <label>
+                사람 플레이어 자리
+                <select value={resolvedHumanSeatIndex} onChange={(event) => changeHumanSeatIndex(Number(event.target.value))}>
+                  {humanSeatOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option + 1}번 자리
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <label className="toggle-input">
-              <input type="checkbox" checked={autoNextHand} onChange={(event) => updateAutoNextHand(event.target.checked)} />
+              <input
+                type="checkbox"
+                checked={autoNextHand}
+                onChange={(event) => updateAutoNextHand(event.target.checked)}
+                disabled={!canEditMultiplayerSettings}
+              />
               다음 핸드 자동 진행
             </label>
             <label className="toggle-input">
@@ -822,6 +1073,7 @@ export default function PokerApp() {
                 type="checkbox"
                 checked={showComputerStylesInGame}
                 onChange={(event) => updateShowComputerStylesInGame(event.target.checked)}
+                disabled={!canEditMultiplayerSettings}
               />
               인게임 컴퓨터 성향 표시
             </label>
@@ -834,6 +1086,7 @@ export default function PokerApp() {
                 type="number"
                 value={computerActionDelayMs}
                 onChange={(event) => updateComputerActionDelay(event.target.value)}
+                disabled={!canEditMultiplayerSettings}
               />
             </label>
             <label className="delay-input">
@@ -845,6 +1098,7 @@ export default function PokerApp() {
                 type="number"
                 value={nextHandDelayMs}
                 onChange={(event) => updateNextHandDelay(event.target.value)}
+                disabled={!canEditMultiplayerSettings}
               />
             </label>
           </div>
@@ -870,8 +1124,9 @@ export default function PokerApp() {
                   max={MAX_MULTIPLAYER_HUMAN_SLOTS}
                   step="1"
                   type="number"
-                  value={multiplayerSlots}
-                  onChange={(event) => setMultiplayerSlots(clampHumanSlots(event.target.value))}
+                  value={multiplayerRoom?.humanSlots ?? multiplayerSlots}
+                  onChange={(event) => updateMultiplayerSlots(event.target.value)}
+                  disabled={Boolean(multiplayerRoom)}
                 />
               </label>
               <label>
@@ -882,6 +1137,7 @@ export default function PokerApp() {
                   type="number"
                   value={multiplayerHumanBalance}
                   onChange={(event) => updateMultiplayerHumanBalance(event.target.value)}
+                  disabled={!canEditMultiplayerSettings}
                 />
               </label>
               <label>
@@ -891,6 +1147,7 @@ export default function PokerApp() {
                   type="text"
                   value={multiplayerJoinCode}
                   onChange={(event) => setMultiplayerJoinCode(event.target.value.toUpperCase())}
+                  disabled={Boolean(multiplayerRoom)}
                 />
               </label>
             </div>
@@ -919,6 +1176,41 @@ export default function PokerApp() {
                     </div>
                   ))}
                 </div>
+                <div className="room-table-seats">
+                  <strong>게임 자리 배치</strong>
+                  <label className="toggle-input seat-random-toggle">
+                    <input
+                      type="checkbox"
+                      checked={randomizeMultiplayerHumanSeats}
+                      onChange={(event) => setRandomizeMultiplayerHumanSeats(event.target.checked)}
+                      disabled={!canEditMultiplayerSettings}
+                    />
+                    사람 자리 랜덤 배치
+                  </label>
+                  <div className="seat-placement-grid">
+                    {multiplayerRoom.seats.map((seat, index) => (
+                      <label key={seat.id}>
+                        {seat.label}
+                        <select
+                          value={resolvedMultiplayerTableSeats[index] ?? 0}
+                          onChange={(event) => updateMultiplayerTableSeat(index, event.target.value)}
+                          disabled={randomizeMultiplayerHumanSeats || !canEditMultiplayerSettings}
+                        >
+                          {multiplayerTableSeatOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {option + 1}번 자리
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="note">
+                    {randomizeMultiplayerHumanSeats
+                      ? "게임 시작 시 모든 사람 슬롯의 자리를 서버에서 랜덤으로 확정합니다."
+                      : "컴퓨터 플레이어는 사람이 지정되지 않은 남은 자리에 순서대로 배치됩니다."}
+                  </p>
+                </div>
               </div>
             ) : null}
           </section>
@@ -933,6 +1225,7 @@ export default function PokerApp() {
                     type="number"
                     value={setupBalances[player.id] ?? 0}
                     onChange={(event) => updateSetupBalance(player.id, event.target.value)}
+                    disabled={!canEditMultiplayerSettings}
                   />
                 </label>
                 {player.isHuman ? (
@@ -943,6 +1236,7 @@ export default function PokerApp() {
                     <select
                       value={getComputerStyleSelection(computerStyles[player.id]).key}
                       onChange={(event) => updateComputerStyle(player.id, event.target.value)}
+                      disabled={!canEditMultiplayerSettings}
                     >
                       {COMPUTER_STYLE_OPTIONS.map((style) => (
                         <option key={style.key} value={style.key}>
@@ -959,10 +1253,11 @@ export default function PokerApp() {
           {multiplayerRoom ? (
             <p className="note">
               멀티플레이에서는 빈 사람 슬롯 {multiplayerRoom.humanSlots}명과 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.
+              {isMultiplayerHost ? " 방장만 게임 설정을 변경할 수 있습니다." : " 현재 설정은 방장이 정한 값으로 동기화됩니다."}
             </p>
           ) : null}
           <div className="setup-actions">
-            <button onClick={startGame} disabled={!canStartSetupGame}>
+            <button onClick={startGame} disabled={!canStartSetupGame || (multiplayerRoom && !isMultiplayerHost)}>
               {multiplayerRoom ? "룸 게임 시작" : "게임 시작"}
             </button>
             {!canStartSetupGame ? <p className="note">진행 가능한 플레이어가 2명 이상 필요합니다.</p> : null}
@@ -1016,11 +1311,16 @@ export default function PokerApp() {
           <p className="note">컴퓨터 성향: {activeComputerStyleSummary || "없음"}</p>
         </div>
         <div className="hero-controls">
-          <button className="secondary" onClick={nextHand} disabled={!state.finished || state.gameOver}>
+          <button className="secondary" onClick={nextHand} disabled={!state.finished || state.gameOver || (multiplayerGameActive && !isMultiplayerHost)}>
             다음 핸드
           </button>
           <label className="toggle-input">
-            <input type="checkbox" checked={autoNextHand} onChange={(event) => updateAutoNextHand(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={autoNextHand}
+              onChange={(event) => updateAutoNextHand(event.target.checked)}
+              disabled={!canEditActiveGameSettings}
+            />
             다음 핸드 자동 진행
           </label>
           <label className="toggle-input">
@@ -1028,6 +1328,7 @@ export default function PokerApp() {
               type="checkbox"
               checked={showComputerStylesInGame}
               onChange={(event) => updateShowComputerStylesInGame(event.target.checked)}
+              disabled={!canEditActiveGameSettings}
             />
             인게임 컴퓨터 성향 표시
           </label>
@@ -1040,6 +1341,7 @@ export default function PokerApp() {
               type="number"
               value={computerActionDelayMs}
               onChange={(event) => updateComputerActionDelay(event.target.value)}
+              disabled={!canEditActiveGameSettings}
             />
           </label>
           <label>
@@ -1051,6 +1353,7 @@ export default function PokerApp() {
               type="number"
               value={nextHandDelayMs}
               onChange={(event) => updateNextHandDelay(event.target.value)}
+              disabled={!canEditActiveGameSettings}
             />
           </label>
           <button onClick={openSetup}>새 게임 설정</button>

@@ -468,6 +468,35 @@ td {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
+.room-table-seats {
+  display: grid;
+  gap: 10px;
+}
+
+.seat-placement-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.seat-placement-grid label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.seat-placement-grid select {
+  min-height: 46px;
+  width: 100%;
+}
+
+.seat-random-toggle {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-height: 34px;
+}
+
 .room-slot {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(216, 162, 61, 0.14);

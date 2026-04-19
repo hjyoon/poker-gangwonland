@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import http from "node:http";
 import next from "next";
-import { applyAction, chooseComputerAction, resolveComputerStyleKey, startNewHand } from "./lib/poker.js";
+import { COMPUTER_STYLE_OPTIONS, applyAction, chooseComputerAction, resolveComputerStyleKey, startNewHand } from "./lib/poker.js";
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "0.0.0.0";
@@ -24,6 +24,7 @@ const EMPTY_ROOM_TTL_MS = 5 * 60 * 1000;
 
 const rooms = new Map();
 const sockets = new Set();
+const COMPUTER_STYLE_KEYS = new Set(COMPUTER_STYLE_OPTIONS.map((style) => style.key));
 
 function roomId() {
   return crypto.randomBytes(3).toString("hex").toUpperCase();
@@ -34,9 +35,92 @@ function clamp(value, min, max, fallback) {
   return Math.min(Math.max(min, Number.isFinite(numericValue) ? numericValue : fallback), max);
 }
 
+function clampSeatIndex(value, seatCount) {
+  return clamp(value, 0, Math.max(0, seatCount - 1), 0);
+}
+
+function tableSeatOptions(seatCount) {
+  return Array.from({ length: seatCount }, (_, index) => index);
+}
+
+function shuffledTableSeats(seatCount) {
+  const seats = tableSeatOptions(seatCount);
+  for (let index = seats.length - 1; index > 0; index -= 1) {
+    const swapIndex = crypto.randomInt(index + 1);
+    [seats[index], seats[swapIndex]] = [seats[swapIndex], seats[index]];
+  }
+  return seats;
+}
+
+function defaultHumanTableSeats(humanSlots, totalSeatCount) {
+  const slotCount = clamp(humanSlots, MIN_HUMAN_SLOTS, MAX_HUMAN_SLOTS, MIN_HUMAN_SLOTS);
+  const seatCount = clamp(totalSeatCount, slotCount, MAX_TOTAL_PLAYERS, slotCount);
+  if (slotCount === 1) {
+    return [0];
+  }
+  return Array.from({ length: slotCount }, (_, index) => Math.round((index * (seatCount - 1)) / (slotCount - 1)));
+}
+
+function normalizeHumanTableSeats(tableSeats, humanSlots, totalSeatCount) {
+  const slotCount = clamp(humanSlots, MIN_HUMAN_SLOTS, MAX_HUMAN_SLOTS, MIN_HUMAN_SLOTS);
+  const seatCount = clamp(totalSeatCount, slotCount, MAX_TOTAL_PLAYERS, slotCount);
+  const defaults = defaultHumanTableSeats(slotCount, seatCount);
+  const values = Array.isArray(tableSeats) ? tableSeats : [];
+  const usedSeats = new Set();
+
+  return Array.from({ length: slotCount }, (_, index) => {
+    let seatIndex = clampSeatIndex(values[index] ?? defaults[index], seatCount);
+    if (usedSeats.has(seatIndex)) {
+      seatIndex = defaults.find((candidate) => !usedSeats.has(candidate)) ?? tableSeatOptions(seatCount).find((candidate) => !usedSeats.has(candidate)) ?? 0;
+    }
+    usedSeats.add(seatIndex);
+    return seatIndex;
+  });
+}
+
 function sanitizeName(value, fallback = "참가자") {
   const trimmed = String(value || "").trim();
   return (trimmed || fallback).slice(0, 20);
+}
+
+function sanitizeComputerStyleKey(value) {
+  return COMPUTER_STYLE_KEYS.has(value) ? value : "balanced";
+}
+
+function defaultComputerSettings(humanSlots) {
+  const count = Math.min(3, Math.max(0, MAX_TOTAL_PLAYERS - humanSlots));
+  return Array.from({ length: count }, (_, index) => ({
+    name: `컴퓨터 ${index + 1}`,
+    startingBalance: DEFAULT_STARTING_BALANCE,
+    computerStyle: "balanced",
+  }));
+}
+
+function normalizeRoomSettings(room, settings = {}) {
+  const maxComputerPlayers = Math.max(0, MAX_TOTAL_PLAYERS - room.humanSlots);
+  const sourceComputerPlayers = Array.isArray(settings.computerPlayers) ? settings.computerPlayers : defaultComputerSettings(room.humanSlots);
+  const computerPlayers = sourceComputerPlayers.slice(0, maxComputerPlayers).map((player, index) => ({
+    name: sanitizeName(player.name, `컴퓨터 ${index + 1}`),
+    startingBalance: Math.max(0, Number(player.startingBalance) || DEFAULT_STARTING_BALANCE),
+    computerStyle: sanitizeComputerStyleKey(player.computerStyle),
+  }));
+  const totalSeatCount = room.humanSlots + computerPlayers.length;
+
+  return {
+    humanStartingBalance: Math.max(0, Number(settings.humanStartingBalance) || DEFAULT_STARTING_BALANCE),
+    humanSeatPlacements: normalizeHumanTableSeats(settings.humanSeatPlacements, room.humanSlots, totalSeatCount),
+    randomizeHumanSeats: Boolean(settings.randomizeHumanSeats),
+    computerPlayers,
+    autoNextHand: settings.autoNextHand !== false,
+    showComputerStyles: settings.showComputerStyles !== false,
+    computerActionDelayMs: clamp(
+      settings.computerActionDelayMs,
+      MIN_COMPUTER_ACTION_DELAY_MS,
+      MAX_COMPUTER_ACTION_DELAY_MS,
+      DEFAULT_COMPUTER_ACTION_DELAY_MS,
+    ),
+    nextHandDelayMs: clamp(settings.nextHandDelayMs, MIN_NEXT_HAND_DELAY_MS, MAX_NEXT_HAND_DELAY_MS, DEFAULT_NEXT_HAND_DELAY_MS),
+  };
 }
 
 function publicGameState(state, playerId, showComputerStyles = true) {
@@ -60,15 +144,32 @@ function publicGameState(state, playerId, showComputerStyles = true) {
   };
 }
 
+function publicRoomSettings(room) {
+  const settings = room.settings ?? normalizeRoomSettings(room);
+  if (!room.game) {
+    return settings;
+  }
+
+  return {
+    ...settings,
+    autoNextHand: room.game.autoNextHand,
+    showComputerStyles: room.game.showComputerStyles,
+    computerActionDelayMs: room.game.computerActionDelayMs,
+    nextHandDelayMs: room.game.nextHandDelayMs,
+  };
+}
+
 function publicRoom(room, socket) {
+  const settings = publicRoomSettings(room);
   return {
     id: room.id,
     humanSlots: room.humanSlots,
     hostPlayerId: room.hostPlayerId,
     seats: room.seats.map((seat) => ({ ...seat })),
     createdAt: room.createdAt,
-    showComputerStyles: room.game?.showComputerStyles ?? true,
-    gameState: publicGameState(room.game?.state, socket?.playerId, room.game?.showComputerStyles ?? true),
+    settings,
+    showComputerStyles: settings.showComputerStyles,
+    gameState: publicGameState(room.game?.state, socket?.playerId, settings.showComputerStyles),
   };
 }
 
@@ -104,6 +205,10 @@ function broadcastRoom(room) {
   for (const socket of room.clients) {
     send(socket, { type: "roomState", room: publicRoom(room, socket) });
   }
+}
+
+function isRoomHost(room, socket) {
+  return Boolean(room && socket?.playerId && room.hostPlayerId === socket.playerId);
 }
 
 function clearRoomTimers(room) {
@@ -187,10 +292,12 @@ function createRoom(socket, payload) {
     })),
     clients: new Set([socket]),
     createdAt: Date.now(),
+    settings: null,
     game: null,
     cleanupTimer: null,
     automationTimer: null,
   };
+  room.settings = normalizeRoomSettings(room, payload.settings);
 
   socket.roomId = room.id;
   socket.playerId = playerId;
@@ -242,35 +349,57 @@ function joinRoom(socket, targetRoomId, playerName, requestedPlayerId = null) {
 }
 
 function buildRoomGame(room, payload) {
-  const humanStartingBalance = Math.max(0, Number(payload.humanStartingBalance) || DEFAULT_STARTING_BALANCE);
+  const settings = normalizeRoomSettings(room, payload);
+  const humanStartingBalance = settings.humanStartingBalance;
+  const computerPlayers = settings.computerPlayers.map((player, index) => ({
+    id: `cpu-${index + 1}`,
+    name: sanitizeName(player.name, `컴퓨터 ${index + 1}`),
+    isHuman: false,
+    startingBalance: Math.max(0, Number(player.startingBalance) || DEFAULT_STARTING_BALANCE),
+    computerStyle: resolveComputerStyleKey(player.computerStyle),
+  }));
+  if (room.humanSlots + computerPlayers.length > MAX_TOTAL_PLAYERS) {
+    throw new Error(`사람 슬롯과 컴퓨터 플레이어를 합쳐 최대 ${MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.`);
+  }
+  const totalSeatCount = room.humanSlots + computerPlayers.length;
+  const humanTableSeats = settings.randomizeHumanSeats
+    ? shuffledTableSeats(totalSeatCount).slice(0, room.humanSlots)
+    : settings.humanSeatPlacements;
   const connectedHumans = room.seats
-    .filter((seat) => seat.playerId && seat.connected)
     .map((seat, index) => ({
       id: seat.playerId,
       name: seat.name || `플레이어 ${index + 1}`,
       isHuman: true,
       startingBalance: humanStartingBalance,
-    }));
-  const computerPlayers = Array.isArray(payload.computerPlayers)
-    ? payload.computerPlayers.slice(0, MAX_TOTAL_PLAYERS + 1).map((player, index) => ({
-        id: `cpu-${index + 1}`,
-        name: sanitizeName(player.name, `컴퓨터 ${index + 1}`),
-        isHuman: false,
-        startingBalance: Math.max(0, Number(player.startingBalance) || DEFAULT_STARTING_BALANCE),
-        computerStyle: resolveComputerStyleKey(player.computerStyle),
-      }))
-    : [];
-  if (room.humanSlots + computerPlayers.length > MAX_TOTAL_PLAYERS) {
-    throw new Error(`사람 슬롯과 컴퓨터 플레이어를 합쳐 최대 ${MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.`);
+      tableSeatIndex: humanTableSeats[index],
+      connected: seat.connected,
+    }))
+    .filter((seat) => seat.id && seat.connected);
+  const computersByOrder = [...computerPlayers];
+  const playersByTableSeat = [];
+
+  for (const seatIndex of tableSeatOptions(totalSeatCount)) {
+    const human = connectedHumans.find((player) => player.tableSeatIndex === seatIndex);
+    if (human) {
+      playersByTableSeat.push(human);
+      continue;
+    }
+
+    const computer = computersByOrder.shift();
+    if (computer) {
+      playersByTableSeat.push(computer);
+    }
   }
-  const playerConfigs = [...connectedHumans, ...computerPlayers].map(({ id, name, isHuman }) => ({ id, name, isHuman }));
+
+  const orderedPlayers = [...playersByTableSeat, ...computersByOrder];
+  const playerConfigs = orderedPlayers.map(({ id, name, isHuman }) => ({ id, name, isHuman }));
 
   if (playerConfigs.length < 2) {
     throw new Error("게임 시작에는 연결된 사람 또는 컴퓨터가 2명 이상 필요합니다.");
   }
 
   const chipTotals = Object.fromEntries(
-    [...connectedHumans, ...computerPlayers].map((player) => [
+    orderedPlayers.map((player) => [
       player.id,
       {
         chipBalance: player.startingBalance,
@@ -295,15 +424,10 @@ function buildRoomGame(room, payload) {
     cpuCount: computerPlayers.length,
     computerStyles,
     state,
-    autoNextHand: Boolean(payload.autoNextHand),
-    showComputerStyles: payload.showComputerStyles !== false,
-    computerActionDelayMs: clamp(
-      payload.computerActionDelayMs,
-      MIN_COMPUTER_ACTION_DELAY_MS,
-      MAX_COMPUTER_ACTION_DELAY_MS,
-      DEFAULT_COMPUTER_ACTION_DELAY_MS,
-    ),
-    nextHandDelayMs: clamp(payload.nextHandDelayMs, MIN_NEXT_HAND_DELAY_MS, MAX_NEXT_HAND_DELAY_MS, DEFAULT_NEXT_HAND_DELAY_MS),
+    autoNextHand: settings.autoNextHand,
+    showComputerStyles: settings.showComputerStyles,
+    computerActionDelayMs: settings.computerActionDelayMs,
+    nextHandDelayMs: settings.nextHandDelayMs,
   };
 }
 
@@ -313,9 +437,14 @@ function startRoomGame(socket, payload) {
     sendError(socket, "먼저 멀티플레이 룸에 참가해야 합니다.");
     return;
   }
+  if (!isRoomHost(room, socket)) {
+    sendError(socket, "방장만 게임 설정과 시작을 할 수 있습니다.");
+    return;
+  }
 
   try {
-    room.game = buildRoomGame(room, payload);
+    room.settings = normalizeRoomSettings(room, { ...room.settings, ...payload });
+    room.game = buildRoomGame(room, room.settings);
     broadcastRoom(room);
     scheduleRoomAutomation(room);
   } catch (error) {
@@ -415,6 +544,10 @@ function handleRequestNextHand(socket) {
     sendError(socket, "진행 중인 멀티플레이 게임이 없습니다.");
     return;
   }
+  if (!isRoomHost(room, socket)) {
+    sendError(socket, "방장만 다음 핸드를 시작할 수 있습니다.");
+    return;
+  }
   if (!room.game.state.finished || room.game.state.gameOver) {
     sendError(socket, "다음 핸드를 시작할 수 있는 상태가 아닙니다.");
     return;
@@ -422,10 +555,33 @@ function handleRequestNextHand(socket) {
   startNextRoomHand(room);
 }
 
+function handleUpdateRoomSettings(socket, payload) {
+  const room = rooms.get(socket.roomId);
+  if (!room) {
+    sendError(socket, "먼저 멀티플레이 룸에 참가해야 합니다.");
+    return;
+  }
+  if (!isRoomHost(room, socket)) {
+    sendError(socket, "방장만 게임 설정을 변경할 수 있습니다.");
+    return;
+  }
+  if (room.game) {
+    sendError(socket, "진행 중인 게임의 시작 설정은 변경할 수 없습니다.");
+    return;
+  }
+
+  room.settings = normalizeRoomSettings(room, { ...room.settings, ...(payload.settings ?? payload) });
+  broadcastRoom(room);
+}
+
 function handleUpdateGameOptions(socket, payload) {
   const room = rooms.get(socket.roomId);
   if (!room?.game) {
     sendError(socket, "진행 중인 멀티플레이 게임이 없습니다.");
+    return;
+  }
+  if (!isRoomHost(room, socket)) {
+    sendError(socket, "방장만 게임 설정을 변경할 수 있습니다.");
     return;
   }
 
@@ -445,8 +601,15 @@ function handleUpdateGameOptions(socket, payload) {
   }
   if (Object.hasOwn(payload, "showComputerStyles")) {
     room.game.showComputerStyles = Boolean(payload.showComputerStyles);
-    broadcastRoom(room);
   }
+  room.settings = normalizeRoomSettings(room, {
+    ...room.settings,
+    autoNextHand: room.game.autoNextHand,
+    showComputerStyles: room.game.showComputerStyles,
+    computerActionDelayMs: room.game.computerActionDelayMs,
+    nextHandDelayMs: room.game.nextHandDelayMs,
+  });
+  broadcastRoom(room);
   scheduleRoomAutomation(room);
 }
 
@@ -470,6 +633,10 @@ function handleMessage(socket, message) {
   }
   if (message.type === "startGame") {
     startRoomGame(socket, message);
+    return;
+  }
+  if (message.type === "updateRoomSettings") {
+    handleUpdateRoomSettings(socket, message);
     return;
   }
   if (message.type === "gameAction") {
