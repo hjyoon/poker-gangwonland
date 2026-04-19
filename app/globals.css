@@ -391,7 +391,8 @@ td {
 }
 
 .setup-controls label,
-.balance-input {
+.balance-input,
+.style-input {
   display: grid;
   gap: 8px;
   color: var(--muted);
@@ -399,11 +400,25 @@ td {
 
 .balance-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 14px;
 }
 
-.balance-input input {
+.setup-player-config {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(216, 162, 61, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.setup-player-config .note {
+  margin: 0;
+}
+
+.balance-input input,
+.style-input select {
   min-height: 46px;
   width: 100%;
   border-radius: 14px;

@@ -38,10 +38,11 @@ const TERM_ROWS = [
 
 function buildSetupPlayers(cpuCount) {
   return [
-    { id: "human", name: "플레이어" },
+    { id: "human", name: "플레이어", isHuman: true },
     ...Array.from({ length: cpuCount }, (_, index) => ({
       id: `cpu-${index + 1}`,
       name: `컴퓨터 ${index + 1}`,
+      isHuman: false,
     })),
   ];
 }
@@ -49,6 +50,14 @@ function buildSetupPlayers(cpuCount) {
 function buildSetupBalances(cpuCount, previous = {}) {
   return Object.fromEntries(
     buildSetupPlayers(cpuCount).map((player) => [player.id, previous[player.id] ?? DEFAULT_STARTING_BALANCE]),
+  );
+}
+
+function buildSetupComputerStyles(cpuCount, previous = {}) {
+  return Object.fromEntries(
+    buildSetupPlayers(cpuCount)
+      .filter((player) => !player.isHuman)
+      .map((player) => [player.id, getComputerStyleOption(previous[player.id]).key]),
   );
 }
 
@@ -66,7 +75,7 @@ function cardSuitClass(card) {
 function Seat({ player, isTurn, revealCards, winner }) {
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
-  const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "사람" : "컴퓨터";
+  const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "사람" : `컴퓨터 · ${getComputerStyleOption(player.computerStyle).label}`;
 
   return (
     <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
@@ -204,7 +213,7 @@ function RulesPanel() {
 
 export default function PokerApp() {
   const [cpuCount, setCpuCount] = useState(3);
-  const [computerStyle, setComputerStyle] = useState(COMPUTER_STYLES[0].key);
+  const [computerStyles, setComputerStyles] = useState(() => buildSetupComputerStyles(3));
   const [setupBalances, setSetupBalances] = useState(() => buildSetupBalances(3));
   const [dealerIndex, setDealerIndex] = useState(0);
   const [chipTotals, setChipTotals] = useState({});
@@ -237,13 +246,18 @@ export default function PokerApp() {
     [state],
   );
   const setupPlayers = useMemo(() => buildSetupPlayers(cpuCount), [cpuCount]);
-  const selectedComputerStyle = useMemo(() => getComputerStyleOption(computerStyle), [computerStyle]);
-  const activeComputerStyle = state ? getComputerStyleOption(state.computerStyle) : selectedComputerStyle;
+  const activeComputerStyleSummary = state
+    ? state.players
+        .filter((player) => !player.isHuman)
+        .map((player) => `${player.name} ${getComputerStyleOption(player.computerStyle).label}`)
+        .join(" / ")
+    : "";
   const playableSetupCount = setupPlayers.filter((player) => (setupBalances[player.id] ?? 0) >= MIN_PLAYABLE_BALANCE).length;
 
   function changeCpuCount(nextCpuCount) {
     setCpuCount(nextCpuCount);
     setSetupBalances((current) => buildSetupBalances(nextCpuCount, current));
+    setComputerStyles((current) => buildSetupComputerStyles(nextCpuCount, current));
   }
 
   function updateSetupBalance(playerId, value) {
@@ -254,7 +268,19 @@ export default function PokerApp() {
     }));
   }
 
+  function updateComputerStyle(playerId, styleKey) {
+    setComputerStyles((current) => ({
+      ...current,
+      [playerId]: getComputerStyleOption(styleKey).key,
+    }));
+  }
+
   function startGame() {
+    const initialComputerStyles = Object.fromEntries(
+      setupPlayers
+        .filter((player) => !player.isHuman)
+        .map((player) => [player.id, getComputerStyleOption(computerStyles[player.id]).key]),
+    );
     const initialChipTotals = Object.fromEntries(
       setupPlayers.map((player) => [
         player.id,
@@ -270,8 +296,9 @@ export default function PokerApp() {
       chipTotals: initialChipTotals,
       feeTotal: 0,
       handNumber: 1,
-      computerStyle,
+      computerStyles: initialComputerStyles,
     });
+    setComputerStyles(initialComputerStyles);
     setDealerIndex(nextState.dealerIndex);
     setChipTotals(nextState.chipTotals ?? initialChipTotals);
     setHandHistory([]);
@@ -298,7 +325,7 @@ export default function PokerApp() {
       chipTotals: state?.chipTotals ?? chipTotals,
       feeTotal: state?.feeTotal ?? 0,
       handNumber: (state?.handNumber ?? 0) + 1,
-      computerStyle: state?.computerStyle ?? computerStyle,
+      computerStyles: state?.computerStyles ?? computerStyles,
     });
     setDealerIndex(nextState.dealerIndex);
     setChipTotals(nextState.chipTotals ?? {});
@@ -382,32 +409,41 @@ export default function PokerApp() {
                 ))}
               </select>
             </label>
-            <label>
-              컴퓨터 플레이 성향
-              <select value={computerStyle} onChange={(event) => setComputerStyle(event.target.value)}>
-                {COMPUTER_STYLES.map((style) => (
-                  <option key={style.key} value={style.key}>
-                    {style.label}
-                  </option>
-                ))}
-              </select>
-            </label>
           </div>
-          <p className="note">현재 선택: {selectedComputerStyle.label}. {selectedComputerStyle.description} 이 설정은 전략 조언이 아닌 앱 자동 진행 기준입니다.</p>
           <div className="balance-grid">
             {setupPlayers.map((player) => (
-              <label className="balance-input" key={player.id}>
-                <span>{player.name}</span>
-                <input
-                  min="0"
-                  step="1000"
-                  type="number"
-                  value={setupBalances[player.id] ?? 0}
-                  onChange={(event) => updateSetupBalance(player.id, event.target.value)}
-                />
-              </label>
+              <div className="setup-player-config" key={player.id}>
+                <label className="balance-input">
+                  <span>{player.name}</span>
+                  <input
+                    min="0"
+                    step="1000"
+                    type="number"
+                    value={setupBalances[player.id] ?? 0}
+                    onChange={(event) => updateSetupBalance(player.id, event.target.value)}
+                  />
+                </label>
+                {player.isHuman ? (
+                  <p className="note">사람 플레이어는 직접 행동을 선택합니다.</p>
+                ) : (
+                  <label className="style-input">
+                    컴퓨터 플레이 성향
+                    <select
+                      value={computerStyles[player.id] ?? COMPUTER_STYLES[0].key}
+                      onChange={(event) => updateComputerStyle(player.id, event.target.value)}
+                    >
+                      {COMPUTER_STYLES.map((style) => (
+                        <option key={style.key} value={style.key}>
+                          {style.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
             ))}
           </div>
+          <p className="note">컴퓨터별 성향은 전략 조언이 아닌 앱 자동 진행 기준입니다.</p>
           <div className="setup-actions">
             <button onClick={startGame} disabled={playableSetupCount < 2}>
               게임 시작
@@ -444,7 +480,7 @@ export default function PokerApp() {
           <p>
             강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 상대 수와 컴퓨터 성향 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
           </p>
-          <p className="note">컴퓨터 성향: {activeComputerStyle.label}</p>
+          <p className="note">컴퓨터 성향: {activeComputerStyleSummary || "없음"}</p>
         </div>
         <div className="hero-controls">
           <button className="secondary" onClick={nextHand} disabled={!state.finished || state.gameOver}>
