@@ -397,6 +397,7 @@ export default function PokerApp() {
       feeTotal: state?.feeTotal ?? 0,
       handNumber: (state?.handNumber ?? 0) + 1,
       computerStyles: state?.computerStyles ?? computerStyles,
+      playerStats: state?.playerStats ?? {},
     });
     setDealerIndex(nextState.dealerIndex);
     setChipTotals(nextState.chipTotals ?? {});
