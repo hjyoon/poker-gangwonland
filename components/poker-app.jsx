@@ -133,10 +133,12 @@ function cardSuitClass(card) {
   return card.suit === "H" || card.suit === "D" ? " is-red" : " is-black";
 }
 
-function Seat({ player, isTurn, revealCards, showPrivateCards, winner }) {
+function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle, winner }) {
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
-  const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "사람" : `컴퓨터 · ${getComputerStyleOption(player.computerStyle).label}`;
+  const computerStyleLabel =
+    showComputerStyle && player.computerStyle ? `컴퓨터 · ${getComputerStyleOption(player.computerStyle).label}` : "컴퓨터 · 성향 비공개";
+  const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "사람" : computerStyleLabel;
 
   return (
     <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
@@ -281,6 +283,7 @@ export default function PokerApp() {
   const [chipTotals, setChipTotals] = useState({});
   const [state, setState] = useState(null);
   const [autoNextHand, setAutoNextHand] = useState(true);
+  const [showComputerStylesInGame, setShowComputerStylesInGame] = useState(true);
   const [computerActionDelayMs, setComputerActionDelayMs] = useState(DEFAULT_COMPUTER_ACTION_DELAY_MS);
   const [nextHandDelayMs, setNextHandDelayMs] = useState(DEFAULT_NEXT_HAND_DELAY_MS);
   const [multiplayerName, setMultiplayerName] = useState("플레이어");
@@ -358,6 +361,7 @@ export default function PokerApp() {
       if (room.gameState) {
         multiplayerGameActiveRef.current = true;
         setMultiplayerGameActive(true);
+        setShowComputerStylesInGame(room.showComputerStyles !== false);
         setState(room.gameState);
       } else if (multiplayerGameActiveRef.current) {
         multiplayerGameActiveRef.current = false;
@@ -463,10 +467,12 @@ export default function PokerApp() {
   const multiplayerPlayableSetupCount = connectedMultiplayerHumans + playableComputerSetupCount;
   const multiplayerConfiguredPlayerCount = multiplayerRoom ? multiplayerRoom.humanSlots + cpuCount : 0;
   const activeComputerStyleSummary = state
-    ? state.players
+    ? showComputerStylesInGame
+      ? state.players
         .filter((player) => !player.isHuman)
-        .map((player) => `${player.name} ${getComputerStyleOption(player.computerStyle).label}`)
+        .map((player) => `${player.name} ${player.computerStyle ? getComputerStyleOption(player.computerStyle).label : "성향 비공개"}`)
         .join(" / ")
+      : "비공개"
     : "";
   const playableSetupCount = setupPlayers.filter((player) => (setupBalances[player.id] ?? 0) >= MIN_PLAYABLE_BALANCE).length;
   const canStartSetupGame = multiplayerRoom
@@ -552,6 +558,13 @@ export default function PokerApp() {
     }
   }
 
+  function updateShowComputerStylesInGame(enabled) {
+    setShowComputerStylesInGame(enabled);
+    if (multiplayerGameActive) {
+      sendMultiplayerMessage({ type: "updateGameOptions", showComputerStyles: enabled });
+    }
+  }
+
   function updateComputerActionDelay(value) {
     const nextValue = clampDelay(value, MIN_COMPUTER_ACTION_DELAY_MS, MAX_COMPUTER_ACTION_DELAY_MS);
     setComputerActionDelayMs(nextValue);
@@ -618,6 +631,7 @@ export default function PokerApp() {
             computerStyle: getComputerStyleSelection(computerStyles[player.id]).key,
           })),
         autoNextHand,
+        showComputerStyles: showComputerStylesInGame,
         computerActionDelayMs,
         nextHandDelayMs,
       });
@@ -802,6 +816,14 @@ export default function PokerApp() {
             <label className="toggle-input">
               <input type="checkbox" checked={autoNextHand} onChange={(event) => updateAutoNextHand(event.target.checked)} />
               다음 핸드 자동 진행
+            </label>
+            <label className="toggle-input">
+              <input
+                type="checkbox"
+                checked={showComputerStylesInGame}
+                onChange={(event) => updateShowComputerStylesInGame(event.target.checked)}
+              />
+              인게임 컴퓨터 성향 표시
             </label>
             <label className="delay-input">
               컴퓨터 행동 딜레이(ms)
@@ -1001,6 +1023,14 @@ export default function PokerApp() {
             <input type="checkbox" checked={autoNextHand} onChange={(event) => updateAutoNextHand(event.target.checked)} />
             다음 핸드 자동 진행
           </label>
+          <label className="toggle-input">
+            <input
+              type="checkbox"
+              checked={showComputerStylesInGame}
+              onChange={(event) => updateShowComputerStylesInGame(event.target.checked)}
+            />
+            인게임 컴퓨터 성향 표시
+          </label>
           <label>
             컴퓨터 행동 딜레이(ms)
             <input
@@ -1065,6 +1095,7 @@ export default function PokerApp() {
                 isTurn={state.currentPlayerIndex === index && !state.finished}
                 revealCards={revealCards}
                 showPrivateCards={multiplayerGameActive ? player.id === multiplayerPlayerId : player.isHuman}
+                showComputerStyle={showComputerStylesInGame}
                 winner={state.winnerIds.includes(player.id)}
               />
               {showdownMap[player.id] ? <p className="hand-label">{showdownMap[player.id]}</p> : null}

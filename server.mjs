@@ -39,7 +39,7 @@ function sanitizeName(value, fallback = "참가자") {
   return (trimmed || fallback).slice(0, 20);
 }
 
-function publicGameState(state, playerId) {
+function publicGameState(state, playerId, showComputerStyles = true) {
   if (!state) {
     return null;
   }
@@ -47,11 +47,13 @@ function publicGameState(state, playerId) {
   const revealAllCards = state.finished;
   return {
     ...state,
+    computerStyles: showComputerStyles ? state.computerStyles : {},
     deck: [],
     players: state.players.map((player) => {
       const revealCards = revealAllCards || player.id === playerId;
       return {
         ...player,
+        computerStyle: showComputerStyles || player.isHuman ? player.computerStyle : null,
         cards: revealCards ? player.cards : player.cards.map(() => null),
       };
     }),
@@ -65,7 +67,8 @@ function publicRoom(room, socket) {
     hostPlayerId: room.hostPlayerId,
     seats: room.seats.map((seat) => ({ ...seat })),
     createdAt: room.createdAt,
-    gameState: publicGameState(room.game?.state, socket?.playerId),
+    showComputerStyles: room.game?.showComputerStyles ?? true,
+    gameState: publicGameState(room.game?.state, socket?.playerId, room.game?.showComputerStyles ?? true),
   };
 }
 
@@ -293,6 +296,7 @@ function buildRoomGame(room, payload) {
     computerStyles,
     state,
     autoNextHand: Boolean(payload.autoNextHand),
+    showComputerStyles: payload.showComputerStyles !== false,
     computerActionDelayMs: clamp(
       payload.computerActionDelayMs,
       MIN_COMPUTER_ACTION_DELAY_MS,
@@ -438,6 +442,10 @@ function handleUpdateGameOptions(socket, payload) {
   }
   if (Object.hasOwn(payload, "nextHandDelayMs")) {
     room.game.nextHandDelayMs = clamp(payload.nextHandDelayMs, MIN_NEXT_HAND_DELAY_MS, MAX_NEXT_HAND_DELAY_MS, DEFAULT_NEXT_HAND_DELAY_MS);
+  }
+  if (Object.hasOwn(payload, "showComputerStyles")) {
+    room.game.showComputerStyles = Boolean(payload.showComputerStyles);
+    broadcastRoom(room);
   }
   scheduleRoomAutomation(room);
 }
