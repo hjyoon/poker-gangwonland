@@ -398,6 +398,18 @@ td {
   color: var(--muted);
 }
 
+.setup-controls .toggle-input {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-height: 46px;
+}
+
+.toggle-input input {
+  height: 18px;
+  width: 18px;
+}
+
 .balance-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

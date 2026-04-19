@@ -15,7 +15,10 @@ import {
 } from "../lib/poker";
 
 const DEFAULT_STARTING_BALANCE = 100000;
-const CPU_COUNT_OPTIONS = [1, 2, 3, 4, 5, 6, 7];
+const MIN_CPU_WITH_HUMAN = 1;
+const MIN_CPU_ONLY = 2;
+const MAX_CPU_WITH_HUMAN = 7;
+const MAX_CPU_ONLY = 8;
 
 const CARD_RANK_ROWS = [
   "1. 로열 플러쉬",
@@ -37,26 +40,24 @@ const TERM_ROWS = [
   ["번 (Burn)", "제공된 기준에는 구체 설명이 명시되어 있지 않아 별도 운영 규정 확인 필요"],
 ];
 
-function buildSetupPlayers(cpuCount) {
-  return [
-    { id: "human", name: "플레이어", isHuman: true },
-    ...Array.from({ length: cpuCount }, (_, index) => ({
-      id: `cpu-${index + 1}`,
-      name: `컴퓨터 ${index + 1}`,
-      isHuman: false,
-    })),
-  ];
+function buildSetupPlayers(cpuCount, includeHuman = true) {
+  const cpuPlayers = Array.from({ length: cpuCount }, (_, index) => ({
+    id: `cpu-${index + 1}`,
+    name: `컴퓨터 ${index + 1}`,
+    isHuman: false,
+  }));
+  return includeHuman ? [{ id: "human", name: "플레이어", isHuman: true }, ...cpuPlayers] : cpuPlayers;
 }
 
-function buildSetupBalances(cpuCount, previous = {}) {
+function buildSetupBalances(cpuCount, includeHuman = true, previous = {}) {
   return Object.fromEntries(
-    buildSetupPlayers(cpuCount).map((player) => [player.id, previous[player.id] ?? DEFAULT_STARTING_BALANCE]),
+    buildSetupPlayers(cpuCount, includeHuman).map((player) => [player.id, previous[player.id] ?? DEFAULT_STARTING_BALANCE]),
   );
 }
 
-function buildSetupComputerStyles(cpuCount, previous = {}) {
+function buildSetupComputerStyles(cpuCount, includeHuman = true, previous = {}) {
   return Object.fromEntries(
-    buildSetupPlayers(cpuCount)
+    buildSetupPlayers(cpuCount, includeHuman)
       .filter((player) => !player.isHuman)
       .map((player) => [player.id, getComputerStyleOption(previous[player.id]).key]),
   );
@@ -64,6 +65,23 @@ function buildSetupComputerStyles(cpuCount, previous = {}) {
 
 function getComputerStyleOption(styleKey) {
   return COMPUTER_STYLES.find((style) => style.key === styleKey) ?? COMPUTER_STYLES[0];
+}
+
+function minCpuCount(includeHuman) {
+  return includeHuman ? MIN_CPU_WITH_HUMAN : MIN_CPU_ONLY;
+}
+
+function maxCpuCount(includeHuman) {
+  return includeHuman ? MAX_CPU_WITH_HUMAN : MAX_CPU_ONLY;
+}
+
+function buildCpuCountOptions(includeHuman) {
+  const min = minCpuCount(includeHuman);
+  return Array.from({ length: maxCpuCount(includeHuman) - min + 1 }, (_, index) => index + min);
+}
+
+function clampCpuCount(cpuCount, includeHuman) {
+  return Math.min(Math.max(minCpuCount(includeHuman), cpuCount), maxCpuCount(includeHuman));
 }
 
 function cardSuitClass(card) {
@@ -214,14 +232,16 @@ function RulesPanel() {
 
 export default function PokerApp() {
   const [cpuCount, setCpuCount] = useState(3);
-  const [computerStyles, setComputerStyles] = useState(() => buildSetupComputerStyles(3));
-  const [setupBalances, setSetupBalances] = useState(() => buildSetupBalances(3));
+  const [includeHuman, setIncludeHuman] = useState(true);
+  const [computerStyles, setComputerStyles] = useState(() => buildSetupComputerStyles(3, true));
+  const [setupBalances, setSetupBalances] = useState(() => buildSetupBalances(3, true));
   const [dealerIndex, setDealerIndex] = useState(0);
   const [chipTotals, setChipTotals] = useState({});
   const [state, setState] = useState(null);
   const [handHistory, setHandHistory] = useState([]);
   const [archivedHandIds, setArchivedHandIds] = useState(() => new Set());
   const cpuCountSelectRef = useRef(null);
+  const includeHumanInputRef = useRef(null);
   const hasSyncedRestoredCpuCountRef = useRef(false);
 
   useEffect(() => {
@@ -248,7 +268,8 @@ export default function PokerApp() {
     () => (state ? Object.fromEntries(state.showdownResults.map((entry) => [entry.id, entry.label])) : {}),
     [state],
   );
-  const setupPlayers = useMemo(() => buildSetupPlayers(cpuCount), [cpuCount]);
+  const setupPlayers = useMemo(() => buildSetupPlayers(cpuCount, includeHuman), [cpuCount, includeHuman]);
+  const cpuCountOptions = useMemo(() => buildCpuCountOptions(includeHuman), [includeHuman]);
   const activeComputerStyleSummary = state
     ? state.players
         .filter((player) => !player.isHuman)
@@ -257,10 +278,16 @@ export default function PokerApp() {
     : "";
   const playableSetupCount = setupPlayers.filter((player) => (setupBalances[player.id] ?? 0) >= MIN_PLAYABLE_BALANCE).length;
 
+  function reshapeSetup(nextCpuCount, nextIncludeHuman) {
+    const clampedCpuCount = clampCpuCount(nextCpuCount, nextIncludeHuman);
+    setCpuCount(clampedCpuCount);
+    setIncludeHuman(nextIncludeHuman);
+    setSetupBalances((current) => buildSetupBalances(clampedCpuCount, nextIncludeHuman, current));
+    setComputerStyles((current) => buildSetupComputerStyles(clampedCpuCount, nextIncludeHuman, current));
+  }
+
   function changeCpuCount(nextCpuCount) {
-    setCpuCount(nextCpuCount);
-    setSetupBalances((current) => buildSetupBalances(nextCpuCount, current));
-    setComputerStyles((current) => buildSetupComputerStyles(nextCpuCount, current));
+    reshapeSetup(nextCpuCount, includeHuman);
   }
 
   useEffect(() => {
@@ -269,11 +296,13 @@ export default function PokerApp() {
     }
     hasSyncedRestoredCpuCountRef.current = true;
 
+    const restoredIncludeHuman = includeHumanInputRef.current?.checked ?? includeHuman;
     const restoredCpuCount = Number(cpuCountSelectRef.current?.value);
-    if (CPU_COUNT_OPTIONS.includes(restoredCpuCount) && restoredCpuCount !== cpuCount) {
-      changeCpuCount(restoredCpuCount);
+    const nextCpuCount = Number.isFinite(restoredCpuCount) ? clampCpuCount(restoredCpuCount, restoredIncludeHuman) : cpuCount;
+    if (restoredIncludeHuman !== includeHuman || nextCpuCount !== cpuCount) {
+      reshapeSetup(nextCpuCount, restoredIncludeHuman);
     }
-  }, [cpuCount, state]);
+  }, [cpuCount, includeHuman, state]);
 
   function updateSetupBalance(playerId, value) {
     const numericValue = Math.max(0, Number(value) || 0);
@@ -288,6 +317,10 @@ export default function PokerApp() {
       ...current,
       [playerId]: getComputerStyleOption(styleKey).key,
     }));
+  }
+
+  function changeIncludeHuman(nextIncludeHuman) {
+    reshapeSetup(cpuCount, nextIncludeHuman);
   }
 
   function startGame() {
@@ -307,6 +340,7 @@ export default function PokerApp() {
     );
     const nextState = startNewHand({
       cpuCount,
+      includeHuman,
       dealerIndex: 0,
       chipTotals: initialChipTotals,
       feeTotal: 0,
@@ -333,9 +367,10 @@ export default function PokerApp() {
     if (!state?.finished || state.gameOver) {
       return;
     }
-    const nextDealerIndex = (dealerIndex + 1) % (cpuCount + 1);
+    const nextDealerIndex = (dealerIndex + 1) % state.players.length;
     const nextState = startNewHand({
       cpuCount,
+      includeHuman: state.players.some((player) => player.isHuman),
       dealerIndex: nextDealerIndex,
       chipTotals: state?.chipTotals ?? chipTotals,
       feeTotal: state?.feeTotal ?? 0,
@@ -348,6 +383,9 @@ export default function PokerApp() {
   }
 
   function onHumanAction(action) {
+    if (humanIndex < 0) {
+      return;
+    }
     setState((current) => {
       const next = applyAction(current, action, humanIndex);
       if (next.chipTotals) {
@@ -402,7 +440,7 @@ export default function PokerApp() {
             <p className="eyebrow">Gangwon Land Hold&apos;em</p>
             <h1>강원랜드 기준 베팅 시뮬레이터</h1>
             <p>
-              강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 상대 수와 컴퓨터 성향 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
+              강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 사람 플레이어 포함 여부, 컴퓨터 수, 컴퓨터 성향 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
             </p>
           </div>
         </section>
@@ -415,14 +453,23 @@ export default function PokerApp() {
           </div>
           <div className="setup-controls">
             <label>
-              앱 진행용 상대 수
+              컴퓨터 플레이어 수
               <select ref={cpuCountSelectRef} value={cpuCount} onChange={(event) => changeCpuCount(Number(event.target.value))}>
-                {CPU_COUNT_OPTIONS.map((option) => (
+                {cpuCountOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}명
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="toggle-input">
+              <input
+                ref={includeHumanInputRef}
+                type="checkbox"
+                checked={includeHuman}
+                onChange={(event) => changeIncludeHuman(event.target.checked)}
+              />
+              사람 플레이어 포함
             </label>
           </div>
           <div className="balance-grid">
@@ -473,11 +520,14 @@ export default function PokerApp() {
 
   const activeStreet = STREETS[state.streetIndex];
   const humanIndex = state.players.findIndex((player) => player.isHuman);
-  const humanActions = getAvailableActions(state, humanIndex);
+  const hasHumanPlayer = humanIndex >= 0;
+  const humanActions = hasHumanPlayer ? getAvailableActions(state, humanIndex) : [];
   const revealCards = state.finished;
   const statusText = state.gameOver
     ? "게임이 종료되었습니다."
-    : state.waitingForHuman && !state.finished
+    : !hasHumanPlayer
+      ? "컴퓨터 플레이어만으로 자동 진행 중입니다."
+      : state.waitingForHuman && !state.finished
       ? "사람 차례입니다."
       : "컴퓨터 진행 중이거나 핸드가 종료되었습니다.";
   const dealerName = state.gameOver ? "-" : state.players[state.dealerIndex]?.name;
@@ -493,7 +543,7 @@ export default function PokerApp() {
           <p className="eyebrow">Gangwon Land Hold&apos;em</p>
           <h1>강원랜드 기준 베팅 시뮬레이터</h1>
           <p>
-            강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 상대 수와 컴퓨터 성향 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
+            강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 사람 플레이어 포함 여부, 컴퓨터 수, 컴퓨터 성향 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
           </p>
           <p className="note">컴퓨터 성향: {activeComputerStyleSummary || "없음"}</p>
         </div>
@@ -554,17 +604,19 @@ export default function PokerApp() {
             <h3>플레이어 행동</h3>
             <p>{statusText}</p>
           </div>
-          <div className="action-row">
-            {humanActions.map((action) => (
-              <button
-                key={action.key}
-                onClick={() => onHumanAction(action.key)}
-                disabled={!state.waitingForHuman || !action.enabled}
-              >
-                {action.label}
-              </button>
-            ))}
-          </div>
+          {hasHumanPlayer ? (
+            <div className="action-row">
+              {humanActions.map((action) => (
+                <button
+                  key={action.key}
+                  onClick={() => onHumanAction(action.key)}
+                  disabled={!state.waitingForHuman || !action.enabled}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {state.finished ? (
             <p className="note">
               공개 순서: {state.revealOrder.map((id) => state.players.find((player) => player.id === id)?.name).join(" → ") || "즉시 종료"}
