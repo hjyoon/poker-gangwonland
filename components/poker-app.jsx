@@ -151,7 +151,7 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
           <div className="eliminated-badge">탈락</div>
         ) : (
           player.cards.map((card, index) => {
-            const showCard = Boolean(card) && (revealCards || showPrivateCards || player.folded);
+            const showCard = Boolean(card) && (showPrivateCards || (revealCards && !player.folded));
             return (
               <div className={`card${showCard ? cardSuitClass(card) : ""}`} key={`${player.id}-${index}`}>
                 {showCard ? formatCard(card) : "🂠"}
@@ -981,7 +981,7 @@ export default function PokerApp() {
   const hasHumanPlayer = humanIndex >= 0;
   const isControlledHumanTurn = hasHumanPlayer && state.currentPlayerIndex === humanIndex && state.waitingForHuman && !state.finished;
   const humanActions = isControlledHumanTurn ? getAvailableActions(state, humanIndex) : [];
-  const revealCards = state.finished;
+  const revealCards = state.finished && state.showdownResults.length > 0;
   const currentActor = state.players[state.currentPlayerIndex];
   const statusText = state.gameOver
     ? "게임이 종료되었습니다."

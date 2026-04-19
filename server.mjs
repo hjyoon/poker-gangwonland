@@ -44,13 +44,13 @@ function publicGameState(state, playerId, showComputerStyles = true) {
     return null;
   }
 
-  const revealAllCards = state.finished;
+  const revealShowdownCards = state.finished && state.showdownResults.length > 0;
   return {
     ...state,
     computerStyles: showComputerStyles ? state.computerStyles : {},
     deck: [],
     players: state.players.map((player) => {
-      const revealCards = revealAllCards || player.id === playerId;
+      const revealCards = player.id === playerId || (revealShowdownCards && !player.folded);
       return {
         ...player,
         computerStyle: showComputerStyles || player.isHuman ? player.computerStyle : null,
