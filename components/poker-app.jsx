@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   COMPUTER_STYLES,
   MIN_PLAYABLE_BALANCE,
@@ -15,6 +15,7 @@ import {
 } from "../lib/poker";
 
 const DEFAULT_STARTING_BALANCE = 100000;
+const CPU_COUNT_OPTIONS = [1, 2, 3, 4, 5, 6, 7];
 
 const CARD_RANK_ROWS = [
   "1. 로열 플러쉬",
@@ -220,6 +221,8 @@ export default function PokerApp() {
   const [state, setState] = useState(null);
   const [handHistory, setHandHistory] = useState([]);
   const [archivedHandIds, setArchivedHandIds] = useState(() => new Set());
+  const cpuCountSelectRef = useRef(null);
+  const hasSyncedRestoredCpuCountRef = useRef(false);
 
   useEffect(() => {
     if (!state) {
@@ -259,6 +262,18 @@ export default function PokerApp() {
     setSetupBalances((current) => buildSetupBalances(nextCpuCount, current));
     setComputerStyles((current) => buildSetupComputerStyles(nextCpuCount, current));
   }
+
+  useEffect(() => {
+    if (state || hasSyncedRestoredCpuCountRef.current) {
+      return;
+    }
+    hasSyncedRestoredCpuCountRef.current = true;
+
+    const restoredCpuCount = Number(cpuCountSelectRef.current?.value);
+    if (CPU_COUNT_OPTIONS.includes(restoredCpuCount) && restoredCpuCount !== cpuCount) {
+      changeCpuCount(restoredCpuCount);
+    }
+  }, [cpuCount, state]);
 
   function updateSetupBalance(playerId, value) {
     const numericValue = Math.max(0, Number(value) || 0);
@@ -401,10 +416,10 @@ export default function PokerApp() {
           <div className="setup-controls">
             <label>
               앱 진행용 상대 수
-              <select value={cpuCount} onChange={(event) => changeCpuCount(Number(event.target.value))}>
-                {Array.from({ length: 7 }, (_, index) => (
-                  <option key={index + 1} value={index + 1}>
-                    {index + 1}명
+              <select ref={cpuCountSelectRef} value={cpuCount} onChange={(event) => changeCpuCount(Number(event.target.value))}>
+                {CPU_COUNT_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}명
                   </option>
                 ))}
               </select>
