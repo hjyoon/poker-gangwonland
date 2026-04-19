@@ -19,6 +19,7 @@ const MIN_CPU_WITH_HUMAN = 1;
 const MIN_CPU_ONLY = 2;
 const MAX_CPU_WITH_HUMAN = 7;
 const MAX_CPU_ONLY = 8;
+const AUTO_NEXT_HAND_DELAY_MS = 1800;
 
 const CARD_RANK_ROWS = [
   "1. 로열 플러쉬",
@@ -238,6 +239,7 @@ export default function PokerApp() {
   const [dealerIndex, setDealerIndex] = useState(0);
   const [chipTotals, setChipTotals] = useState({});
   const [state, setState] = useState(null);
+  const [autoNextHand, setAutoNextHand] = useState(true);
   const [handHistory, setHandHistory] = useState([]);
   const [archivedHandIds, setArchivedHandIds] = useState(() => new Set());
   const cpuCountSelectRef = useRef(null);
@@ -382,6 +384,18 @@ export default function PokerApp() {
     setState(nextState);
   }
 
+  useEffect(() => {
+    if (!autoNextHand || !state?.finished || state.gameOver) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      nextHand();
+    }, AUTO_NEXT_HAND_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [autoNextHand, chipTotals, computerStyles, cpuCount, dealerIndex, state]);
+
   function onHumanAction(action) {
     if (humanIndex < 0) {
       return;
@@ -471,6 +485,10 @@ export default function PokerApp() {
               />
               사람 플레이어 포함
             </label>
+            <label className="toggle-input">
+              <input type="checkbox" checked={autoNextHand} onChange={(event) => setAutoNextHand(event.target.checked)} />
+              다음 핸드 자동 진행
+            </label>
           </div>
           <div className="balance-grid">
             {setupPlayers.map((player) => (
@@ -551,6 +569,10 @@ export default function PokerApp() {
           <button className="secondary" onClick={nextHand} disabled={!state.finished || state.gameOver}>
             다음 핸드
           </button>
+          <label className="toggle-input">
+            <input type="checkbox" checked={autoNextHand} onChange={(event) => setAutoNextHand(event.target.checked)} />
+            다음 핸드 자동 진행
+          </label>
           <button onClick={openSetup}>새 게임 설정</button>
         </div>
       </section>
