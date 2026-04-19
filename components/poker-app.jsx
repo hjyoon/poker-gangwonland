@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  COMPUTER_STYLE_OPTIONS,
   COMPUTER_STYLES,
   MIN_PLAYABLE_BALANCE,
   STREETS,
@@ -11,6 +12,7 @@ import {
   formatCard,
   formatMoney,
   getAvailableActions,
+  resolveComputerStyleKey,
   startNewHand,
 } from "../lib/poker";
 
@@ -69,12 +71,16 @@ function buildSetupComputerStyles(cpuCount, includeHuman = true, previous = {}) 
   return Object.fromEntries(
     buildSetupPlayers(cpuCount, includeHuman)
       .filter((player) => !player.isHuman)
-      .map((player) => [player.id, getComputerStyleOption(previous[player.id]).key]),
+      .map((player) => [player.id, getComputerStyleSelection(previous[player.id]).key]),
   );
 }
 
 function getComputerStyleOption(styleKey) {
   return COMPUTER_STYLES.find((style) => style.key === styleKey) ?? COMPUTER_STYLES[0];
+}
+
+function getComputerStyleSelection(styleKey) {
+  return COMPUTER_STYLE_OPTIONS.find((style) => style.key === styleKey) ?? COMPUTER_STYLES[0];
 }
 
 function minCpuCount(includeHuman) {
@@ -527,7 +533,7 @@ export default function PokerApp() {
   function updateComputerStyle(playerId, styleKey) {
     setComputerStyles((current) => ({
       ...current,
-      [playerId]: getComputerStyleOption(styleKey).key,
+      [playerId]: getComputerStyleSelection(styleKey).key,
     }));
   }
 
@@ -609,7 +615,7 @@ export default function PokerApp() {
             id: player.id,
             name: player.name,
             startingBalance: setupBalances[player.id] ?? 0,
-            computerStyle: getComputerStyleOption(computerStyles[player.id]).key,
+            computerStyle: getComputerStyleSelection(computerStyles[player.id]).key,
           })),
         autoNextHand,
         computerActionDelayMs,
@@ -621,7 +627,7 @@ export default function PokerApp() {
     const initialComputerStyles = Object.fromEntries(
       setupPlayers
         .filter((player) => !player.isHuman)
-        .map((player) => [player.id, getComputerStyleOption(computerStyles[player.id]).key]),
+        .map((player) => [player.id, resolveComputerStyleKey(getComputerStyleSelection(computerStyles[player.id]).key)]),
     );
     const initialChipTotals = Object.fromEntries(
       setupPlayers.map((player) => [
@@ -641,7 +647,6 @@ export default function PokerApp() {
       handNumber: 1,
       computerStyles: initialComputerStyles,
     });
-    setComputerStyles(initialComputerStyles);
     setDealerIndex(nextState.dealerIndex);
     setChipTotals(nextState.chipTotals ?? initialChipTotals);
     setHandHistory([]);
@@ -914,10 +919,10 @@ export default function PokerApp() {
                   <label className="style-input">
                     컴퓨터 플레이 성향
                     <select
-                      value={computerStyles[player.id] ?? COMPUTER_STYLES[0].key}
+                      value={getComputerStyleSelection(computerStyles[player.id]).key}
                       onChange={(event) => updateComputerStyle(player.id, event.target.value)}
                     >
-                      {COMPUTER_STYLES.map((style) => (
+                      {COMPUTER_STYLE_OPTIONS.map((style) => (
                         <option key={style.key} value={style.key}>
                           {style.label}
                         </option>
@@ -928,7 +933,7 @@ export default function PokerApp() {
               </div>
             ))}
           </div>
-          <p className="note">컴퓨터별 성향은 전략 조언이 아닌 앱 자동 진행 기준입니다.</p>
+          <p className="note">컴퓨터별 성향은 전략 조언이 아닌 앱 자동 진행 기준입니다. 랜덤은 게임 시작 시 실제 성향으로 확정됩니다.</p>
           {multiplayerRoom ? (
             <p className="note">
               멀티플레이에서는 빈 사람 슬롯 {multiplayerRoom.humanSlots}명과 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.

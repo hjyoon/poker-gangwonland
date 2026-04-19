@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import http from "node:http";
 import next from "next";
-import { applyAction, chooseComputerAction, startNewHand } from "./lib/poker.js";
+import { applyAction, chooseComputerAction, resolveComputerStyleKey, startNewHand } from "./lib/poker.js";
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "0.0.0.0";
@@ -254,7 +254,7 @@ function buildRoomGame(room, payload) {
         name: sanitizeName(player.name, `컴퓨터 ${index + 1}`),
         isHuman: false,
         startingBalance: Math.max(0, Number(player.startingBalance) || DEFAULT_STARTING_BALANCE),
-        computerStyle: player.computerStyle,
+        computerStyle: resolveComputerStyleKey(player.computerStyle),
       }))
     : [];
   if (room.humanSlots + computerPlayers.length > MAX_TOTAL_PLAYERS) {
