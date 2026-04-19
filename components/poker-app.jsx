@@ -203,6 +203,8 @@ export default function PokerApp() {
   const [dealerIndex, setDealerIndex] = useState(0);
   const [chipTotals, setChipTotals] = useState({});
   const [state, setState] = useState(null);
+  const [handHistory, setHandHistory] = useState([]);
+  const [archivedHandIds, setArchivedHandIds] = useState(() => new Set());
 
   useEffect(() => {
     if (!state) {
@@ -259,15 +261,20 @@ export default function PokerApp() {
       dealerIndex: 0,
       chipTotals: initialChipTotals,
       feeTotal: 0,
+      handNumber: 1,
     });
     setDealerIndex(nextState.dealerIndex);
     setChipTotals(nextState.chipTotals ?? initialChipTotals);
+    setHandHistory([]);
+    setArchivedHandIds(new Set());
     setState(nextState);
   }
 
   function openSetup() {
     setDealerIndex(0);
     setChipTotals({});
+    setHandHistory([]);
+    setArchivedHandIds(new Set());
     setState(null);
   }
 
@@ -281,6 +288,7 @@ export default function PokerApp() {
       dealerIndex: nextDealerIndex,
       chipTotals: state?.chipTotals ?? chipTotals,
       feeTotal: state?.feeTotal ?? 0,
+      handNumber: (state?.handNumber ?? 0) + 1,
     });
     setDealerIndex(nextState.dealerIndex);
     setChipTotals(nextState.chipTotals ?? {});
@@ -305,6 +313,34 @@ export default function PokerApp() {
       setChipTotals(state.chipTotals ?? {});
     }
   }, [state]);
+
+  useEffect(() => {
+    if (!state?.finished) {
+      return;
+    }
+    const handId = state.handId ?? state.log[0] ?? `${state.streetIndex}-${state.log.length}`;
+    if (archivedHandIds.has(handId)) {
+      return;
+    }
+
+    const winnerNames = state.winnerIds
+      .map((id) => state.players.find((player) => player.id === id)?.name)
+      .filter(Boolean);
+    const summary = state.gameOver
+      ? "게임 종료"
+      : winnerNames.length > 0
+        ? `승자: ${winnerNames.join(", ")}`
+        : "정산 보류";
+    const entry = {
+      id: handId,
+      title: `핸드 ${state.handNumber ?? handHistory.length + 1}`,
+      summary,
+      log: [...state.log],
+    };
+
+    setHandHistory((current) => [entry, ...current]);
+    setArchivedHandIds((current) => new Set(current).add(handId));
+  }, [archivedHandIds, handHistory.length, state]);
 
   if (!state) {
     return (
@@ -468,11 +504,34 @@ export default function PokerApp() {
 
       <section className="panel log-panel">
         <h2>진행 로그</h2>
+        <h3>현재 핸드</h3>
         <ol>
           {[...state.log].reverse().map((line, index) => (
             <li key={`${line}-${index}`}>{line}</li>
           ))}
         </ol>
+        <h3>이전 핸드 기록</h3>
+        {handHistory.filter((entry) => entry.id !== state.handId).length > 0 ? (
+          <div className="history-list">
+            {handHistory
+              .filter((entry) => entry.id !== state.handId)
+              .map((entry) => (
+                <details className="history-item" key={entry.id}>
+                  <summary>
+                    <span>{entry.title}</span>
+                    <span>{entry.summary}</span>
+                  </summary>
+                  <ol>
+                    {[...entry.log].reverse().map((line, index) => (
+                      <li key={`${entry.id}-${line}-${index}`}>{line}</li>
+                    ))}
+                  </ol>
+                </details>
+              ))}
+          </div>
+        ) : (
+          <p className="note">아직 완료된 이전 핸드가 없습니다.</p>
+        )}
       </section>
 
       <RulesPanel />

@@ -290,8 +290,13 @@ button:disabled {
 }
 
 .controls h3,
-.rules h3 {
+.rules h3,
+.log-panel h3 {
   margin: 0 0 10px;
+}
+
+.log-panel h3 {
+  margin-top: 18px;
 }
 
 .action-row {
@@ -312,6 +317,36 @@ button:disabled {
 .rules li + li,
 .step-panel li + li {
   margin-top: 8px;
+}
+
+.history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.history-item {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 12px 14px;
+}
+
+.history-item summary {
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.history-item summary span:last-child {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.history-item ol {
+  margin-top: 12px;
 }
 
 .rules-grid {
