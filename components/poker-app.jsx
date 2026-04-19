@@ -19,7 +19,12 @@ const MIN_CPU_WITH_HUMAN = 1;
 const MIN_CPU_ONLY = 2;
 const MAX_CPU_WITH_HUMAN = 7;
 const MAX_CPU_ONLY = 8;
-const AUTO_NEXT_HAND_DELAY_MS = 1800;
+const DEFAULT_COMPUTER_ACTION_DELAY_MS = 700;
+const DEFAULT_NEXT_HAND_DELAY_MS = 1800;
+const MIN_COMPUTER_ACTION_DELAY_MS = 100;
+const MAX_COMPUTER_ACTION_DELAY_MS = 3000;
+const MIN_NEXT_HAND_DELAY_MS = 500;
+const MAX_NEXT_HAND_DELAY_MS = 10000;
 
 const CARD_RANK_ROWS = [
   "1. 로열 플러쉬",
@@ -83,6 +88,10 @@ function buildCpuCountOptions(includeHuman) {
 
 function clampCpuCount(cpuCount, includeHuman) {
   return Math.min(Math.max(minCpuCount(includeHuman), cpuCount), maxCpuCount(includeHuman));
+}
+
+function clampDelay(value, min, max) {
+  return Math.min(Math.max(min, Number(value) || min), max);
 }
 
 function cardSuitClass(card) {
@@ -240,6 +249,8 @@ export default function PokerApp() {
   const [chipTotals, setChipTotals] = useState({});
   const [state, setState] = useState(null);
   const [autoNextHand, setAutoNextHand] = useState(true);
+  const [computerActionDelayMs, setComputerActionDelayMs] = useState(DEFAULT_COMPUTER_ACTION_DELAY_MS);
+  const [nextHandDelayMs, setNextHandDelayMs] = useState(DEFAULT_NEXT_HAND_DELAY_MS);
   const [handHistory, setHandHistory] = useState([]);
   const [archivedHandIds, setArchivedHandIds] = useState(() => new Set());
   const cpuCountSelectRef = useRef(null);
@@ -261,10 +272,10 @@ export default function PokerApp() {
     const timer = window.setTimeout(() => {
       const action = chooseComputerAction(state);
       setState((current) => applyAction(current, action));
-    }, 700);
+    }, computerActionDelayMs);
 
     return () => window.clearTimeout(timer);
-  }, [state]);
+  }, [computerActionDelayMs, state]);
 
   const showdownMap = useMemo(
     () => (state ? Object.fromEntries(state.showdownResults.map((entry) => [entry.id, entry.label])) : {}),
@@ -323,6 +334,14 @@ export default function PokerApp() {
 
   function changeIncludeHuman(nextIncludeHuman) {
     reshapeSetup(cpuCount, nextIncludeHuman);
+  }
+
+  function updateComputerActionDelay(value) {
+    setComputerActionDelayMs(clampDelay(value, MIN_COMPUTER_ACTION_DELAY_MS, MAX_COMPUTER_ACTION_DELAY_MS));
+  }
+
+  function updateNextHandDelay(value) {
+    setNextHandDelayMs(clampDelay(value, MIN_NEXT_HAND_DELAY_MS, MAX_NEXT_HAND_DELAY_MS));
   }
 
   function startGame() {
@@ -391,10 +410,10 @@ export default function PokerApp() {
 
     const timer = window.setTimeout(() => {
       nextHand();
-    }, AUTO_NEXT_HAND_DELAY_MS);
+    }, nextHandDelayMs);
 
     return () => window.clearTimeout(timer);
-  }, [autoNextHand, chipTotals, computerStyles, cpuCount, dealerIndex, state]);
+  }, [autoNextHand, chipTotals, computerStyles, cpuCount, dealerIndex, nextHandDelayMs, state]);
 
   function onHumanAction(action) {
     if (humanIndex < 0) {
@@ -489,6 +508,28 @@ export default function PokerApp() {
               <input type="checkbox" checked={autoNextHand} onChange={(event) => setAutoNextHand(event.target.checked)} />
               다음 핸드 자동 진행
             </label>
+            <label className="delay-input">
+              컴퓨터 행동 딜레이(ms)
+              <input
+                min={MIN_COMPUTER_ACTION_DELAY_MS}
+                max={MAX_COMPUTER_ACTION_DELAY_MS}
+                step="100"
+                type="number"
+                value={computerActionDelayMs}
+                onChange={(event) => updateComputerActionDelay(event.target.value)}
+              />
+            </label>
+            <label className="delay-input">
+              다음 핸드 딜레이(ms)
+              <input
+                min={MIN_NEXT_HAND_DELAY_MS}
+                max={MAX_NEXT_HAND_DELAY_MS}
+                step="100"
+                type="number"
+                value={nextHandDelayMs}
+                onChange={(event) => updateNextHandDelay(event.target.value)}
+              />
+            </label>
           </div>
           <div className="balance-grid">
             {setupPlayers.map((player) => (
@@ -572,6 +613,28 @@ export default function PokerApp() {
           <label className="toggle-input">
             <input type="checkbox" checked={autoNextHand} onChange={(event) => setAutoNextHand(event.target.checked)} />
             다음 핸드 자동 진행
+          </label>
+          <label>
+            컴퓨터 행동 딜레이(ms)
+            <input
+              min={MIN_COMPUTER_ACTION_DELAY_MS}
+              max={MAX_COMPUTER_ACTION_DELAY_MS}
+              step="100"
+              type="number"
+              value={computerActionDelayMs}
+              onChange={(event) => updateComputerActionDelay(event.target.value)}
+            />
+          </label>
+          <label>
+            다음 핸드 딜레이(ms)
+            <input
+              min={MIN_NEXT_HAND_DELAY_MS}
+              max={MAX_NEXT_HAND_DELAY_MS}
+              step="100"
+              type="number"
+              value={nextHandDelayMs}
+              onChange={(event) => updateNextHandDelay(event.target.value)}
+            />
           </label>
           <button onClick={openSetup}>새 게임 설정</button>
         </div>

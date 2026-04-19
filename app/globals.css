@@ -114,6 +114,7 @@ a {
 }
 
 select,
+input,
 button {
   min-height: 46px;
   border-radius: 14px;
@@ -392,7 +393,8 @@ td {
 
 .setup-controls label,
 .balance-input,
-.style-input {
+.style-input,
+.delay-input {
   display: grid;
   gap: 8px;
   color: var(--muted);
@@ -430,7 +432,8 @@ td {
 }
 
 .balance-input input,
-.style-input select {
+.style-input select,
+.delay-input input {
   min-height: 46px;
   width: 100%;
   border-radius: 14px;
