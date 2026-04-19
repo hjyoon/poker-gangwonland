@@ -116,6 +116,7 @@ a {
 select,
 input,
 button {
+  max-width: 100%;
   min-height: 46px;
   border-radius: 14px;
   border: 1px solid rgba(216, 162, 61, 0.24);
@@ -398,6 +399,14 @@ td {
   display: grid;
   gap: 8px;
   color: var(--muted);
+  min-width: 0;
+}
+
+.setup-controls input,
+.setup-controls select,
+.hero-controls input,
+.hero-controls select {
+  width: 100%;
 }
 
 .setup-controls .toggle-input {
@@ -429,6 +438,52 @@ td {
 
 .setup-player-config .note {
   margin: 0;
+}
+
+.multiplayer-lobby {
+  border: 1px solid rgba(216, 162, 61, 0.18);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.multiplayer-lobby .setup-controls {
+  max-width: none;
+}
+
+.multiplayer-lobby h3 {
+  margin: 0 0 6px;
+}
+
+.room-state {
+  display: grid;
+  gap: 12px;
+}
+
+.room-slots {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.room-slot {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(216, 162, 61, 0.14);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.room-slot.is-disconnected {
+  opacity: 0.58;
+}
+
+.room-slot span {
+  color: var(--muted);
+  font-size: 0.88rem;
 }
 
 .balance-input input,

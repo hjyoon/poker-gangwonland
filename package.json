@@ -5,9 +5,9 @@
   "private": true,
   "description": "강원랜드 기준 텍사스 홀덤 Next.js 프로젝트",
   "scripts": {
-    "dev": "next dev",
+    "dev": "node server.mjs",
     "build": "next build",
-    "start": "next start"
+    "start": "NODE_ENV=production node server.mjs"
   },
   "keywords": [],
   "author": "",
