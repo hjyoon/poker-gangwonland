@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  COMPUTER_STYLES,
   MIN_PLAYABLE_BALANCE,
   STREETS,
   applyAction,
@@ -49,6 +50,10 @@ function buildSetupBalances(cpuCount, previous = {}) {
   return Object.fromEntries(
     buildSetupPlayers(cpuCount).map((player) => [player.id, previous[player.id] ?? DEFAULT_STARTING_BALANCE]),
   );
+}
+
+function getComputerStyleOption(styleKey) {
+  return COMPUTER_STYLES.find((style) => style.key === styleKey) ?? COMPUTER_STYLES[0];
 }
 
 function cardSuitClass(card) {
@@ -199,6 +204,7 @@ function RulesPanel() {
 
 export default function PokerApp() {
   const [cpuCount, setCpuCount] = useState(3);
+  const [computerStyle, setComputerStyle] = useState(COMPUTER_STYLES[0].key);
   const [setupBalances, setSetupBalances] = useState(() => buildSetupBalances(3));
   const [dealerIndex, setDealerIndex] = useState(0);
   const [chipTotals, setChipTotals] = useState({});
@@ -231,6 +237,8 @@ export default function PokerApp() {
     [state],
   );
   const setupPlayers = useMemo(() => buildSetupPlayers(cpuCount), [cpuCount]);
+  const selectedComputerStyle = useMemo(() => getComputerStyleOption(computerStyle), [computerStyle]);
+  const activeComputerStyle = state ? getComputerStyleOption(state.computerStyle) : selectedComputerStyle;
   const playableSetupCount = setupPlayers.filter((player) => (setupBalances[player.id] ?? 0) >= MIN_PLAYABLE_BALANCE).length;
 
   function changeCpuCount(nextCpuCount) {
@@ -262,6 +270,7 @@ export default function PokerApp() {
       chipTotals: initialChipTotals,
       feeTotal: 0,
       handNumber: 1,
+      computerStyle,
     });
     setDealerIndex(nextState.dealerIndex);
     setChipTotals(nextState.chipTotals ?? initialChipTotals);
@@ -289,6 +298,7 @@ export default function PokerApp() {
       chipTotals: state?.chipTotals ?? chipTotals,
       feeTotal: state?.feeTotal ?? 0,
       handNumber: (state?.handNumber ?? 0) + 1,
+      computerStyle: state?.computerStyle ?? computerStyle,
     });
     setDealerIndex(nextState.dealerIndex);
     setChipTotals(nextState.chipTotals ?? {});
@@ -350,7 +360,7 @@ export default function PokerApp() {
             <p className="eyebrow">Gangwon Land Hold&apos;em</p>
             <h1>강원랜드 기준 베팅 시뮬레이터</h1>
             <p>
-              강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 상대 수 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
+              강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 상대 수와 컴퓨터 성향 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
             </p>
           </div>
         </section>
@@ -358,7 +368,7 @@ export default function PokerApp() {
           <div>
             <h2>게임 시작 설정</h2>
             <p className="note">
-              시작 금액과 잔액 부족 탈락은 앱 진행용 설정입니다. 잔액 {formatMoney(MIN_PLAYABLE_BALANCE)} 미만인 플레이어는 다음 핸드를 진행할 수 없어 탈락 처리됩니다.
+              시작 금액, 컴퓨터 성향, 잔액 부족 탈락은 앱 진행용 설정입니다. 잔액 {formatMoney(MIN_PLAYABLE_BALANCE)} 미만인 플레이어는 다음 핸드를 진행할 수 없어 탈락 처리됩니다.
             </p>
           </div>
           <div className="setup-controls">
@@ -372,7 +382,18 @@ export default function PokerApp() {
                 ))}
               </select>
             </label>
+            <label>
+              컴퓨터 플레이 성향
+              <select value={computerStyle} onChange={(event) => setComputerStyle(event.target.value)}>
+                {COMPUTER_STYLES.map((style) => (
+                  <option key={style.key} value={style.key}>
+                    {style.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
+          <p className="note">현재 선택: {selectedComputerStyle.label}. {selectedComputerStyle.description} 이 설정은 전략 조언이 아닌 앱 자동 진행 기준입니다.</p>
           <div className="balance-grid">
             {setupPlayers.map((player) => (
               <label className="balance-input" key={player.id}>
@@ -421,8 +442,9 @@ export default function PokerApp() {
           <p className="eyebrow">Gangwon Land Hold&apos;em</p>
           <h1>강원랜드 기준 베팅 시뮬레이터</h1>
           <p>
-            강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 상대 수 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
+            강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 상대 수와 컴퓨터 성향 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
           </p>
+          <p className="note">컴퓨터 성향: {activeComputerStyle.label}</p>
         </div>
         <div className="hero-controls">
           <button className="secondary" onClick={nextHand} disabled={!state.finished || state.gameOver}>
