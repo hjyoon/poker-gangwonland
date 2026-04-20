@@ -271,7 +271,7 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
             </span>
           ) : null}
           {player.actionLocked ? (
-            <span className="all-in-badge" title="잔액 전액 콜">
+            <span className="all-in-badge" title="잔액 전액 투입">
               올인
             </span>
           ) : null}
