@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  COMPUTER_LEVELS,
+  COMPUTER_LEVEL_OPTIONS,
   COMPUTER_STYLE_OPTIONS,
   COMPUTER_STYLES,
   MIN_PLAYABLE_BALANCE,
@@ -12,6 +14,7 @@ import {
   formatCard,
   formatMoney,
   getAvailableActions,
+  resolveComputerLevelKey,
   resolveComputerStyleKey,
   startNewHand,
 } from "../lib/poker";
@@ -100,12 +103,33 @@ function buildSetupComputerStyles(cpuCount, includeHuman = true, previous = {}, 
   );
 }
 
+function buildSetupComputerLevels(cpuCount, includeHuman = true, previous = {}, humanSeatIndex = 0) {
+  return Object.fromEntries(
+    buildSetupPlayers(cpuCount, includeHuman, humanSeatIndex)
+      .filter((player) => !player.isHuman)
+      .map((player) => [player.id, getComputerLevelSelection(previous[player.id]).key]),
+  );
+}
+
 function getComputerStyleOption(styleKey) {
   return COMPUTER_STYLES.find((style) => style.key === styleKey) ?? COMPUTER_STYLES[0];
 }
 
 function getComputerStyleSelection(styleKey) {
   return COMPUTER_STYLE_OPTIONS.find((style) => style.key === styleKey) ?? COMPUTER_STYLES[0];
+}
+
+function getComputerLevelSelection(levelKey) {
+  return COMPUTER_LEVEL_OPTIONS.find((level) => level.key === levelKey) ?? COMPUTER_LEVELS[1];
+}
+
+function computerProfileLabel(player, visible = true) {
+  if (!visible) {
+    return "설정 비공개";
+  }
+  const styleLabel = player.computerStyle ? getComputerStyleOption(player.computerStyle).label : "성향 비공개";
+  const levelLabel = player.computerLevel ? getComputerLevelSelection(player.computerLevel).label : "중급";
+  return `${styleLabel} · ${levelLabel}`;
 }
 
 function minCpuCount(includeHuman) {
@@ -247,8 +271,8 @@ function cardSuitClass(card) {
 function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle, winner, blindRole, isDealer }) {
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
-  const computerStyleLabel = showComputerStyle && player.computerStyle ? getComputerStyleOption(player.computerStyle).label : "성향 비공개";
-  const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "사람" : computerStyleLabel;
+  const computerLabel = computerProfileLabel(player, showComputerStyle);
+  const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "사람" : computerLabel;
   const actionLabel =
     player.lastAction === "스몰 블라인드" || player.lastAction === "빅 블라인드" || player.lastAction === "잔액 전액 콜"
       ? "대기"
@@ -410,6 +434,7 @@ export default function PokerApp() {
   const [includeHuman, setIncludeHuman] = useState(true);
   const [humanSeatIndex, setHumanSeatIndex] = useState(0);
   const [computerStyles, setComputerStyles] = useState(() => buildSetupComputerStyles(3, true, {}, 0));
+  const [computerLevels, setComputerLevels] = useState(() => buildSetupComputerLevels(3, true, {}, 0));
   const [setupBalances, setSetupBalances] = useState(() => buildSetupBalances(3, true, {}, 0));
   const [dealerIndex, setDealerIndex] = useState(0);
   const [chipTotals, setChipTotals] = useState({});
@@ -621,7 +646,7 @@ export default function PokerApp() {
     ? showComputerStylesInGame
       ? state.players
         .filter((player) => !player.isHuman)
-        .map((player) => `${player.name} ${player.computerStyle ? getComputerStyleOption(player.computerStyle).label : "성향 비공개"}`)
+        .map((player) => `${player.name} ${computerProfileLabel(player, true)}`)
         .join(" / ")
       : "비공개"
     : "";
@@ -649,6 +674,7 @@ export default function PokerApp() {
           name: player.name,
           startingBalance: setupBalances[player.id] ?? 0,
           computerStyle: getComputerStyleSelection(computerStyles[player.id]).key,
+          computerLevel: getComputerLevelSelection(computerLevels[player.id]).key,
         })),
       autoNextHand,
       showComputerStyles: showComputerStylesInGame,
@@ -659,6 +685,7 @@ export default function PokerApp() {
     [
       autoNextHand,
       computerActionDelayMs,
+      computerLevels,
       computerStyles,
       humanActionTimeoutMs,
       multiplayerHumanBalance,
@@ -695,6 +722,13 @@ export default function PokerApp() {
       });
       return nextStyles;
     });
+    setComputerLevels((current) => {
+      const nextLevels = buildSetupComputerLevels(nextCpuCount, false, current, 0);
+      computerPlayers.forEach((player, index) => {
+        nextLevels[`cpu-${index + 1}`] = getComputerLevelSelection(player.computerLevel).key;
+      });
+      return nextLevels;
+    });
     setMultiplayerHumanBalance(Math.max(0, Number(settings.humanStartingBalance) || 0));
     setMultiplayerTableSeats(normalizeMultiplayerTableSeats(settings.humanSeatPlacements, room.humanSlots, room.humanSlots + nextCpuCount));
     setRandomizeMultiplayerHumanSeats(Boolean(settings.randomizeHumanSeats));
@@ -712,6 +746,7 @@ export default function PokerApp() {
     setHumanSeatIndex(clampedHumanSeatIndex);
     setSetupBalances((current) => buildSetupBalances(nextCpuCount, includeSetupHuman, current, clampedHumanSeatIndex));
     setComputerStyles((current) => buildSetupComputerStyles(nextCpuCount, includeSetupHuman, current, clampedHumanSeatIndex));
+    setComputerLevels((current) => buildSetupComputerLevels(nextCpuCount, includeSetupHuman, current, clampedHumanSeatIndex));
   }
 
   function reshapeSetup(nextCpuCount, nextIncludeHuman) {
@@ -839,6 +874,16 @@ export default function PokerApp() {
     }));
   }
 
+  function updateComputerLevel(playerId, levelKey) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
+    setComputerLevels((current) => ({
+      ...current,
+      [playerId]: getComputerLevelSelection(levelKey).key,
+    }));
+  }
+
   function changeIncludeHuman(nextIncludeHuman) {
     if (multiplayerRoom) {
       if (!isMultiplayerHost) {
@@ -958,6 +1003,11 @@ export default function PokerApp() {
         .filter((player) => !player.isHuman)
         .map((player) => [player.id, resolveComputerStyleKey(getComputerStyleSelection(computerStyles[player.id]).key)]),
     );
+    const initialComputerLevels = Object.fromEntries(
+      setupPlayers
+        .filter((player) => !player.isHuman)
+        .map((player) => [player.id, resolveComputerLevelKey(getComputerLevelSelection(computerLevels[player.id]).key)]),
+    );
     const initialChipTotals = Object.fromEntries(
       setupPlayers.map((player) => [
         player.id,
@@ -975,6 +1025,7 @@ export default function PokerApp() {
       feeTotal: 0,
       handNumber: 1,
       computerStyles: initialComputerStyles,
+      computerLevels: initialComputerLevels,
       playerConfigs: setupPlayers.map((player) => ({ id: player.id, name: player.name, isHuman: player.isHuman })),
     });
     setDealerIndex(nextState.dealerIndex);
@@ -1023,6 +1074,7 @@ export default function PokerApp() {
       feeTotal: state?.feeTotal ?? 0,
       handNumber: (state?.handNumber ?? 0) + 1,
       computerStyles: state?.computerStyles ?? computerStyles,
+      computerLevels: state?.computerLevels ?? computerLevels,
       playerStats: state?.playerStats ?? {},
       playerConfigs: state?.playerConfigs,
     });
@@ -1041,7 +1093,7 @@ export default function PokerApp() {
     }, nextHandDelayMs);
 
     return () => window.clearTimeout(timer);
-  }, [autoNextHand, chipTotals, computerStyles, cpuCount, dealerIndex, multiplayerGameActive, nextHandDelayMs, state]);
+  }, [autoNextHand, chipTotals, computerLevels, computerStyles, cpuCount, dealerIndex, multiplayerGameActive, nextHandDelayMs, state]);
 
   function onHumanAction(action) {
     if (multiplayerGameActive) {
@@ -1106,7 +1158,7 @@ export default function PokerApp() {
             <p className="eyebrow">Gangwon Land Hold&apos;em</p>
             <h1>강원랜드 기준 베팅 시뮬레이터</h1>
             <p>
-              강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 사람 플레이어 포함 여부, 컴퓨터 수, 컴퓨터 성향 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
+              강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 사람 플레이어 포함 여부, 컴퓨터 수, 컴퓨터 성향과 수준 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
             </p>
           </div>
         </section>
@@ -1114,7 +1166,7 @@ export default function PokerApp() {
           <div>
             <h2>게임 시작 설정</h2>
             <p className="note">
-              시작 금액, 컴퓨터 성향, 잔액 부족 탈락은 앱 진행용 설정입니다. 잔액 {formatMoney(MIN_PLAYABLE_BALANCE)} 미만인 플레이어는 다음 핸드를 진행할 수 없어 탈락 처리됩니다.
+              시작 금액, 컴퓨터 성향/수준, 잔액 부족 탈락은 앱 진행용 설정입니다. 잔액 {formatMoney(MIN_PLAYABLE_BALANCE)} 미만인 플레이어는 다음 핸드를 진행할 수 없어 탈락 처리됩니다.
             </p>
           </div>
           <div className="setup-controls">
@@ -1171,7 +1223,7 @@ export default function PokerApp() {
                 onChange={(event) => updateShowComputerStylesInGame(event.target.checked)}
                 disabled={!canEditMultiplayerSettings}
               />
-              인게임 컴퓨터 성향 표시
+              인게임 컴퓨터 성향/수준 표시
             </label>
             <label className="delay-input">
               컴퓨터 행동 딜레이(ms)
@@ -1339,25 +1391,41 @@ export default function PokerApp() {
                 {player.isHuman ? (
                   <p className="note">사람 플레이어는 직접 행동을 선택합니다.</p>
                 ) : (
-                  <label className="style-input">
-                    컴퓨터 플레이 성향
-                    <select
-                      value={getComputerStyleSelection(computerStyles[player.id]).key}
-                      onChange={(event) => updateComputerStyle(player.id, event.target.value)}
-                      disabled={!canEditMultiplayerSettings}
-                    >
-                      {COMPUTER_STYLE_OPTIONS.map((style) => (
-                        <option key={style.key} value={style.key}>
-                          {style.label}
+                  <>
+                    <label className="style-input">
+                      컴퓨터 플레이 성향
+                      <select
+                        value={getComputerStyleSelection(computerStyles[player.id]).key}
+                        onChange={(event) => updateComputerStyle(player.id, event.target.value)}
+                        disabled={!canEditMultiplayerSettings}
+                      >
+                        {COMPUTER_STYLE_OPTIONS.map((style) => (
+                          <option key={style.key} value={style.key}>
+                            {style.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="style-input">
+                      컴퓨터 판단 수준
+                      <select
+                        value={getComputerLevelSelection(computerLevels[player.id]).key}
+                        onChange={(event) => updateComputerLevel(player.id, event.target.value)}
+                        disabled={!canEditMultiplayerSettings}
+                      >
+                      {COMPUTER_LEVEL_OPTIONS.map((level) => (
+                        <option key={level.key} value={level.key}>
+                          {level.label}
                         </option>
-                      ))}
-                    </select>
-                  </label>
+                        ))}
+                      </select>
+                    </label>
+                  </>
                 )}
               </div>
             ))}
           </div>
-          <p className="note">컴퓨터별 성향은 전략 조언이 아닌 앱 자동 진행 기준입니다. 랜덤은 게임 시작 시 실제 성향으로 확정됩니다.</p>
+          <p className="note">컴퓨터별 성향과 수준은 전략 조언이 아닌 앱 자동 진행 기준입니다. 랜덤은 게임 시작 시 실제 성향이나 수준으로 확정됩니다.</p>
           {multiplayerRoom ? (
             <p className="note">
               멀티플레이에서는 빈 사람 슬롯 {multiplayerRoom.humanSlots}명과 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.
@@ -1428,9 +1496,9 @@ export default function PokerApp() {
           <p className="eyebrow">Gangwon Land Hold&apos;em</p>
           <h1>강원랜드 기준 베팅 시뮬레이터</h1>
           <p>
-            강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 사람 플레이어 포함 여부, 컴퓨터 수, 컴퓨터 성향 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
+            강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 사람 플레이어 포함 여부, 컴퓨터 수, 컴퓨터 성향과 수준 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
           </p>
-          <p className="note">컴퓨터 성향: {activeComputerStyleSummary || "없음"}</p>
+          <p className="note">컴퓨터 성향/수준: {activeComputerStyleSummary || "없음"}</p>
         </div>
         <div className="hero-controls">
           <label className="toggle-input">
@@ -1449,7 +1517,7 @@ export default function PokerApp() {
               onChange={(event) => updateShowComputerStylesInGame(event.target.checked)}
               disabled={!canEditActiveGameSettings}
             />
-            인게임 컴퓨터 성향 표시
+            인게임 컴퓨터 성향/수준 표시
           </label>
           <label>
             컴퓨터 행동 딜레이(ms)

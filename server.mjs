@@ -1,7 +1,15 @@
 import crypto from "node:crypto";
 import http from "node:http";
 import next from "next";
-import { COMPUTER_STYLE_OPTIONS, applyAction, chooseComputerAction, resolveComputerStyleKey, startNewHand } from "./lib/poker.js";
+import {
+  COMPUTER_LEVEL_OPTIONS,
+  COMPUTER_STYLE_OPTIONS,
+  applyAction,
+  chooseComputerAction,
+  resolveComputerLevelKey,
+  resolveComputerStyleKey,
+  startNewHand,
+} from "./lib/poker.js";
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "0.0.0.0";
@@ -28,6 +36,7 @@ const EMPTY_ROOM_TTL_MS = 5 * 60 * 1000;
 const rooms = new Map();
 const sockets = new Set();
 const COMPUTER_STYLE_KEYS = new Set(COMPUTER_STYLE_OPTIONS.map((style) => style.key));
+const COMPUTER_LEVEL_KEYS = new Set(COMPUTER_LEVEL_OPTIONS.map((level) => level.key));
 
 function roomId() {
   return crypto.randomBytes(3).toString("hex").toUpperCase();
@@ -90,12 +99,17 @@ function sanitizeComputerStyleKey(value) {
   return COMPUTER_STYLE_KEYS.has(value) ? value : "balanced";
 }
 
+function sanitizeComputerLevelKey(value) {
+  return COMPUTER_LEVEL_KEYS.has(value) ? value : "intermediate";
+}
+
 function defaultComputerSettings(humanSlots) {
   const count = Math.min(3, Math.max(0, MAX_TOTAL_PLAYERS - humanSlots));
   return Array.from({ length: count }, (_, index) => ({
     name: `컴퓨터 ${index + 1}`,
     startingBalance: DEFAULT_STARTING_BALANCE,
     computerStyle: "balanced",
+    computerLevel: "intermediate",
   }));
 }
 
@@ -106,6 +120,7 @@ function normalizeRoomSettings(room, settings = {}) {
     name: sanitizeName(player.name, `컴퓨터 ${index + 1}`),
     startingBalance: Math.max(0, Number(player.startingBalance) || DEFAULT_STARTING_BALANCE),
     computerStyle: sanitizeComputerStyleKey(player.computerStyle),
+    computerLevel: sanitizeComputerLevelKey(player.computerLevel),
   }));
   const totalSeatCount = room.humanSlots + computerPlayers.length;
 
@@ -141,12 +156,14 @@ function publicGameState(state, playerId, showComputerStyles = true) {
   return {
     ...state,
     computerStyles: showComputerStyles ? state.computerStyles : {},
+    computerLevels: showComputerStyles ? state.computerLevels : {},
     deck: [],
     players: state.players.map((player) => {
       const revealCards = player.id === playerId || (revealShowdownCards && !player.folded);
       return {
         ...player,
         computerStyle: showComputerStyles || player.isHuman ? player.computerStyle : null,
+        computerLevel: showComputerStyles || player.isHuman ? player.computerLevel : null,
         cards: revealCards ? player.cards : player.cards.map(() => null),
       };
     }),
@@ -409,6 +426,7 @@ function buildRoomGame(room, payload) {
     isHuman: false,
     startingBalance: Math.max(0, Number(player.startingBalance) || DEFAULT_STARTING_BALANCE),
     computerStyle: resolveComputerStyleKey(player.computerStyle),
+    computerLevel: resolveComputerLevelKey(player.computerLevel),
   }));
   if (room.humanSlots + computerPlayers.length > MAX_TOTAL_PLAYERS) {
     throw new Error(`사람 슬롯과 컴퓨터 플레이어를 합쳐 최대 ${MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.`);
@@ -460,6 +478,7 @@ function buildRoomGame(room, payload) {
     ]),
   );
   const computerStyles = Object.fromEntries(computerPlayers.map((player) => [player.id, player.computerStyle]));
+  const computerLevels = Object.fromEntries(computerPlayers.map((player) => [player.id, player.computerLevel]));
   const state = startNewHand({
     cpuCount: computerPlayers.length,
     includeHuman: false,
@@ -468,6 +487,7 @@ function buildRoomGame(room, payload) {
     feeTotal: 0,
     handNumber: 1,
     computerStyles,
+    computerLevels,
     playerConfigs,
   });
 
@@ -475,6 +495,7 @@ function buildRoomGame(room, payload) {
     playerConfigs,
     cpuCount: computerPlayers.length,
     computerStyles,
+    computerLevels,
     state,
     autoNextHand: settings.autoNextHand,
     showComputerStyles: settings.showComputerStyles,
@@ -524,6 +545,7 @@ function startNextRoomHand(room) {
     feeTotal: currentState.feeTotal,
     handNumber: (currentState.handNumber ?? 0) + 1,
     computerStyles: room.game.computerStyles,
+    computerLevels: room.game.computerLevels,
     playerStats: currentState.playerStats ?? {},
     playerConfigs: room.game.playerConfigs,
   });
@@ -547,6 +569,7 @@ function applyRoomAction(room, actionKey, actorPlayerId = null, { timedOut = fal
 
   room.game.state = nextState;
   room.game.computerStyles = nextState.computerStyles ?? room.game.computerStyles;
+  room.game.computerLevels = nextState.computerLevels ?? room.game.computerLevels;
   scheduleRoomAutomation(room);
   return true;
 }
