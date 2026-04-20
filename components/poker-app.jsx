@@ -24,10 +24,13 @@ const MAX_CPU_WITH_HUMAN = MAX_TOTAL_PLAYERS - 1;
 const MAX_CPU_ONLY = MAX_TOTAL_PLAYERS;
 const DEFAULT_COMPUTER_ACTION_DELAY_MS = 700;
 const DEFAULT_NEXT_HAND_DELAY_MS = 1800;
+const DEFAULT_HUMAN_ACTION_TIMEOUT_MS = 15000;
 const MIN_COMPUTER_ACTION_DELAY_MS = 100;
 const MAX_COMPUTER_ACTION_DELAY_MS = 3000;
 const MIN_NEXT_HAND_DELAY_MS = 500;
 const MAX_NEXT_HAND_DELAY_MS = 10000;
+const MIN_HUMAN_ACTION_TIMEOUT_MS = 3000;
+const MAX_HUMAN_ACTION_TIMEOUT_MS = 60000;
 const MIN_MULTIPLAYER_HUMAN_SLOTS = 2;
 const MAX_MULTIPLAYER_HUMAN_SLOTS = MAX_TOTAL_PLAYERS;
 const MULTIPLAYER_RECONNECT_DELAY_MS = 1500;
@@ -137,6 +140,41 @@ function clampMultiplayerCpuCount(cpuCount, humanSlots) {
 
 function clampDelay(value, min, max) {
   return Math.min(Math.max(min, Number(value) || min), max);
+}
+
+function timerLabel(timer) {
+  if (timer.phase === "humanAction") {
+    return `${timer.playerName ?? "사람 플레이어"} 행동 제한 시간`;
+  }
+  if (timer.phase === "nextHandReady") {
+    return "다음 핸드 준비 제한 시간";
+  }
+  if (timer.phase === "autoNextHand") {
+    return "다음 핸드 자동 진행";
+  }
+  return "제한 시간";
+}
+
+function TimerProgress({ timer, nowMs }) {
+  if (!timer) {
+    return null;
+  }
+  const durationMs = Math.max(1, Number(timer.durationMs) || 1);
+  const remainingMs = Math.max(0, Number(timer.expiresAt) - nowMs);
+  const progress = Math.max(0, Math.min(100, (remainingMs / durationMs) * 100));
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+
+  return (
+    <div className="timer-progress" aria-label={timerLabel(timer)}>
+      <div className="timer-meta">
+        <span>{timerLabel(timer)}</span>
+        <span>{remainingSeconds}초</span>
+      </div>
+      <div className="timer-track">
+        <div className="timer-fill" style={{ width: `${progress}%` }} />
+      </div>
+    </div>
+  );
 }
 
 function clampHumanSlots(value) {
@@ -360,6 +398,7 @@ export default function PokerApp() {
   const [showComputerStylesInGame, setShowComputerStylesInGame] = useState(true);
   const [computerActionDelayMs, setComputerActionDelayMs] = useState(DEFAULT_COMPUTER_ACTION_DELAY_MS);
   const [nextHandDelayMs, setNextHandDelayMs] = useState(DEFAULT_NEXT_HAND_DELAY_MS);
+  const [humanActionTimeoutMs, setHumanActionTimeoutMs] = useState(DEFAULT_HUMAN_ACTION_TIMEOUT_MS);
   const [multiplayerName, setMultiplayerName] = useState("플레이어");
   const [multiplayerSlots, setMultiplayerSlots] = useState(2);
   const [multiplayerTableSeats, setMultiplayerTableSeats] = useState(() => buildDefaultMultiplayerTableSeats(2, 5));
@@ -373,6 +412,7 @@ export default function PokerApp() {
   const [multiplayerError, setMultiplayerError] = useState("");
   const [handHistory, setHandHistory] = useState([]);
   const [archivedHandIds, setArchivedHandIds] = useState(() => new Set());
+  const [timerNowMs, setTimerNowMs] = useState(() => Date.now());
   const multiplayerSocketRef = useRef(null);
   const multiplayerReconnectRef = useRef(null);
   const multiplayerRoomIdRef = useRef("");
@@ -572,6 +612,7 @@ export default function PokerApp() {
   const isMultiplayerHost = Boolean(multiplayerRoom && multiplayerPlayerId && multiplayerRoom.hostPlayerId === multiplayerPlayerId);
   const canEditMultiplayerSettings = !multiplayerRoom || isMultiplayerHost;
   const canEditActiveGameSettings = !multiplayerGameActive || isMultiplayerHost;
+  const multiplayerTimer = multiplayerRoom?.timer ?? null;
   const multiplayerNextHandRequiredIds = multiplayerRoom?.nextHandRequiredPlayerIds ?? [];
   const multiplayerNextHandReadyIds = multiplayerRoom?.nextHandReadyPlayerIds ?? [];
   const multiplayerNextHandReadyCount = multiplayerNextHandReadyIds.filter((playerId) => multiplayerNextHandRequiredIds.includes(playerId)).length;
@@ -593,11 +634,13 @@ export default function PokerApp() {
       showComputerStyles: showComputerStylesInGame,
       computerActionDelayMs,
       nextHandDelayMs,
+      humanActionTimeoutMs,
     }),
     [
       autoNextHand,
       computerActionDelayMs,
       computerStyles,
+      humanActionTimeoutMs,
       multiplayerHumanBalance,
       nextHandDelayMs,
       randomizeMultiplayerHumanSeats,
@@ -639,6 +682,7 @@ export default function PokerApp() {
     setShowComputerStylesInGame(settings.showComputerStyles !== false);
     setComputerActionDelayMs(clampDelay(settings.computerActionDelayMs, MIN_COMPUTER_ACTION_DELAY_MS, MAX_COMPUTER_ACTION_DELAY_MS));
     setNextHandDelayMs(clampDelay(settings.nextHandDelayMs, MIN_NEXT_HAND_DELAY_MS, MAX_NEXT_HAND_DELAY_MS));
+    setHumanActionTimeoutMs(clampDelay(settings.humanActionTimeoutMs, MIN_HUMAN_ACTION_TIMEOUT_MS, MAX_HUMAN_ACTION_TIMEOUT_MS));
   }
 
   function applySetupShape(nextCpuCount, nextIncludeHuman, includeSetupHuman = nextIncludeHuman, nextHumanSeatIndex = humanSeatIndex) {
@@ -694,6 +738,19 @@ export default function PokerApp() {
       applySetupShape(clampedCpuCount, includeHuman, false, humanSeatIndex);
     }
   }, [cpuCount, humanSeatIndex, includeHuman, multiplayerRoom, state]);
+
+  useEffect(() => {
+    if (!multiplayerTimer) {
+      return undefined;
+    }
+
+    setTimerNowMs(Date.now());
+    const timer = window.setInterval(() => {
+      setTimerNowMs(Date.now());
+    }, 100);
+
+    return () => window.clearInterval(timer);
+  }, [multiplayerTimer?.expiresAt, multiplayerTimer?.startedAt]);
 
   useEffect(() => {
     setMultiplayerTableSeats((current) => {
@@ -812,6 +869,17 @@ export default function PokerApp() {
     setNextHandDelayMs(nextValue);
     if (multiplayerGameActive) {
       sendMultiplayerMessage({ type: "updateGameOptions", nextHandDelayMs: nextValue });
+    }
+  }
+
+  function updateHumanActionTimeout(value) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
+    const nextValue = clampDelay(value, MIN_HUMAN_ACTION_TIMEOUT_MS, MAX_HUMAN_ACTION_TIMEOUT_MS);
+    setHumanActionTimeoutMs(nextValue);
+    if (multiplayerGameActive) {
+      sendMultiplayerMessage({ type: "updateGameOptions", humanActionTimeoutMs: nextValue });
     }
   }
 
@@ -1109,6 +1177,18 @@ export default function PokerApp() {
                 disabled={!canEditMultiplayerSettings || !autoNextHand}
               />
             </label>
+            <label className="delay-input">
+              멀티플레이 제한 시간(ms)
+              <input
+                min={MIN_HUMAN_ACTION_TIMEOUT_MS}
+                max={MAX_HUMAN_ACTION_TIMEOUT_MS}
+                step="1000"
+                type="number"
+                value={humanActionTimeoutMs}
+                onChange={(event) => updateHumanActionTimeout(event.target.value)}
+                disabled={!canEditMultiplayerSettings}
+              />
+            </label>
           </div>
           <section className="multiplayer-lobby">
             <div>
@@ -1375,6 +1455,18 @@ export default function PokerApp() {
               disabled={!canEditActiveGameSettings || !autoNextHand}
             />
           </label>
+          <label>
+            멀티플레이 제한 시간(ms)
+            <input
+              min={MIN_HUMAN_ACTION_TIMEOUT_MS}
+              max={MAX_HUMAN_ACTION_TIMEOUT_MS}
+              step="1000"
+              type="number"
+              value={humanActionTimeoutMs}
+              onChange={(event) => updateHumanActionTimeout(event.target.value)}
+              disabled={!canEditActiveGameSettings}
+            />
+          </label>
           <button onClick={openSetup}>새 게임 설정</button>
         </div>
       </section>
@@ -1430,6 +1522,7 @@ export default function PokerApp() {
             <h3>플레이어 행동</h3>
             <p>{statusText}</p>
           </div>
+          {multiplayerGameActive && multiplayerTimer ? <TimerProgress timer={multiplayerTimer} nowMs={timerNowMs} /> : null}
           {isNextHandReadyPhase ? (
             <div className="action-row">
               <button onClick={nextHand} disabled={nextHandButtonDisabled}>

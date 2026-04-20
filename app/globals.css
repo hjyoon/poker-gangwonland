@@ -308,6 +308,34 @@ button:disabled {
   margin: 12px 0;
 }
 
+.timer-progress {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.timer-meta {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.timer-track {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(216, 162, 61, 0.18);
+  border-radius: 999px;
+  height: 12px;
+  overflow: hidden;
+}
+
+.timer-fill {
+  background: linear-gradient(90deg, var(--green), var(--gold), var(--red));
+  height: 100%;
+  transition: width 100ms linear;
+}
+
 .log-panel ol,
 .rules ul,
 .step-panel ol {

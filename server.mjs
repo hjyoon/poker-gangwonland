@@ -15,10 +15,13 @@ const MAX_HUMAN_SLOTS = MAX_TOTAL_PLAYERS;
 const DEFAULT_STARTING_BALANCE = 100000;
 const DEFAULT_COMPUTER_ACTION_DELAY_MS = 700;
 const DEFAULT_NEXT_HAND_DELAY_MS = 1800;
+const DEFAULT_HUMAN_ACTION_TIMEOUT_MS = 15000;
 const MIN_COMPUTER_ACTION_DELAY_MS = 100;
 const MAX_COMPUTER_ACTION_DELAY_MS = 3000;
 const MIN_NEXT_HAND_DELAY_MS = 500;
 const MAX_NEXT_HAND_DELAY_MS = 10000;
+const MIN_HUMAN_ACTION_TIMEOUT_MS = 3000;
+const MAX_HUMAN_ACTION_TIMEOUT_MS = 60000;
 const MAX_FRAME_BUFFER_BYTES = 128 * 1024;
 const EMPTY_ROOM_TTL_MS = 5 * 60 * 1000;
 
@@ -120,6 +123,12 @@ function normalizeRoomSettings(room, settings = {}) {
       DEFAULT_COMPUTER_ACTION_DELAY_MS,
     ),
     nextHandDelayMs: clamp(settings.nextHandDelayMs, MIN_NEXT_HAND_DELAY_MS, MAX_NEXT_HAND_DELAY_MS, DEFAULT_NEXT_HAND_DELAY_MS),
+    humanActionTimeoutMs: clamp(
+      settings.humanActionTimeoutMs,
+      MIN_HUMAN_ACTION_TIMEOUT_MS,
+      MAX_HUMAN_ACTION_TIMEOUT_MS,
+      DEFAULT_HUMAN_ACTION_TIMEOUT_MS,
+    ),
   };
 }
 
@@ -156,6 +165,7 @@ function publicRoomSettings(room) {
     showComputerStyles: room.game.showComputerStyles,
     computerActionDelayMs: room.game.computerActionDelayMs,
     nextHandDelayMs: room.game.nextHandDelayMs,
+    humanActionTimeoutMs: room.game.humanActionTimeoutMs,
   };
 }
 
@@ -187,6 +197,14 @@ function startNextRoomHandIfReady(room) {
   return false;
 }
 
+function publicRoomTimer(room) {
+  if (!room.game?.timer) {
+    return null;
+  }
+  const { id, ...timer } = room.game.timer;
+  return timer;
+}
+
 function publicRoom(room, socket) {
   const settings = publicRoomSettings(room);
   return {
@@ -199,6 +217,7 @@ function publicRoom(room, socket) {
     showComputerStyles: settings.showComputerStyles,
     nextHandRequiredPlayerIds: nextHandRequiredPlayerIds(room),
     nextHandReadyPlayerIds: nextHandReadyPlayerIds(room),
+    timer: publicRoomTimer(room),
     gameState: publicGameState(room.game?.state, socket?.playerId, settings.showComputerStyles),
   };
 }
@@ -293,6 +312,9 @@ function detachSocketFromRoom(socket, { clearSeat = false } = {}) {
     if (room.automationTimer) {
       clearTimeout(room.automationTimer);
       room.automationTimer = null;
+    }
+    if (room.game) {
+      room.game.timer = null;
     }
     scheduleEmptyRoomCleanup(room);
   } else if (!startNextRoomHandIfReady(room)) {
@@ -458,7 +480,10 @@ function buildRoomGame(room, payload) {
     showComputerStyles: settings.showComputerStyles,
     computerActionDelayMs: settings.computerActionDelayMs,
     nextHandDelayMs: settings.nextHandDelayMs,
+    humanActionTimeoutMs: settings.humanActionTimeoutMs,
     nextHandReadyPlayerIds: new Set(),
+    timer: null,
+    timerId: 0,
   };
 }
 
@@ -476,7 +501,6 @@ function startRoomGame(socket, payload) {
   try {
     room.settings = normalizeRoomSettings(room, { ...room.settings, ...payload });
     room.game = buildRoomGame(room, room.settings);
-    broadcastRoom(room);
     scheduleRoomAutomation(room);
   } catch (error) {
     sendError(socket, error.message);
@@ -491,6 +515,7 @@ function startNextRoomHand(room) {
   const currentState = room.game.state;
   const nextDealerIndex = (currentState.dealerIndex + 1) % currentState.players.length;
   room.game.nextHandReadyPlayerIds = new Set();
+  room.game.timer = null;
   room.game.state = startNewHand({
     cpuCount: room.game.cpuCount,
     includeHuman: false,
@@ -502,11 +527,10 @@ function startNextRoomHand(room) {
     playerStats: currentState.playerStats ?? {},
     playerConfigs: room.game.playerConfigs,
   });
-  broadcastRoom(room);
   scheduleRoomAutomation(room);
 }
 
-function applyRoomAction(room, actionKey, actorPlayerId = null) {
+function applyRoomAction(room, actionKey, actorPlayerId = null, { timedOut = false } = {}) {
   if (!room.game?.state || room.game.state.finished) {
     return false;
   }
@@ -514,14 +538,15 @@ function applyRoomAction(room, actionKey, actorPlayerId = null) {
   const actorIndex = actorPlayerId
     ? room.game.state.players.findIndex((player) => player.id === actorPlayerId)
     : room.game.state.currentPlayerIndex;
-  const nextState = applyAction(room.game.state, actionKey, actorIndex);
-  if (nextState === room.game.state) {
+  const actor = room.game.state.players[actorIndex];
+  const sourceState = timedOut && actor ? { ...room.game.state, log: [...room.game.state.log, `${actor.name}: 제한 시간 초과`] } : room.game.state;
+  const nextState = applyAction(sourceState, actionKey, actorIndex);
+  if (nextState === sourceState) {
     return false;
   }
 
   room.game.state = nextState;
   room.game.computerStyles = nextState.computerStyles ?? room.game.computerStyles;
-  broadcastRoom(room);
   scheduleRoomAutomation(room);
   return true;
 }
@@ -531,6 +556,9 @@ function scheduleRoomAutomation(room) {
     clearTimeout(room.automationTimer);
     room.automationTimer = null;
   }
+  if (room.game) {
+    room.game.timer = null;
+  }
   if (!room.game?.state || room.clients.size === 0) {
     return;
   }
@@ -538,8 +566,19 @@ function scheduleRoomAutomation(room) {
   const state = room.game.state;
   if (state.finished) {
     if (room.game.autoNextHand && !state.gameOver) {
-      room.automationTimer = setTimeout(() => startNextRoomHand(room), room.game.nextHandDelayMs);
+      scheduleRoomTimer(room, {
+        phase: "autoNextHand",
+        durationMs: room.game.nextHandDelayMs,
+        onTimeout: () => startNextRoomHand(room),
+      });
+    } else if (!state.gameOver) {
+      scheduleRoomTimer(room, {
+        phase: "nextHandReady",
+        durationMs: room.game.humanActionTimeoutMs,
+        onTimeout: () => startNextRoomHand(room),
+      });
     }
+    broadcastRoom(room);
     return;
   }
 
@@ -549,7 +588,47 @@ function scheduleRoomAutomation(room) {
       const action = chooseComputerAction(room.game.state);
       applyRoomAction(room, action);
     }, room.game.computerActionDelayMs);
+  } else if (actor?.isHuman) {
+    scheduleRoomTimer(room, {
+      phase: "humanAction",
+      playerId: actor.id,
+      playerName: actor.name,
+      durationMs: room.game.humanActionTimeoutMs,
+      onTimeout: () => {
+        if (room.game?.state?.finished) {
+          return;
+        }
+        const currentActor = room.game.state.players[room.game.state.currentPlayerIndex];
+        if (currentActor?.id === actor.id && currentActor.isHuman) {
+          applyRoomAction(room, "fold", actor.id, { timedOut: true });
+        }
+      },
+    });
   }
+  broadcastRoom(room);
+}
+
+function scheduleRoomTimer(room, { phase, playerId = null, playerName = null, durationMs, onTimeout }) {
+  const startedAt = Date.now();
+  const safeDurationMs = Math.max(0, Number(durationMs) || 0);
+  const timerId = (room.game.timerId ?? 0) + 1;
+  room.game.timerId = timerId;
+  room.game.timer = {
+    id: timerId,
+    phase,
+    playerId,
+    playerName,
+    startedAt,
+    expiresAt: startedAt + safeDurationMs,
+    durationMs: safeDurationMs,
+  };
+  room.automationTimer = setTimeout(() => {
+    if (room.game?.timer?.id !== timerId) {
+      return;
+    }
+    room.game.timer = null;
+    onTimeout();
+  }, safeDurationMs);
 }
 
 function handleGameAction(socket, payload) {
@@ -640,6 +719,14 @@ function handleUpdateGameOptions(socket, payload) {
   if (Object.hasOwn(payload, "nextHandDelayMs")) {
     room.game.nextHandDelayMs = clamp(payload.nextHandDelayMs, MIN_NEXT_HAND_DELAY_MS, MAX_NEXT_HAND_DELAY_MS, DEFAULT_NEXT_HAND_DELAY_MS);
   }
+  if (Object.hasOwn(payload, "humanActionTimeoutMs")) {
+    room.game.humanActionTimeoutMs = clamp(
+      payload.humanActionTimeoutMs,
+      MIN_HUMAN_ACTION_TIMEOUT_MS,
+      MAX_HUMAN_ACTION_TIMEOUT_MS,
+      DEFAULT_HUMAN_ACTION_TIMEOUT_MS,
+    );
+  }
   if (Object.hasOwn(payload, "showComputerStyles")) {
     room.game.showComputerStyles = Boolean(payload.showComputerStyles);
   }
@@ -649,8 +736,8 @@ function handleUpdateGameOptions(socket, payload) {
     showComputerStyles: room.game.showComputerStyles,
     computerActionDelayMs: room.game.computerActionDelayMs,
     nextHandDelayMs: room.game.nextHandDelayMs,
+    humanActionTimeoutMs: room.game.humanActionTimeoutMs,
   });
-  broadcastRoom(room);
   scheduleRoomAutomation(room);
 }
 
