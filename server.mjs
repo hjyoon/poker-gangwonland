@@ -4,6 +4,7 @@ import next from "next";
 import {
   COMPUTER_LEVEL_OPTIONS,
   COMPUTER_STYLE_OPTIONS,
+  MIN_PLAYABLE_BALANCE,
   applyAction,
   chooseComputerAction,
   resolveComputerLevelKey,
@@ -130,6 +131,13 @@ function normalizeRoomSettings(room, settings = {}) {
     randomizeHumanSeats: Boolean(settings.randomizeHumanSeats),
     computerPlayers,
     autoNextHand: Boolean(settings.autoNextHand),
+    endlessMode: Boolean(settings.endlessMode),
+    endlessReplacementComputerStyle: sanitizeComputerStyleKey(settings.endlessReplacementComputerStyle ?? "random"),
+    endlessReplacementComputerLevel: sanitizeComputerLevelKey(settings.endlessReplacementComputerLevel ?? "random"),
+    endlessReplacementStartingBalance: Math.max(
+      MIN_PLAYABLE_BALANCE,
+      Number(settings.endlessReplacementStartingBalance) || DEFAULT_STARTING_BALANCE,
+    ),
     showComputerStyles: settings.showComputerStyles !== false,
     computerActionDelayMs: clamp(
       settings.computerActionDelayMs,
@@ -179,6 +187,10 @@ function publicRoomSettings(room) {
   return {
     ...settings,
     autoNextHand: room.game.autoNextHand,
+    endlessMode: room.game.endlessMode,
+    endlessReplacementComputerStyle: room.game.endlessReplacementComputerStyle,
+    endlessReplacementComputerLevel: room.game.endlessReplacementComputerLevel,
+    endlessReplacementStartingBalance: room.game.endlessReplacementStartingBalance,
     showComputerStyles: room.game.showComputerStyles,
     computerActionDelayMs: room.game.computerActionDelayMs,
     nextHandDelayMs: room.game.nextHandDelayMs,
@@ -192,7 +204,9 @@ function nextHandRequiredPlayerIds(room) {
   }
 
   const connectedPlayerIds = new Set(room.seats.filter((seat) => seat.playerId && seat.connected).map((seat) => seat.playerId));
-  return room.game.state.players.filter((player) => player.isHuman && connectedPlayerIds.has(player.id)).map((player) => player.id);
+  return room.game.state.players
+    .filter((player) => player.isHuman && !player.eliminated && connectedPlayerIds.has(player.id))
+    .map((player) => player.id);
 }
 
 function nextHandReadyPlayerIds(room) {
@@ -462,7 +476,7 @@ function buildRoomGame(room, payload) {
   }
 
   const orderedPlayers = [...playersByTableSeat, ...computersByOrder];
-  const playerConfigs = orderedPlayers.map(({ id, name, isHuman }) => ({ id, name, isHuman }));
+  const playerConfigs = orderedPlayers.map(({ id, name, isHuman, startingBalance }) => ({ id, name, isHuman, startingBalance }));
 
   if (playerConfigs.length < 2) {
     throw new Error("게임 시작에는 연결된 사람 또는 컴퓨터가 2명 이상 필요합니다.");
@@ -488,6 +502,10 @@ function buildRoomGame(room, payload) {
     handNumber: 1,
     computerStyles,
     computerLevels,
+    endlessMode: settings.endlessMode,
+    endlessReplacementComputerStyle: settings.endlessReplacementComputerStyle,
+    endlessReplacementComputerLevel: settings.endlessReplacementComputerLevel,
+    endlessReplacementStartingBalance: settings.endlessReplacementStartingBalance,
     playerConfigs,
   });
 
@@ -498,6 +516,10 @@ function buildRoomGame(room, payload) {
     computerLevels,
     state,
     autoNextHand: settings.autoNextHand,
+    endlessMode: settings.endlessMode,
+    endlessReplacementComputerStyle: settings.endlessReplacementComputerStyle,
+    endlessReplacementComputerLevel: settings.endlessReplacementComputerLevel,
+    endlessReplacementStartingBalance: settings.endlessReplacementStartingBalance,
     showComputerStyles: settings.showComputerStyles,
     computerActionDelayMs: settings.computerActionDelayMs,
     nextHandDelayMs: settings.nextHandDelayMs,
@@ -546,9 +568,16 @@ function startNextRoomHand(room) {
     handNumber: (currentState.handNumber ?? 0) + 1,
     computerStyles: room.game.computerStyles,
     computerLevels: room.game.computerLevels,
+    endlessMode: room.game.endlessMode,
+    endlessReplacementComputerStyle: room.game.endlessReplacementComputerStyle,
+    endlessReplacementComputerLevel: room.game.endlessReplacementComputerLevel,
+    endlessReplacementStartingBalance: room.game.endlessReplacementStartingBalance,
     playerStats: currentState.playerStats ?? {},
     playerConfigs: room.game.playerConfigs,
   });
+  room.game.playerConfigs = room.game.state.playerConfigs;
+  room.game.computerStyles = room.game.state.computerStyles ?? room.game.computerStyles;
+  room.game.computerLevels = room.game.state.computerLevels ?? room.game.computerLevels;
   scheduleRoomAutomation(room);
 }
 
@@ -731,6 +760,21 @@ function handleUpdateGameOptions(socket, payload) {
   if (Object.hasOwn(payload, "autoNextHand")) {
     room.game.autoNextHand = Boolean(payload.autoNextHand);
   }
+  if (Object.hasOwn(payload, "endlessMode")) {
+    room.game.endlessMode = Boolean(payload.endlessMode);
+  }
+  if (Object.hasOwn(payload, "endlessReplacementComputerStyle")) {
+    room.game.endlessReplacementComputerStyle = sanitizeComputerStyleKey(payload.endlessReplacementComputerStyle);
+  }
+  if (Object.hasOwn(payload, "endlessReplacementComputerLevel")) {
+    room.game.endlessReplacementComputerLevel = sanitizeComputerLevelKey(payload.endlessReplacementComputerLevel);
+  }
+  if (Object.hasOwn(payload, "endlessReplacementStartingBalance")) {
+    room.game.endlessReplacementStartingBalance = Math.max(
+      MIN_PLAYABLE_BALANCE,
+      Number(payload.endlessReplacementStartingBalance) || DEFAULT_STARTING_BALANCE,
+    );
+  }
   if (Object.hasOwn(payload, "computerActionDelayMs")) {
     room.game.computerActionDelayMs = clamp(
       payload.computerActionDelayMs,
@@ -756,6 +800,10 @@ function handleUpdateGameOptions(socket, payload) {
   room.settings = normalizeRoomSettings(room, {
     ...room.settings,
     autoNextHand: room.game.autoNextHand,
+    endlessMode: room.game.endlessMode,
+    endlessReplacementComputerStyle: room.game.endlessReplacementComputerStyle,
+    endlessReplacementComputerLevel: room.game.endlessReplacementComputerLevel,
+    endlessReplacementStartingBalance: room.game.endlessReplacementStartingBalance,
     showComputerStyles: room.game.showComputerStyles,
     computerActionDelayMs: room.game.computerActionDelayMs,
     nextHandDelayMs: room.game.nextHandDelayMs,

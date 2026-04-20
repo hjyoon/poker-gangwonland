@@ -440,6 +440,10 @@ export default function PokerApp() {
   const [chipTotals, setChipTotals] = useState({});
   const [state, setState] = useState(null);
   const [autoNextHand, setAutoNextHand] = useState(false);
+  const [endlessMode, setEndlessMode] = useState(false);
+  const [endlessReplacementComputerStyle, setEndlessReplacementComputerStyle] = useState("random");
+  const [endlessReplacementComputerLevel, setEndlessReplacementComputerLevel] = useState("random");
+  const [endlessReplacementStartingBalance, setEndlessReplacementStartingBalance] = useState(DEFAULT_STARTING_BALANCE);
   const [showComputerStylesInGame, setShowComputerStylesInGame] = useState(true);
   const [computerActionDelayMs, setComputerActionDelayMs] = useState(DEFAULT_COMPUTER_ACTION_DELAY_MS);
   const [nextHandDelayMs, setNextHandDelayMs] = useState(DEFAULT_NEXT_HAND_DELAY_MS);
@@ -677,6 +681,10 @@ export default function PokerApp() {
           computerLevel: getComputerLevelSelection(computerLevels[player.id]).key,
         })),
       autoNextHand,
+      endlessMode,
+      endlessReplacementComputerStyle: getComputerStyleSelection(endlessReplacementComputerStyle).key,
+      endlessReplacementComputerLevel: getComputerLevelSelection(endlessReplacementComputerLevel).key,
+      endlessReplacementStartingBalance,
       showComputerStyles: showComputerStylesInGame,
       computerActionDelayMs,
       nextHandDelayMs,
@@ -687,6 +695,10 @@ export default function PokerApp() {
       computerActionDelayMs,
       computerLevels,
       computerStyles,
+      endlessMode,
+      endlessReplacementComputerLevel,
+      endlessReplacementComputerStyle,
+      endlessReplacementStartingBalance,
       humanActionTimeoutMs,
       multiplayerHumanBalance,
       nextHandDelayMs,
@@ -733,6 +745,10 @@ export default function PokerApp() {
     setMultiplayerTableSeats(normalizeMultiplayerTableSeats(settings.humanSeatPlacements, room.humanSlots, room.humanSlots + nextCpuCount));
     setRandomizeMultiplayerHumanSeats(Boolean(settings.randomizeHumanSeats));
     setAutoNextHand(Boolean(settings.autoNextHand));
+    setEndlessMode(Boolean(settings.endlessMode));
+    setEndlessReplacementComputerStyle(getComputerStyleSelection(settings.endlessReplacementComputerStyle).key);
+    setEndlessReplacementComputerLevel(getComputerLevelSelection(settings.endlessReplacementComputerLevel).key);
+    setEndlessReplacementStartingBalance(Math.max(MIN_PLAYABLE_BALANCE, Number(settings.endlessReplacementStartingBalance) || DEFAULT_STARTING_BALANCE));
     setShowComputerStylesInGame(settings.showComputerStyles !== false);
     setComputerActionDelayMs(clampDelay(settings.computerActionDelayMs, MIN_COMPUTER_ACTION_DELAY_MS, MAX_COMPUTER_ACTION_DELAY_MS));
     setNextHandDelayMs(clampDelay(settings.nextHandDelayMs, MIN_NEXT_HAND_DELAY_MS, MAX_NEXT_HAND_DELAY_MS));
@@ -905,6 +921,49 @@ export default function PokerApp() {
     }
   }
 
+  function updateEndlessMode(enabled) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
+    setEndlessMode(enabled);
+    if (multiplayerGameActive) {
+      sendMultiplayerMessage({ type: "updateGameOptions", endlessMode: enabled });
+    }
+  }
+
+  function updateEndlessReplacementStyle(styleKey) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
+    const nextValue = getComputerStyleSelection(styleKey).key;
+    setEndlessReplacementComputerStyle(nextValue);
+    if (multiplayerGameActive) {
+      sendMultiplayerMessage({ type: "updateGameOptions", endlessReplacementComputerStyle: nextValue });
+    }
+  }
+
+  function updateEndlessReplacementLevel(levelKey) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
+    const nextValue = getComputerLevelSelection(levelKey).key;
+    setEndlessReplacementComputerLevel(nextValue);
+    if (multiplayerGameActive) {
+      sendMultiplayerMessage({ type: "updateGameOptions", endlessReplacementComputerLevel: nextValue });
+    }
+  }
+
+  function updateEndlessReplacementBalance(value) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
+    const nextValue = Math.max(MIN_PLAYABLE_BALANCE, Number(value) || DEFAULT_STARTING_BALANCE);
+    setEndlessReplacementStartingBalance(nextValue);
+    if (multiplayerGameActive) {
+      sendMultiplayerMessage({ type: "updateGameOptions", endlessReplacementStartingBalance: nextValue });
+    }
+  }
+
   function updateShowComputerStylesInGame(enabled) {
     if (multiplayerRoom && !isMultiplayerHost) {
       return;
@@ -1026,7 +1085,16 @@ export default function PokerApp() {
       handNumber: 1,
       computerStyles: initialComputerStyles,
       computerLevels: initialComputerLevels,
-      playerConfigs: setupPlayers.map((player) => ({ id: player.id, name: player.name, isHuman: player.isHuman })),
+      endlessMode,
+      endlessReplacementComputerStyle: getComputerStyleSelection(endlessReplacementComputerStyle).key,
+      endlessReplacementComputerLevel: getComputerLevelSelection(endlessReplacementComputerLevel).key,
+      endlessReplacementStartingBalance,
+      playerConfigs: setupPlayers.map((player) => ({
+        id: player.id,
+        name: player.name,
+        isHuman: player.isHuman,
+        startingBalance: setupBalances[player.id] ?? DEFAULT_STARTING_BALANCE,
+      })),
     });
     setDealerIndex(nextState.dealerIndex);
     setChipTotals(nextState.chipTotals ?? initialChipTotals);
@@ -1075,6 +1143,10 @@ export default function PokerApp() {
       handNumber: (state?.handNumber ?? 0) + 1,
       computerStyles: state?.computerStyles ?? computerStyles,
       computerLevels: state?.computerLevels ?? computerLevels,
+      endlessMode,
+      endlessReplacementComputerStyle,
+      endlessReplacementComputerLevel,
+      endlessReplacementStartingBalance,
       playerStats: state?.playerStats ?? {},
       playerConfigs: state?.playerConfigs,
     });
@@ -1093,7 +1165,21 @@ export default function PokerApp() {
     }, nextHandDelayMs);
 
     return () => window.clearTimeout(timer);
-  }, [autoNextHand, chipTotals, computerLevels, computerStyles, cpuCount, dealerIndex, multiplayerGameActive, nextHandDelayMs, state]);
+  }, [
+    autoNextHand,
+    chipTotals,
+    computerLevels,
+    computerStyles,
+    cpuCount,
+    dealerIndex,
+    endlessMode,
+    endlessReplacementComputerLevel,
+    endlessReplacementComputerStyle,
+    endlessReplacementStartingBalance,
+    multiplayerGameActive,
+    nextHandDelayMs,
+    state,
+  ]);
 
   function onHumanAction(action) {
     if (multiplayerGameActive) {
@@ -1215,6 +1301,54 @@ export default function PokerApp() {
                 disabled={!canEditMultiplayerSettings}
               />
               다음 핸드 자동 진행
+            </label>
+            <label className="toggle-input">
+              <input
+                type="checkbox"
+                checked={endlessMode}
+                onChange={(event) => updateEndlessMode(event.target.checked)}
+                disabled={!canEditMultiplayerSettings}
+              />
+              엔들리스 게임 모드
+            </label>
+            <label>
+              엔들리스 신규 컴퓨터 성향
+              <select
+                value={getComputerStyleSelection(endlessReplacementComputerStyle).key}
+                onChange={(event) => updateEndlessReplacementStyle(event.target.value)}
+                disabled={!canEditMultiplayerSettings || !endlessMode}
+              >
+                {COMPUTER_STYLE_OPTIONS.map((style) => (
+                  <option key={style.key} value={style.key}>
+                    {style.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              엔들리스 신규 컴퓨터 수준
+              <select
+                value={getComputerLevelSelection(endlessReplacementComputerLevel).key}
+                onChange={(event) => updateEndlessReplacementLevel(event.target.value)}
+                disabled={!canEditMultiplayerSettings || !endlessMode}
+              >
+                {COMPUTER_LEVEL_OPTIONS.map((level) => (
+                  <option key={level.key} value={level.key}>
+                    {level.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="delay-input">
+              엔들리스 신규 시작 금액
+              <input
+                min={MIN_PLAYABLE_BALANCE}
+                step="1000"
+                type="number"
+                value={endlessReplacementStartingBalance}
+                onChange={(event) => updateEndlessReplacementBalance(event.target.value)}
+                disabled={!canEditMultiplayerSettings || !endlessMode}
+              />
             </label>
             <label className="toggle-input">
               <input
@@ -1425,7 +1559,10 @@ export default function PokerApp() {
               </div>
             ))}
           </div>
-          <p className="note">컴퓨터별 성향과 수준은 전략 조언이 아닌 앱 자동 진행 기준입니다. 랜덤은 게임 시작 시 실제 성향이나 수준으로 확정됩니다.</p>
+          <p className="note">
+            컴퓨터별 성향과 수준은 전략 조언이 아닌 앱 자동 진행 기준입니다. 랜덤은 게임 시작 시 실제 성향이나 수준으로 확정됩니다.
+            엔들리스 게임 모드에서는 다음 핸드 시작 시 탈락 좌석에 새 컴퓨터가 입장합니다.
+          </p>
           {multiplayerRoom ? (
             <p className="note">
               멀티플레이에서는 빈 사람 슬롯 {multiplayerRoom.humanSlots}명과 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.
@@ -1509,6 +1646,54 @@ export default function PokerApp() {
               disabled={!canEditActiveGameSettings}
             />
             다음 핸드 자동 진행
+          </label>
+          <label className="toggle-input">
+            <input
+              type="checkbox"
+              checked={endlessMode}
+              onChange={(event) => updateEndlessMode(event.target.checked)}
+              disabled={!canEditActiveGameSettings}
+            />
+            엔들리스 게임 모드
+          </label>
+          <label>
+            엔들리스 신규 컴퓨터 성향
+            <select
+              value={getComputerStyleSelection(endlessReplacementComputerStyle).key}
+              onChange={(event) => updateEndlessReplacementStyle(event.target.value)}
+              disabled={!canEditActiveGameSettings || !endlessMode}
+            >
+              {COMPUTER_STYLE_OPTIONS.map((style) => (
+                <option key={style.key} value={style.key}>
+                  {style.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            엔들리스 신규 컴퓨터 수준
+            <select
+              value={getComputerLevelSelection(endlessReplacementComputerLevel).key}
+              onChange={(event) => updateEndlessReplacementLevel(event.target.value)}
+              disabled={!canEditActiveGameSettings || !endlessMode}
+            >
+              {COMPUTER_LEVEL_OPTIONS.map((level) => (
+                <option key={level.key} value={level.key}>
+                  {level.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            엔들리스 신규 시작 금액
+            <input
+              min={MIN_PLAYABLE_BALANCE}
+              step="1000"
+              type="number"
+              value={endlessReplacementStartingBalance}
+              onChange={(event) => updateEndlessReplacementBalance(event.target.value)}
+              disabled={!canEditActiveGameSettings || !endlessMode}
+            />
           </label>
           <label className="toggle-input">
             <input
