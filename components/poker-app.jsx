@@ -249,7 +249,10 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
   const computerStyleLabel = showComputerStyle && player.computerStyle ? getComputerStyleOption(player.computerStyle).label : "성향 비공개";
   const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "사람" : computerStyleLabel;
-  const actionLabel = player.lastAction === "스몰 블라인드" || player.lastAction === "빅 블라인드" ? "대기" : player.lastAction;
+  const actionLabel =
+    player.lastAction === "스몰 블라인드" || player.lastAction === "빅 블라인드" || player.lastAction === "잔액 전액 콜"
+      ? "대기"
+      : player.lastAction;
 
   return (
     <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
@@ -265,6 +268,11 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
           {blindRole ? (
             <span className="blind-badge" title={blindRole === "SB" ? "스몰 블라인드" : "빅 블라인드"}>
               {blindRole}
+            </span>
+          ) : null}
+          {player.actionLocked ? (
+            <span className="all-in-badge" title="잔액 전액 콜">
+              올인
             </span>
           ) : null}
         </span>
