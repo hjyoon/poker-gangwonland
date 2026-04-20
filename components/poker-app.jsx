@@ -247,8 +247,7 @@ function cardSuitClass(card) {
 function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle, winner }) {
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
-  const computerStyleLabel =
-    showComputerStyle && player.computerStyle ? `컴퓨터 · ${getComputerStyleOption(player.computerStyle).label}` : "컴퓨터 · 성향 비공개";
+  const computerStyleLabel = showComputerStyle && player.computerStyle ? getComputerStyleOption(player.computerStyle).label : "성향 비공개";
   const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "사람" : computerStyleLabel;
 
   return (
