@@ -111,7 +111,7 @@ function normalizeRoomSettings(room, settings = {}) {
     humanSeatPlacements: normalizeHumanTableSeats(settings.humanSeatPlacements, room.humanSlots, totalSeatCount),
     randomizeHumanSeats: Boolean(settings.randomizeHumanSeats),
     computerPlayers,
-    autoNextHand: settings.autoNextHand !== false,
+    autoNextHand: Boolean(settings.autoNextHand),
     showComputerStyles: settings.showComputerStyles !== false,
     computerActionDelayMs: clamp(
       settings.computerActionDelayMs,
@@ -159,6 +159,34 @@ function publicRoomSettings(room) {
   };
 }
 
+function nextHandRequiredPlayerIds(room) {
+  if (!room.game?.state?.finished || room.game.state.gameOver) {
+    return [];
+  }
+
+  const connectedPlayerIds = new Set(room.seats.filter((seat) => seat.playerId && seat.connected).map((seat) => seat.playerId));
+  return room.game.state.players.filter((player) => player.isHuman && connectedPlayerIds.has(player.id)).map((player) => player.id);
+}
+
+function nextHandReadyPlayerIds(room) {
+  const requiredPlayerIds = new Set(nextHandRequiredPlayerIds(room));
+  return [...(room.game?.nextHandReadyPlayerIds ?? new Set())].filter((playerId) => requiredPlayerIds.has(playerId));
+}
+
+function allRequiredPlayersReadyForNextHand(room) {
+  const requiredPlayerIds = nextHandRequiredPlayerIds(room);
+  const readyPlayerIds = room.game?.nextHandReadyPlayerIds ?? new Set();
+  return requiredPlayerIds.length > 0 && requiredPlayerIds.every((playerId) => readyPlayerIds.has(playerId));
+}
+
+function startNextRoomHandIfReady(room) {
+  if (room.game?.state?.finished && !room.game.state.gameOver && !room.game.autoNextHand && allRequiredPlayersReadyForNextHand(room)) {
+    startNextRoomHand(room);
+    return true;
+  }
+  return false;
+}
+
 function publicRoom(room, socket) {
   const settings = publicRoomSettings(room);
   return {
@@ -169,6 +197,8 @@ function publicRoom(room, socket) {
     createdAt: room.createdAt,
     settings,
     showComputerStyles: settings.showComputerStyles,
+    nextHandRequiredPlayerIds: nextHandRequiredPlayerIds(room),
+    nextHandReadyPlayerIds: nextHandReadyPlayerIds(room),
     gameState: publicGameState(room.game?.state, socket?.playerId, settings.showComputerStyles),
   };
 }
@@ -265,7 +295,7 @@ function detachSocketFromRoom(socket, { clearSeat = false } = {}) {
       room.automationTimer = null;
     }
     scheduleEmptyRoomCleanup(room);
-  } else {
+  } else if (!startNextRoomHandIfReady(room)) {
     broadcastRoom(room);
   }
 }
@@ -428,6 +458,7 @@ function buildRoomGame(room, payload) {
     showComputerStyles: settings.showComputerStyles,
     computerActionDelayMs: settings.computerActionDelayMs,
     nextHandDelayMs: settings.nextHandDelayMs,
+    nextHandReadyPlayerIds: new Set(),
   };
 }
 
@@ -459,6 +490,7 @@ function startNextRoomHand(room) {
 
   const currentState = room.game.state;
   const nextDealerIndex = (currentState.dealerIndex + 1) % currentState.players.length;
+  room.game.nextHandReadyPlayerIds = new Set();
   room.game.state = startNewHand({
     cpuCount: room.game.cpuCount,
     includeHuman: false,
@@ -544,15 +576,24 @@ function handleRequestNextHand(socket) {
     sendError(socket, "진행 중인 멀티플레이 게임이 없습니다.");
     return;
   }
-  if (!isRoomHost(room, socket)) {
-    sendError(socket, "방장만 다음 핸드를 시작할 수 있습니다.");
-    return;
-  }
   if (!room.game.state.finished || room.game.state.gameOver) {
     sendError(socket, "다음 핸드를 시작할 수 있는 상태가 아닙니다.");
     return;
   }
-  startNextRoomHand(room);
+
+  const requiredPlayerIds = nextHandRequiredPlayerIds(room);
+  if (!requiredPlayerIds.includes(socket.playerId)) {
+    sendError(socket, "다음 핸드 진행 확인 대상이 아닙니다.");
+    return;
+  }
+
+  room.game.nextHandReadyPlayerIds ??= new Set();
+  room.game.nextHandReadyPlayerIds.add(socket.playerId);
+  if (allRequiredPlayersReadyForNextHand(room)) {
+    startNextRoomHand(room);
+    return;
+  }
+  broadcastRoom(room);
 }
 
 function handleUpdateRoomSettings(socket, payload) {

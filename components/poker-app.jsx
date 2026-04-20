@@ -356,7 +356,7 @@ export default function PokerApp() {
   const [dealerIndex, setDealerIndex] = useState(0);
   const [chipTotals, setChipTotals] = useState({});
   const [state, setState] = useState(null);
-  const [autoNextHand, setAutoNextHand] = useState(true);
+  const [autoNextHand, setAutoNextHand] = useState(false);
   const [showComputerStylesInGame, setShowComputerStylesInGame] = useState(true);
   const [computerActionDelayMs, setComputerActionDelayMs] = useState(DEFAULT_COMPUTER_ACTION_DELAY_MS);
   const [nextHandDelayMs, setNextHandDelayMs] = useState(DEFAULT_NEXT_HAND_DELAY_MS);
@@ -572,6 +572,11 @@ export default function PokerApp() {
   const isMultiplayerHost = Boolean(multiplayerRoom && multiplayerPlayerId && multiplayerRoom.hostPlayerId === multiplayerPlayerId);
   const canEditMultiplayerSettings = !multiplayerRoom || isMultiplayerHost;
   const canEditActiveGameSettings = !multiplayerGameActive || isMultiplayerHost;
+  const multiplayerNextHandRequiredIds = multiplayerRoom?.nextHandRequiredPlayerIds ?? [];
+  const multiplayerNextHandReadyIds = multiplayerRoom?.nextHandReadyPlayerIds ?? [];
+  const multiplayerNextHandReadyCount = multiplayerNextHandReadyIds.filter((playerId) => multiplayerNextHandRequiredIds.includes(playerId)).length;
+  const canConfirmMultiplayerNextHand = Boolean(multiplayerPlayerId && multiplayerNextHandRequiredIds.includes(multiplayerPlayerId));
+  const hasConfirmedMultiplayerNextHand = Boolean(multiplayerPlayerId && multiplayerNextHandReadyIds.includes(multiplayerPlayerId));
   const multiplayerSettingsPayload = useMemo(
     () => ({
       humanStartingBalance: multiplayerHumanBalance,
@@ -630,7 +635,7 @@ export default function PokerApp() {
     setMultiplayerHumanBalance(Math.max(0, Number(settings.humanStartingBalance) || 0));
     setMultiplayerTableSeats(normalizeMultiplayerTableSeats(settings.humanSeatPlacements, room.humanSlots, room.humanSlots + nextCpuCount));
     setRandomizeMultiplayerHumanSeats(Boolean(settings.randomizeHumanSeats));
-    setAutoNextHand(settings.autoNextHand !== false);
+    setAutoNextHand(Boolean(settings.autoNextHand));
     setShowComputerStylesInGame(settings.showComputerStyles !== false);
     setComputerActionDelayMs(clampDelay(settings.computerActionDelayMs, MIN_COMPUTER_ACTION_DELAY_MS, MAX_COMPUTER_ACTION_DELAY_MS));
     setNextHandDelayMs(clampDelay(settings.nextHandDelayMs, MIN_NEXT_HAND_DELAY_MS, MAX_NEXT_HAND_DELAY_MS));
@@ -904,11 +909,14 @@ export default function PokerApp() {
 
   function nextHand() {
     if (multiplayerGameActive) {
-      if (!isMultiplayerHost) {
-        setMultiplayerError("방장만 다음 핸드를 시작할 수 있습니다.");
+      if (!state?.finished || state.gameOver) {
         return;
       }
-      if (!state?.finished || state.gameOver) {
+      if (!canConfirmMultiplayerNextHand) {
+        setMultiplayerError("다음 핸드 진행 확인 대상이 아닙니다.");
+        return;
+      }
+      if (hasConfirmedMultiplayerNextHand) {
         return;
       }
       sendMultiplayerMessage({ type: "requestNextHand" });
@@ -1098,7 +1106,7 @@ export default function PokerApp() {
                 type="number"
                 value={nextHandDelayMs}
                 onChange={(event) => updateNextHandDelay(event.target.value)}
-                disabled={!canEditMultiplayerSettings}
+                disabled={!canEditMultiplayerSettings || !autoNextHand}
               />
             </label>
           </div>
@@ -1278,26 +1286,40 @@ export default function PokerApp() {
   const humanActions = isControlledHumanTurn ? getAvailableActions(state, humanIndex) : [];
   const revealCards = state.finished && state.showdownResults.length > 0;
   const currentActor = state.players[state.currentPlayerIndex];
-  const statusText = state.gameOver
-    ? "게임이 종료되었습니다."
-    : multiplayerGameActive && isControlledHumanTurn
-      ? "내 차례입니다."
-      : multiplayerGameActive && currentActor?.isHuman
-        ? `${currentActor.name} 차례입니다.`
-        : multiplayerGameActive && hasHumanPlayer
-          ? "서버에서 컴퓨터 진행을 동기화 중입니다."
-          : multiplayerGameActive
-            ? "관전 중입니다."
-    : !hasHumanPlayer
-      ? "컴퓨터 플레이어만으로 자동 진행 중입니다."
-      : state.waitingForHuman && !state.finished
-      ? "사람 차례입니다."
-      : "컴퓨터 진행 중이거나 핸드가 종료되었습니다.";
+  let statusText = "컴퓨터 진행 중입니다.";
+  if (state.gameOver) {
+    statusText = "게임이 종료되었습니다.";
+  } else if (state.finished && multiplayerGameActive && autoNextHand) {
+    statusText = "핸드가 종료되었습니다. 자동 진행 옵션에 따라 다음 핸드를 대기 중입니다.";
+  } else if (state.finished && multiplayerGameActive && hasConfirmedMultiplayerNextHand) {
+    statusText = "다른 사람 플레이어의 다음 핸드 클릭을 기다립니다.";
+  } else if (state.finished && multiplayerGameActive) {
+    statusText = "핸드가 종료되었습니다. 다음 핸드를 눌러 준비하세요.";
+  } else if (state.finished && autoNextHand) {
+    statusText = "핸드가 종료되었습니다. 자동 진행 옵션에 따라 다음 핸드를 대기 중입니다.";
+  } else if (state.finished) {
+    statusText = "핸드가 종료되었습니다. 테이블의 다음 핸드 버튼을 눌러 진행하세요.";
+  } else if (multiplayerGameActive && isControlledHumanTurn) {
+    statusText = "내 차례입니다.";
+  } else if (multiplayerGameActive && currentActor?.isHuman) {
+    statusText = `${currentActor.name} 차례입니다.`;
+  } else if (multiplayerGameActive && hasHumanPlayer) {
+    statusText = "서버에서 컴퓨터 진행을 동기화 중입니다.";
+  } else if (multiplayerGameActive) {
+    statusText = "관전 중입니다.";
+  } else if (!hasHumanPlayer) {
+    statusText = "컴퓨터 플레이어만으로 자동 진행 중입니다.";
+  } else if (state.waitingForHuman) {
+    statusText = "사람 차례입니다.";
+  }
   const dealerName = state.gameOver ? "-" : state.players[state.dealerIndex]?.name;
   const turnName = state.gameOver ? "-" : state.players[state.currentPlayerIndex]?.name;
   const handFee = state.finished ? state.currentHandFee ?? 0 : calculateFee(state.pot);
   const handFeeLabel = state.finished ? "이번 핸드 수수료" : "이번 핸드 예상 수수료";
   const cumulativeFee = state.feeTotal ?? 0;
+  const isNextHandReadyPhase = state.finished && !state.gameOver;
+  const nextHandButtonDisabled = multiplayerGameActive && (!canConfirmMultiplayerNextHand || hasConfirmedMultiplayerNextHand);
+  const nextHandButtonLabel = multiplayerGameActive && hasConfirmedMultiplayerNextHand ? "다음 핸드 준비 완료" : "다음 핸드";
 
   return (
     <main className="app-shell">
@@ -1311,9 +1333,6 @@ export default function PokerApp() {
           <p className="note">컴퓨터 성향: {activeComputerStyleSummary || "없음"}</p>
         </div>
         <div className="hero-controls">
-          <button className="secondary" onClick={nextHand} disabled={!state.finished || state.gameOver || (multiplayerGameActive && !isMultiplayerHost)}>
-            다음 핸드
-          </button>
           <label className="toggle-input">
             <input
               type="checkbox"
@@ -1353,7 +1372,7 @@ export default function PokerApp() {
               type="number"
               value={nextHandDelayMs}
               onChange={(event) => updateNextHandDelay(event.target.value)}
-              disabled={!canEditActiveGameSettings}
+              disabled={!canEditActiveGameSettings || !autoNextHand}
             />
           </label>
           <button onClick={openSetup}>새 게임 설정</button>
@@ -1411,7 +1430,13 @@ export default function PokerApp() {
             <h3>플레이어 행동</h3>
             <p>{statusText}</p>
           </div>
-          {hasHumanPlayer ? (
+          {isNextHandReadyPhase ? (
+            <div className="action-row">
+              <button onClick={nextHand} disabled={nextHandButtonDisabled}>
+                {nextHandButtonLabel}
+              </button>
+            </div>
+          ) : hasHumanPlayer ? (
             <div className="action-row">
               {humanActions.map((action) => (
                 <button
@@ -1423,6 +1448,13 @@ export default function PokerApp() {
                 </button>
               ))}
             </div>
+          ) : null}
+          {isNextHandReadyPhase && multiplayerGameActive ? (
+            <p className="note">
+              {autoNextHand
+                ? `자동 진행 옵션이 켜져 있습니다. 직접 진행하려면 사람 플레이어 전원이 다음 핸드를 눌러야 합니다. 준비 ${multiplayerNextHandReadyCount}/${multiplayerNextHandRequiredIds.length}명`
+                : `사람 플레이어 전원이 다음 핸드를 눌러야 진행됩니다. 준비 ${multiplayerNextHandReadyCount}/${multiplayerNextHandRequiredIds.length}명`}
+            </p>
           ) : null}
           {state.finished ? (
             <p className="note">
