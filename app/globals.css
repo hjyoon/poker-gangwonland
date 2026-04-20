@@ -236,12 +236,49 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+.seat-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.blind-badge {
+  border: 1px solid rgba(216, 162, 61, 0.34);
+  border-radius: 999px;
+  color: var(--gold);
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 4px 7px;
+}
+
+.dealer-badge {
+  background: rgba(83, 184, 131, 0.14);
+  border: 1px solid rgba(83, 184, 131, 0.38);
+  border-radius: 999px;
+  color: var(--green);
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 4px 7px;
+}
+
 .seat header span,
 .seat dd,
 .seat dt,
 .hand-label,
 .note {
   color: var(--muted);
+}
+
+.seat header .blind-badge {
+  color: var(--gold);
+}
+
+.seat header .dealer-badge {
+  color: var(--green);
 }
 
 .seat-cards {

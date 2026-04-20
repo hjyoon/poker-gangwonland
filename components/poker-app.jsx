@@ -244,17 +244,30 @@ function cardSuitClass(card) {
   return card.suit === "H" || card.suit === "D" ? " is-red" : " is-black";
 }
 
-function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle, winner }) {
+function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle, winner, blindRole, isDealer }) {
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
   const computerStyleLabel = showComputerStyle && player.computerStyle ? getComputerStyleOption(player.computerStyle).label : "성향 비공개";
   const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "사람" : computerStyleLabel;
+  const actionLabel = player.lastAction === "스몰 블라인드" || player.lastAction === "빅 블라인드" ? "대기" : player.lastAction;
 
   return (
     <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
       <header>
         <strong>{player.name}</strong>
-        <span>{seatLabel}</span>
+        <span className="seat-meta">
+          <span>{seatLabel}</span>
+          {isDealer ? (
+            <span className="dealer-badge" title="딜러">
+              D
+            </span>
+          ) : null}
+          {blindRole ? (
+            <span className="blind-badge" title={blindRole === "SB" ? "스몰 블라인드" : "빅 블라인드"}>
+              {blindRole}
+            </span>
+          ) : null}
+        </span>
       </header>
       <div className="seat-cards">
         {player.eliminated ? (
@@ -273,7 +286,7 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
       <dl>
         <div>
           <dt>행동</dt>
-          <dd>{player.lastAction}</dd>
+          <dd>{actionLabel}</dd>
         </div>
         <div>
           <dt>이번 핸드</dt>
@@ -1510,6 +1523,8 @@ export default function PokerApp() {
                 showPrivateCards={multiplayerGameActive ? player.id === multiplayerPlayerId : player.isHuman}
                 showComputerStyle={showComputerStylesInGame}
                 winner={state.winnerIds.includes(player.id)}
+                blindRole={index === state.smallBlindIndex ? "SB" : index === state.bigBlindIndex ? "BB" : ""}
+                isDealer={index === state.dealerIndex}
               />
               {showdownMap[player.id] ? <p className="hand-label">{showdownMap[player.id]}</p> : null}
             </div>
