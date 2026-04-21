@@ -43,13 +43,11 @@ const SETUP_MODE_OPTIONS = [
 ];
 const SINGLEPLAY_SETUP_TABS = [
   { key: "game", label: "게임 설정" },
-  { key: "players", label: "플레이어" },
   { key: "rules", label: "규칙 요약" },
 ];
 const MULTIPLAYER_SETUP_TABS = [
   { key: "multiplayer", label: "멀티플레이" },
   { key: "game", label: "게임 설정" },
-  { key: "players", label: "플레이어" },
   { key: "rules", label: "규칙 요약" },
 ];
 const GAME_INFO_TABS = [
@@ -1363,151 +1361,211 @@ export default function PokerApp() {
           </div>
 
           {setupTab === "game" ? (
-            <div className="setup-controls setup-section" role="tabpanel">
-              <label>
-                컴퓨터 플레이어 수
-                <select
-                  ref={cpuCountSelectRef}
-                  value={cpuCount}
-                  onChange={(event) => changeCpuCount(Number(event.target.value))}
-                  disabled={!canEditMultiplayerSettings}
-                >
-                  {effectiveCpuCountOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}명
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {!isMultiplayerSetup ? (
-                <>
-                  <label className="toggle-input">
-                    <input
-                      ref={includeHumanInputRef}
-                      type="checkbox"
-                      checked={includeHuman}
-                      onChange={(event) => changeIncludeHuman(event.target.checked)}
-                    />
-                    사람 플레이어 포함
-                  </label>
-                  {includeHuman ? (
-                    <label>
-                      사람 플레이어 자리
-                      <select value={resolvedHumanSeatIndex} onChange={(event) => changeHumanSeatIndex(Number(event.target.value))}>
-                        {humanSeatOptions.map((option) => (
-                          <option key={option} value={option}>
-                            {option + 1}번 자리
-                          </option>
-                        ))}
-                      </select>
+            <div className="setup-section setup-game-section" role="tabpanel">
+              <div className="setup-controls">
+                <label>
+                  컴퓨터 플레이어 수
+                  <select
+                    ref={cpuCountSelectRef}
+                    value={cpuCount}
+                    onChange={(event) => changeCpuCount(Number(event.target.value))}
+                    disabled={!canEditMultiplayerSettings}
+                  >
+                    {effectiveCpuCountOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}명
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {!isMultiplayerSetup ? (
+                  <>
+                    <label className="toggle-input">
+                      <input
+                        ref={includeHumanInputRef}
+                        type="checkbox"
+                        checked={includeHuman}
+                        onChange={(event) => changeIncludeHuman(event.target.checked)}
+                      />
+                      사람 플레이어 포함
                     </label>
-                  ) : null}
-                </>
-              ) : null}
-              <label className="toggle-input">
-                <input
-                  type="checkbox"
-                  checked={autoNextHand}
-                  onChange={(event) => updateAutoNextHand(event.target.checked)}
-                  disabled={!canEditMultiplayerSettings}
-                />
-                다음 핸드 자동 진행
-              </label>
-              <label className="toggle-input">
-                <input
-                  type="checkbox"
-                  checked={endlessMode}
-                  onChange={(event) => updateEndlessMode(event.target.checked)}
-                  disabled={!canEditMultiplayerSettings}
-                />
-                엔들리스 게임 모드
-              </label>
-              <label>
-                엔들리스 신규 컴퓨터 성향
-                <select
-                  value={getComputerStyleSelection(endlessReplacementComputerStyle).key}
-                  onChange={(event) => updateEndlessReplacementStyle(event.target.value)}
-                  disabled={!canEditMultiplayerSettings || !endlessMode}
-                >
-                  {COMPUTER_STYLE_OPTIONS.map((style) => (
-                    <option key={style.key} value={style.key}>
-                      {style.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                엔들리스 신규 컴퓨터 수준
-                <select
-                  value={getComputerLevelSelection(endlessReplacementComputerLevel).key}
-                  onChange={(event) => updateEndlessReplacementLevel(event.target.value)}
-                  disabled={!canEditMultiplayerSettings || !endlessMode}
-                >
-                  {COMPUTER_LEVEL_OPTIONS.map((level) => (
-                    <option key={level.key} value={level.key}>
-                      {level.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="delay-input">
-                엔들리스 신규 시작 금액
-                <input
-                  min={MIN_PLAYABLE_BALANCE}
-                  step="1000"
-                  type="number"
-                  value={endlessReplacementStartingBalance}
-                  onChange={(event) => updateEndlessReplacementBalance(event.target.value)}
-                  disabled={!canEditMultiplayerSettings || !endlessMode}
-                />
-              </label>
-              <label className="toggle-input">
-                <input
-                  type="checkbox"
-                  checked={showComputerStylesInGame}
-                  onChange={(event) => updateShowComputerStylesInGame(event.target.checked)}
-                  disabled={!canEditMultiplayerSettings}
-                />
-                인게임 컴퓨터 성향/수준 표시
-              </label>
-              <label className="delay-input">
-                컴퓨터 행동 딜레이(ms)
-                <input
-                  min={MIN_COMPUTER_ACTION_DELAY_MS}
-                  max={MAX_COMPUTER_ACTION_DELAY_MS}
-                  step="100"
-                  type="number"
-                  value={computerActionDelayMs}
-                  onChange={(event) => updateComputerActionDelay(event.target.value)}
-                  disabled={!canEditMultiplayerSettings}
-                />
-              </label>
-              <label className="delay-input">
-                다음 핸드 딜레이(ms)
-                <input
-                  min={MIN_NEXT_HAND_DELAY_MS}
-                  max={MAX_NEXT_HAND_DELAY_MS}
-                  step="100"
-                  type="number"
-                  value={nextHandDelayMs}
-                  onChange={(event) => updateNextHandDelay(event.target.value)}
-                  disabled={!canEditMultiplayerSettings || !autoNextHand}
-                />
-              </label>
-              {isMultiplayerSetup ? (
-                <label className="delay-input">
-                  멀티플레이 제한 시간(ms)
+                    {includeHuman ? (
+                      <label>
+                        사람 플레이어 자리
+                        <select value={resolvedHumanSeatIndex} onChange={(event) => changeHumanSeatIndex(Number(event.target.value))}>
+                          {humanSeatOptions.map((option) => (
+                            <option key={option} value={option}>
+                              {option + 1}번 자리
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+                  </>
+                ) : null}
+                <label className="toggle-input">
                   <input
-                    min={MIN_HUMAN_ACTION_TIMEOUT_MS}
-                    max={MAX_HUMAN_ACTION_TIMEOUT_MS}
+                    type="checkbox"
+                    checked={autoNextHand}
+                    onChange={(event) => updateAutoNextHand(event.target.checked)}
+                    disabled={!canEditMultiplayerSettings}
+                  />
+                  다음 핸드 자동 진행
+                </label>
+                <label className="toggle-input">
+                  <input
+                    type="checkbox"
+                    checked={endlessMode}
+                    onChange={(event) => updateEndlessMode(event.target.checked)}
+                    disabled={!canEditMultiplayerSettings}
+                  />
+                  엔들리스 게임 모드
+                </label>
+                <label>
+                  엔들리스 신규 컴퓨터 성향
+                  <select
+                    value={getComputerStyleSelection(endlessReplacementComputerStyle).key}
+                    onChange={(event) => updateEndlessReplacementStyle(event.target.value)}
+                    disabled={!canEditMultiplayerSettings || !endlessMode}
+                  >
+                    {COMPUTER_STYLE_OPTIONS.map((style) => (
+                      <option key={style.key} value={style.key}>
+                        {style.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  엔들리스 신규 컴퓨터 수준
+                  <select
+                    value={getComputerLevelSelection(endlessReplacementComputerLevel).key}
+                    onChange={(event) => updateEndlessReplacementLevel(event.target.value)}
+                    disabled={!canEditMultiplayerSettings || !endlessMode}
+                  >
+                    {COMPUTER_LEVEL_OPTIONS.map((level) => (
+                      <option key={level.key} value={level.key}>
+                        {level.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="delay-input">
+                  엔들리스 신규 시작 금액
+                  <input
+                    min={MIN_PLAYABLE_BALANCE}
                     step="1000"
                     type="number"
-                    value={humanActionTimeoutMs}
-                    onChange={(event) => updateHumanActionTimeout(event.target.value)}
+                    value={endlessReplacementStartingBalance}
+                    onChange={(event) => updateEndlessReplacementBalance(event.target.value)}
+                    disabled={!canEditMultiplayerSettings || !endlessMode}
+                  />
+                </label>
+                <label className="toggle-input">
+                  <input
+                    type="checkbox"
+                    checked={showComputerStylesInGame}
+                    onChange={(event) => updateShowComputerStylesInGame(event.target.checked)}
+                    disabled={!canEditMultiplayerSettings}
+                  />
+                  인게임 컴퓨터 성향/수준 표시
+                </label>
+                <label className="delay-input">
+                  컴퓨터 행동 딜레이(ms)
+                  <input
+                    min={MIN_COMPUTER_ACTION_DELAY_MS}
+                    max={MAX_COMPUTER_ACTION_DELAY_MS}
+                    step="100"
+                    type="number"
+                    value={computerActionDelayMs}
+                    onChange={(event) => updateComputerActionDelay(event.target.value)}
                     disabled={!canEditMultiplayerSettings}
                   />
                 </label>
-              ) : null}
+                <label className="delay-input">
+                  다음 핸드 딜레이(ms)
+                  <input
+                    min={MIN_NEXT_HAND_DELAY_MS}
+                    max={MAX_NEXT_HAND_DELAY_MS}
+                    step="100"
+                    type="number"
+                    value={nextHandDelayMs}
+                    onChange={(event) => updateNextHandDelay(event.target.value)}
+                    disabled={!canEditMultiplayerSettings || !autoNextHand}
+                  />
+                </label>
+                {isMultiplayerSetup ? (
+                  <label className="delay-input">
+                    멀티플레이 제한 시간(ms)
+                    <input
+                      min={MIN_HUMAN_ACTION_TIMEOUT_MS}
+                      max={MAX_HUMAN_ACTION_TIMEOUT_MS}
+                      step="1000"
+                      type="number"
+                      value={humanActionTimeoutMs}
+                      onChange={(event) => updateHumanActionTimeout(event.target.value)}
+                      disabled={!canEditMultiplayerSettings}
+                    />
+                  </label>
+                ) : null}
+              </div>
+              <div className="setup-player-section">
+                <h3>플레이어 설정</h3>
+                <div className="balance-grid">
+                  {setupPlayers.map((player) => (
+                    <div className="setup-player-config" key={player.id}>
+                      <label className="balance-input">
+                        <span>{player.name}</span>
+                        <input
+                          min="0"
+                          step="1000"
+                          type="number"
+                          value={setupBalances[player.id] ?? 0}
+                          onChange={(event) => updateSetupBalance(player.id, event.target.value)}
+                          disabled={!canEditMultiplayerSettings}
+                        />
+                      </label>
+                      {player.isHuman ? (
+                        <p className="note">사람 플레이어는 직접 행동을 선택합니다.</p>
+                      ) : (
+                        <>
+                          <label className="style-input">
+                            컴퓨터 플레이 성향
+                            <select
+                              value={getComputerStyleSelection(computerStyles[player.id]).key}
+                              onChange={(event) => updateComputerStyle(player.id, event.target.value)}
+                              disabled={!canEditMultiplayerSettings}
+                            >
+                              {COMPUTER_STYLE_OPTIONS.map((style) => (
+                                <option key={style.key} value={style.key}>
+                                  {style.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="style-input">
+                            컴퓨터 판단 수준
+                            <select
+                              value={getComputerLevelSelection(computerLevels[player.id]).key}
+                              onChange={(event) => updateComputerLevel(player.id, event.target.value)}
+                              disabled={!canEditMultiplayerSettings}
+                            >
+                              {COMPUTER_LEVEL_OPTIONS.map((level) => (
+                                <option key={level.key} value={level.key}>
+                                  {level.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="note">
+                  컴퓨터별 성향과 수준은 전략 조언이 아닌 앱 자동 진행 기준입니다. 랜덤은 게임 시작 시 실제 성향이나 수준으로 확정됩니다.
+                  엔들리스 게임 모드에서는 다음 핸드 시작 시 탈락 좌석에 새 컴퓨터가 입장합니다.
+                </p>
+              </div>
             </div>
           ) : null}
 
@@ -1630,66 +1688,6 @@ export default function PokerApp() {
                 </>
               ) : null}
             </section>
-          ) : null}
-
-          {setupTab === "players" ? (
-            <div className="setup-section" role="tabpanel">
-              <div className="balance-grid">
-                {setupPlayers.map((player) => (
-                  <div className="setup-player-config" key={player.id}>
-                    <label className="balance-input">
-                      <span>{player.name}</span>
-                      <input
-                        min="0"
-                        step="1000"
-                        type="number"
-                        value={setupBalances[player.id] ?? 0}
-                        onChange={(event) => updateSetupBalance(player.id, event.target.value)}
-                        disabled={!canEditMultiplayerSettings}
-                      />
-                    </label>
-                    {player.isHuman ? (
-                      <p className="note">사람 플레이어는 직접 행동을 선택합니다.</p>
-                    ) : (
-                      <>
-                        <label className="style-input">
-                          컴퓨터 플레이 성향
-                          <select
-                            value={getComputerStyleSelection(computerStyles[player.id]).key}
-                            onChange={(event) => updateComputerStyle(player.id, event.target.value)}
-                            disabled={!canEditMultiplayerSettings}
-                          >
-                            {COMPUTER_STYLE_OPTIONS.map((style) => (
-                              <option key={style.key} value={style.key}>
-                                {style.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="style-input">
-                          컴퓨터 판단 수준
-                          <select
-                            value={getComputerLevelSelection(computerLevels[player.id]).key}
-                            onChange={(event) => updateComputerLevel(player.id, event.target.value)}
-                            disabled={!canEditMultiplayerSettings}
-                          >
-                            {COMPUTER_LEVEL_OPTIONS.map((level) => (
-                              <option key={level.key} value={level.key}>
-                                {level.label}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <p className="note">
-                컴퓨터별 성향과 수준은 전략 조언이 아닌 앱 자동 진행 기준입니다. 랜덤은 게임 시작 시 실제 성향이나 수준으로 확정됩니다.
-                엔들리스 게임 모드에서는 다음 핸드 시작 시 탈락 좌석에 새 컴퓨터가 입장합니다.
-              </p>
-            </div>
           ) : null}
 
           {setupTab === "rules" ? (

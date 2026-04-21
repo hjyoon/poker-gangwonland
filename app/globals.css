@@ -615,6 +615,20 @@ td {
   max-width: none;
 }
 
+.setup-game-section,
+.setup-player-section {
+  display: grid;
+  gap: 16px;
+}
+
+.setup-game-section .setup-controls {
+  max-width: none;
+}
+
+.setup-player-section h3 {
+  margin: 0;
+}
+
 .setup-controls label,
 .balance-input,
 .style-input,
