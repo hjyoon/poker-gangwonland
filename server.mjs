@@ -114,6 +114,84 @@ function defaultComputerSettings(humanSlots) {
   }));
 }
 
+function humanSlotId(index) {
+  return `human-slot-${index + 1}`;
+}
+
+function computerPlayerId(index) {
+  return `cpu-${index + 1}`;
+}
+
+function defaultHumanSettings(humanSlots, startingBalance = DEFAULT_STARTING_BALANCE) {
+  return Array.from({ length: humanSlots }, (_, index) => ({
+    id: humanSlotId(index),
+    name: `사람 자리 ${index + 1}`,
+    startingBalance,
+  }));
+}
+
+function normalizeHumanSettings(settings = {}, humanSlots) {
+  const fallbackBalanceValue = Number(settings.humanStartingBalance);
+  const fallbackBalance = Number.isFinite(fallbackBalanceValue) ? Math.max(0, fallbackBalanceValue) : DEFAULT_STARTING_BALANCE;
+  const sourceHumanPlayers = Array.isArray(settings.humanPlayers) ? settings.humanPlayers : defaultHumanSettings(humanSlots, fallbackBalance);
+  return Array.from({ length: humanSlots }, (_, index) => {
+    const player = sourceHumanPlayers[index] ?? {};
+    const startingBalance = Number(player.startingBalance);
+    return {
+      id: humanSlotId(index),
+      name: sanitizeName(player.name, `사람 자리 ${index + 1}`),
+      startingBalance: Number.isFinite(startingBalance) ? Math.max(0, startingBalance) : fallbackBalance,
+    };
+  });
+}
+
+function normalizePlayerOrder(order, humanSlots, computerCount) {
+  const validIds = [
+    ...Array.from({ length: humanSlots }, (_, index) => humanSlotId(index)),
+    ...Array.from({ length: computerCount }, (_, index) => computerPlayerId(index)),
+  ];
+  const keptIds = [];
+  if (Array.isArray(order)) {
+    order.forEach((id) => {
+      if (validIds.includes(id) && !keptIds.includes(id)) {
+        keptIds.push(id);
+      }
+    });
+  }
+  return [...keptIds, ...validIds.filter((id) => !keptIds.includes(id))];
+}
+
+function playerOrderFromHumanSeats(humanSeatPlacements, humanSlots, computerCount) {
+  const totalSeatCount = humanSlots + computerCount;
+  const humanSeats = normalizeHumanTableSeats(humanSeatPlacements, humanSlots, totalSeatCount);
+  const computerIds = Array.from({ length: computerCount }, (_, index) => computerPlayerId(index));
+  const orderedIds = Array.from({ length: totalSeatCount }, () => null);
+  humanSeats.forEach((seatIndex, index) => {
+    orderedIds[seatIndex] = humanSlotId(index);
+  });
+
+  let computerIndex = 0;
+  return normalizePlayerOrder(
+    orderedIds.map((id) => id ?? computerIds[computerIndex++]).filter(Boolean),
+    humanSlots,
+    computerCount,
+  );
+}
+
+function humanSeatsFromPlayerOrder(playerOrder, humanSlots, computerCount) {
+  const normalizedOrder = normalizePlayerOrder(playerOrder, humanSlots, computerCount);
+  const placements = Array.from({ length: humanSlots }, (_, index) => index);
+  normalizedOrder.forEach((id, index) => {
+    if (id.startsWith("human-slot-")) {
+      const slotIndex = Number(id.replace("human-slot-", "")) - 1;
+      if (slotIndex >= 0 && slotIndex < humanSlots) {
+        placements[slotIndex] = index;
+      }
+    }
+  });
+  return normalizeHumanTableSeats(placements, humanSlots, humanSlots + computerCount);
+}
+
 function normalizeRoomSettings(room, settings = {}) {
   const maxComputerPlayers = Math.max(0, MAX_TOTAL_PLAYERS - room.humanSlots);
   const sourceComputerPlayers = Array.isArray(settings.computerPlayers) ? settings.computerPlayers : defaultComputerSettings(room.humanSlots);
@@ -123,11 +201,16 @@ function normalizeRoomSettings(room, settings = {}) {
     computerStyle: sanitizeComputerStyleKey(player.computerStyle),
     computerLevel: sanitizeComputerLevelKey(player.computerLevel),
   }));
-  const totalSeatCount = room.humanSlots + computerPlayers.length;
+  const humanPlayers = normalizeHumanSettings(settings, room.humanSlots);
+  const playerOrder = Array.isArray(settings.playerOrder)
+    ? normalizePlayerOrder(settings.playerOrder, room.humanSlots, computerPlayers.length)
+    : playerOrderFromHumanSeats(settings.humanSeatPlacements, room.humanSlots, computerPlayers.length);
 
   return {
-    humanStartingBalance: Math.max(0, Number(settings.humanStartingBalance) || DEFAULT_STARTING_BALANCE),
-    humanSeatPlacements: normalizeHumanTableSeats(settings.humanSeatPlacements, room.humanSlots, totalSeatCount),
+    humanStartingBalance: humanPlayers[0]?.startingBalance ?? DEFAULT_STARTING_BALANCE,
+    humanPlayers,
+    humanSeatPlacements: humanSeatsFromPlayerOrder(playerOrder, room.humanSlots, computerPlayers.length),
+    playerOrder,
     randomizeHumanSeats: Boolean(settings.randomizeHumanSeats),
     computerPlayers,
     autoNextHand: Boolean(settings.autoNextHand),
@@ -368,7 +451,7 @@ function createRoom(socket, payload) {
     hostPlayerId: playerId,
     seats: Array.from({ length: humanSlots }, (_, index) => ({
       id: `human-slot-${index + 1}`,
-      label: `사람 슬롯 ${index + 1}`,
+      label: `사람 자리 ${index + 1}`,
       playerId: index === 0 ? playerId : null,
       name: index === 0 ? sanitizeName(payload.playerName, "방장") : null,
       connected: index === 0,
@@ -411,7 +494,7 @@ function joinRoom(socket, targetRoomId, playerName, requestedPlayerId = null) {
     targetSeat = room.seats.find((seat) => !seat.playerId);
   }
   if (!targetSeat) {
-    sendError(socket, "빈 사람 슬롯이 없습니다.");
+    sendError(socket, "빈 사람 자리가 없습니다.");
     return;
   }
 
@@ -433,9 +516,8 @@ function joinRoom(socket, targetRoomId, playerName, requestedPlayerId = null) {
 
 function buildRoomGame(room, payload) {
   const settings = normalizeRoomSettings(room, payload);
-  const humanStartingBalance = settings.humanStartingBalance;
   const computerPlayers = settings.computerPlayers.map((player, index) => ({
-    id: `cpu-${index + 1}`,
+    id: computerPlayerId(index),
     name: sanitizeName(player.name, `컴퓨터 ${index + 1}`),
     isHuman: false,
     startingBalance: Math.max(0, Number(player.startingBalance) || DEFAULT_STARTING_BALANCE),
@@ -443,39 +525,26 @@ function buildRoomGame(room, payload) {
     computerLevel: resolveComputerLevelKey(player.computerLevel),
   }));
   if (room.humanSlots + computerPlayers.length > MAX_TOTAL_PLAYERS) {
-    throw new Error(`사람 슬롯과 컴퓨터 플레이어를 합쳐 최대 ${MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.`);
+    throw new Error(`사람 자리와 컴퓨터 플레이어를 합쳐 최대 ${MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.`);
   }
-  const totalSeatCount = room.humanSlots + computerPlayers.length;
-  const humanTableSeats = settings.randomizeHumanSeats
-    ? shuffledTableSeats(totalSeatCount).slice(0, room.humanSlots)
-    : settings.humanSeatPlacements;
   const connectedHumans = room.seats
     .map((seat, index) => ({
       id: seat.playerId,
       name: seat.name || `플레이어 ${index + 1}`,
       isHuman: true,
-      startingBalance: humanStartingBalance,
-      tableSeatIndex: humanTableSeats[index],
+      startingBalance: settings.humanPlayers[index]?.startingBalance ?? settings.humanStartingBalance,
+      setupPlayerId: humanSlotId(index),
       connected: seat.connected,
     }))
     .filter((seat) => seat.id && seat.connected);
-  const computersByOrder = [...computerPlayers];
-  const playersByTableSeat = [];
-
-  for (const seatIndex of tableSeatOptions(totalSeatCount)) {
-    const human = connectedHumans.find((player) => player.tableSeatIndex === seatIndex);
-    if (human) {
-      playersByTableSeat.push(human);
-      continue;
-    }
-
-    const computer = computersByOrder.shift();
-    if (computer) {
-      playersByTableSeat.push(computer);
-    }
-  }
-
-  const orderedPlayers = [...playersByTableSeat, ...computersByOrder];
+  const normalizedPlayerOrder = settings.randomizeHumanSeats
+    ? playerOrderFromHumanSeats(shuffledTableSeats(room.humanSlots + computerPlayers.length).slice(0, room.humanSlots), room.humanSlots, computerPlayers.length)
+    : normalizePlayerOrder(settings.playerOrder, room.humanSlots, computerPlayers.length);
+  const humansBySetupId = new Map(connectedHumans.map((player) => [player.setupPlayerId, player]));
+  const computersBySetupId = new Map(computerPlayers.map((player) => [player.id, player]));
+  const orderedPlayers = normalizedPlayerOrder
+    .map((setupPlayerId) => (setupPlayerId.startsWith("human-slot-") ? humansBySetupId.get(setupPlayerId) : computersBySetupId.get(setupPlayerId)))
+    .filter(Boolean);
   const playerConfigs = orderedPlayers.map(({ id, name, isHuman, startingBalance }) => ({ id, name, isHuman, startingBalance }));
 
   if (playerConfigs.length < 2) {

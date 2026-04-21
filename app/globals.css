@@ -629,6 +629,20 @@ td {
   margin: 0;
 }
 
+.setup-player-section-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.setup-player-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .setup-controls label,
 .balance-input,
 .style-input,
