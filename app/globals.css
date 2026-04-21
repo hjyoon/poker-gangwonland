@@ -493,6 +493,28 @@ td {
   margin: 0;
 }
 
+.setup-mode-switch {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.mode-option {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(216, 162, 61, 0.18);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 800;
+  min-height: 54px;
+}
+
+.mode-option.is-active {
+  background: linear-gradient(180deg, rgba(83, 184, 131, 0.9), rgba(30, 117, 77, 0.92));
+  border-color: rgba(167, 236, 197, 0.7);
+  color: #07120e;
+}
+
 .section-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -689,6 +711,10 @@ td {
   .table-header {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .setup-mode-switch {
+    grid-template-columns: 1fr;
   }
 
   .app-shell {
