@@ -636,13 +636,6 @@ td {
   justify-content: space-between;
 }
 
-.setup-player-tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
 .setup-controls label,
 .balance-input,
 .style-input,
@@ -731,6 +724,57 @@ td {
 
 .setup-player-card-header strong {
   min-width: 0;
+}
+
+.setup-player-card-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.setup-card-icon-button,
+.setup-player-add-card {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(216, 162, 61, 0.22);
+  color: var(--gold);
+  display: inline-flex;
+  justify-content: center;
+}
+
+.setup-card-icon-button {
+  border-radius: 8px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  width: 30px;
+}
+
+.setup-card-icon-button:hover,
+.setup-player-add-card:hover {
+  background: rgba(216, 162, 61, 0.12);
+  border-color: rgba(216, 162, 61, 0.48);
+}
+
+.setup-card-icon-button svg {
+  fill: currentColor;
+  height: 16px;
+  width: 16px;
+}
+
+.setup-player-add-card {
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  min-height: 210px;
+  padding: 0;
+  width: 100%;
+}
+
+.setup-player-add-card svg {
+  fill: currentColor;
+  height: 42px;
+  width: 42px;
 }
 
 .drag-handle {

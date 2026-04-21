@@ -21,10 +21,6 @@ import {
 
 const DEFAULT_STARTING_BALANCE = 100000;
 const MAX_TOTAL_PLAYERS = 8;
-const MIN_CPU_WITH_HUMAN = 0;
-const MIN_CPU_ONLY = 2;
-const MAX_CPU_WITH_HUMAN = MAX_TOTAL_PLAYERS - 1;
-const MAX_CPU_ONLY = MAX_TOTAL_PLAYERS;
 const DEFAULT_COMPUTER_ACTION_DELAY_MS = 700;
 const DEFAULT_NEXT_HAND_DELAY_MS = 1800;
 const DEFAULT_HUMAN_ACTION_TIMEOUT_MS = 15000;
@@ -236,6 +232,43 @@ function buildMultiplayerHumanSettings(humanSlots, setupBalances) {
   }));
 }
 
+function setupPlayerType(player) {
+  return player.isHuman ? "human" : "computer";
+}
+
+function normalizeSetupPlayerTypes(types, isMultiplayerSetup) {
+  const normalizedTypes = types.filter((type) => type === "human" || type === "computer").slice(0, MAX_TOTAL_PLAYERS);
+  if (isMultiplayerSetup) {
+    const humanCount = normalizedTypes.filter((type) => type === "human").length;
+    return humanCount >= MIN_MULTIPLAYER_HUMAN_SLOTS ? normalizedTypes : null;
+  }
+
+  let hasHuman = false;
+  return normalizedTypes.map((type) => {
+    if (type !== "human") {
+      return "computer";
+    }
+    if (hasHuman) {
+      return "computer";
+    }
+    hasHuman = true;
+    return "human";
+  });
+}
+
+function buildSetupPlayerOrderFromTypes(types, isMultiplayerSetup) {
+  let humanCount = 0;
+  let computerCount = 0;
+  return types.map((type) => {
+    if (type === "human") {
+      humanCount += 1;
+      return isMultiplayerSetup ? humanSlotId(humanCount - 1) : "human";
+    }
+    computerCount += 1;
+    return `cpu-${computerCount}`;
+  });
+}
+
 function moveSetupPlayerOrder(order, players, draggedId, targetId, placement = "before") {
   if (!draggedId || !targetId || draggedId === targetId) {
     return normalizeSetupPlayerOrder(order, players);
@@ -293,30 +326,8 @@ function computerProfileLabel(player, visible = true) {
   return `${styleLabel} · ${levelLabel}`;
 }
 
-function minCpuCount(includeHuman) {
-  return includeHuman ? MIN_CPU_WITH_HUMAN : MIN_CPU_ONLY;
-}
-
-function maxCpuCount(includeHuman) {
-  return includeHuman ? MAX_CPU_WITH_HUMAN : MAX_CPU_ONLY;
-}
-
-function buildCpuCountOptions(includeHuman) {
-  const min = minCpuCount(includeHuman);
-  return Array.from({ length: maxCpuCount(includeHuman) - min + 1 }, (_, index) => index + min);
-}
-
-function clampCpuCount(cpuCount, includeHuman) {
-  return Math.min(Math.max(minCpuCount(includeHuman), cpuCount), maxCpuCount(includeHuman));
-}
-
 function maxMultiplayerCpuCount(humanSlots) {
   return Math.max(0, MAX_TOTAL_PLAYERS - clampHumanSlots(humanSlots));
-}
-
-function buildMultiplayerCpuCountOptions(humanSlots) {
-  const max = maxMultiplayerCpuCount(humanSlots);
-  return Array.from({ length: max + 1 }, (_, index) => index);
 }
 
 function clampMultiplayerCpuCount(cpuCount, humanSlots) {
@@ -625,9 +636,6 @@ export default function PokerApp() {
   const multiplayerGameActiveRef = useRef(false);
   const lastSentRoomSettingsRef = useRef("");
   const setupDragDropCommittedRef = useRef(false);
-  const cpuCountSelectRef = useRef(null);
-  const includeHumanInputRef = useRef(null);
-  const hasSyncedRestoredCpuCountRef = useRef(false);
 
   useEffect(() => {
     if (multiplayerGameActive) {
@@ -805,11 +813,6 @@ export default function PokerApp() {
     () => buildMultiplayerHumanSeatPlacements(setupPlayers, multiplayerHumanSlotCount),
     [multiplayerHumanSlotCount, setupPlayers],
   );
-  const cpuCountOptions = useMemo(() => buildCpuCountOptions(includeHuman), [includeHuman]);
-  const effectiveCpuCountOptions = useMemo(
-    () => (isMultiplayerSetup ? buildMultiplayerCpuCountOptions(multiplayerHumanSlotCount) : cpuCountOptions),
-    [cpuCountOptions, isMultiplayerSetup, multiplayerHumanSlotCount],
-  );
   const connectedMultiplayerHumans =
     multiplayerRoom?.seats.filter((seat, index) => seat.playerId && seat.connected && (setupBalances[humanSlotId(index)] ?? 0) >= MIN_PLAYABLE_BALANCE).length ?? 0;
   const playableComputerSetupCount = setupPlayers.filter((player) => !player.isHuman && (setupBalances[player.id] ?? 0) >= MIN_PLAYABLE_BALANCE).length;
@@ -955,11 +958,6 @@ export default function PokerApp() {
     setComputerLevels((current) => buildSetupComputerLevelsForPlayers(nextSetupPlayers, current));
   }
 
-  function reshapeSetup(nextCpuCount, nextIncludeHuman) {
-    const clampedCpuCount = clampCpuCount(nextCpuCount, nextIncludeHuman);
-    applySetupShape(clampedCpuCount, nextIncludeHuman, nextIncludeHuman);
-  }
-
   function changeSetupMode(nextMode) {
     const resolvedMode = nextMode === "multiplayer" ? "multiplayer" : "single";
     if (multiplayerRoom && resolvedMode === "single") {
@@ -983,31 +981,6 @@ export default function PokerApp() {
       }
     }
   }
-
-  function changeCpuCount(nextCpuCount) {
-    if (multiplayerRoom) {
-      if (!isMultiplayerHost) {
-        return;
-      }
-      applySetupShape(clampMultiplayerCpuCount(nextCpuCount, multiplayerRoom.humanSlots), includeHuman, false);
-      return;
-    }
-    reshapeSetup(nextCpuCount, includeHuman);
-  }
-
-  useEffect(() => {
-    if (state || hasSyncedRestoredCpuCountRef.current) {
-      return;
-    }
-    hasSyncedRestoredCpuCountRef.current = true;
-
-    const restoredIncludeHuman = includeHumanInputRef.current?.checked ?? includeHuman;
-    const restoredCpuCount = Number(cpuCountSelectRef.current?.value);
-    const nextCpuCount = Number.isFinite(restoredCpuCount) ? clampCpuCount(restoredCpuCount, restoredIncludeHuman) : cpuCount;
-    if (restoredIncludeHuman !== includeHuman || nextCpuCount !== cpuCount) {
-      applySetupShape(nextCpuCount, restoredIncludeHuman, restoredIncludeHuman);
-    }
-  }, [cpuCount, includeHuman, state]);
 
   useEffect(() => {
     if (setupTabs.some((tab) => tab.key === setupTab)) {
@@ -1076,6 +1049,132 @@ export default function PokerApp() {
     }));
   }
 
+  function applySetupPlayerTypes(nextTypes) {
+    const normalizedTypes = normalizeSetupPlayerTypes(nextTypes, isMultiplayerSetup);
+    if (!normalizedTypes || normalizedTypes.length < 2) {
+      return;
+    }
+
+    const nextHumanCount = normalizedTypes.filter((type) => type === "human").length;
+    const nextCpuCount = normalizedTypes.filter((type) => type === "computer").length;
+    if (isMultiplayerSetup && multiplayerRoom && nextHumanCount !== multiplayerRoom.humanSlots) {
+      return;
+    }
+
+    const nextIncludeHuman = normalizedTypes.includes("human");
+    const nextHumanSlots = isMultiplayerSetup ? nextHumanCount : multiplayerHumanSlotCount;
+    const nextPlayerOrder = buildSetupPlayerOrderFromTypes(normalizedTypes, isMultiplayerSetup);
+    const nextSetupPlayers = buildSetupPlayersForMode(
+      isMultiplayerSetup,
+      nextCpuCount,
+      !isMultiplayerSetup && nextIncludeHuman,
+      nextHumanSlots,
+      nextPlayerOrder,
+    );
+    const previousPlayers = setupPlayers;
+
+    setCpuCount(nextCpuCount);
+    setIncludeHuman(nextIncludeHuman);
+    if (isMultiplayerSetup) {
+      setMultiplayerSlots(nextHumanSlots);
+    }
+    setSetupPlayerOrder(nextPlayerOrder);
+    resetSetupPlayerDrag();
+    setSetupBalances((current) =>
+      Object.fromEntries(
+        nextSetupPlayers.map((player, index) => {
+          const previousPlayer = previousPlayers[index];
+          return [player.id, current[previousPlayer?.id] ?? current[player.id] ?? DEFAULT_STARTING_BALANCE];
+        }),
+      ),
+    );
+    setComputerStyles((current) =>
+      Object.fromEntries(
+        nextSetupPlayers
+          .map((player, index) => {
+            if (player.isHuman) {
+              return null;
+            }
+            const previousPlayer = previousPlayers[index];
+            const previousStyle = previousPlayer && !previousPlayer.isHuman ? current[previousPlayer.id] : current[player.id];
+            return [player.id, getComputerStyleSelection(previousStyle).key];
+          })
+          .filter(Boolean),
+      ),
+    );
+    setComputerLevels((current) =>
+      Object.fromEntries(
+        nextSetupPlayers
+          .map((player, index) => {
+            if (player.isHuman) {
+              return null;
+            }
+            const previousPlayer = previousPlayers[index];
+            const previousLevel = previousPlayer && !previousPlayer.isHuman ? current[previousPlayer.id] : current[player.id];
+            return [player.id, getComputerLevelSelection(previousLevel).key];
+          })
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  function addSetupPlayerCard() {
+    if (!canEditMultiplayerSettings || setupPlayers.length >= MAX_TOTAL_PLAYERS) {
+      return;
+    }
+    applySetupPlayerTypes([...setupPlayers.map(setupPlayerType), "computer"]);
+  }
+
+  function canRemoveSetupPlayer(player) {
+    if (!canEditMultiplayerSettings || setupPlayers.length <= 2) {
+      return false;
+    }
+    if (isMultiplayerSetup && player.isHuman && (multiplayerRoom || multiplayerHumanSlotCount <= MIN_MULTIPLAYER_HUMAN_SLOTS)) {
+      return false;
+    }
+    return true;
+  }
+
+  function removeSetupPlayerCard(playerId) {
+    const player = setupPlayers.find((entry) => entry.id === playerId);
+    if (!player || !canRemoveSetupPlayer(player)) {
+      return;
+    }
+    applySetupPlayerTypes(setupPlayers.filter((entry) => entry.id !== playerId).map(setupPlayerType));
+  }
+
+  function canChangeSetupPlayerType(player, nextType) {
+    if (setupPlayerType(player) === nextType) {
+      return true;
+    }
+    if (!canEditMultiplayerSettings) {
+      return false;
+    }
+    if (isMultiplayerSetup && multiplayerRoom) {
+      return false;
+    }
+    if (isMultiplayerSetup && player.isHuman && nextType === "computer" && multiplayerHumanSlotCount <= MIN_MULTIPLAYER_HUMAN_SLOTS) {
+      return false;
+    }
+    return true;
+  }
+
+  function updateSetupPlayerType(playerId, nextType) {
+    const playerIndex = setupPlayers.findIndex((player) => player.id === playerId);
+    const player = setupPlayers[playerIndex];
+    if (!player || !canChangeSetupPlayerType(player, nextType)) {
+      return;
+    }
+    const nextTypes =
+      !isMultiplayerSetup && nextType === "human"
+        ? setupPlayers.map((_, index) => (index === playerIndex ? "human" : "computer"))
+        : setupPlayers.map(setupPlayerType);
+    if (isMultiplayerSetup || nextType !== "human") {
+      nextTypes[playerIndex] = nextType === "human" ? "human" : "computer";
+    }
+    applySetupPlayerTypes(nextTypes);
+  }
+
   function setupHumanPlayerNote(player) {
     if (!player.isMultiplayerHumanSlot) {
       return "사람 플레이어는 직접 행동을 선택합니다.";
@@ -1089,24 +1188,6 @@ export default function PokerApp() {
       return "참가 대기 중입니다.";
     }
     return `${seat.name ?? player.name}${seat.connected ? " 참가 중" : " 연결 끊김"}`;
-  }
-
-  function updateMultiplayerSlots(value) {
-    if (multiplayerRoom) {
-      return;
-    }
-    const nextSlots = clampHumanSlots(value);
-    const nextCpuCount = clampMultiplayerCpuCount(cpuCount, nextSlots);
-    setMultiplayerSlots(nextSlots);
-    applySetupShape(nextCpuCount, includeHuman, false, nextSlots, true);
-  }
-
-  function addMultiplayerHumanSlot() {
-    updateMultiplayerSlots(multiplayerHumanSlotCount + 1);
-  }
-
-  function removeMultiplayerHumanSlot() {
-    updateMultiplayerSlots(multiplayerHumanSlotCount - 1);
   }
 
   function updateComputerStyle(playerId, styleKey) {
@@ -1192,17 +1273,6 @@ export default function PokerApp() {
       setSetupPlayerOrder(normalizeSetupPlayerOrder(dragPreviewPlayerOrder, setupPlayers));
     }
     resetSetupPlayerDrag();
-  }
-
-  function changeIncludeHuman(nextIncludeHuman) {
-    if (multiplayerRoom) {
-      if (!isMultiplayerHost) {
-        return;
-      }
-      applySetupShape(clampMultiplayerCpuCount(cpuCount, multiplayerRoom.humanSlots), nextIncludeHuman, false);
-      return;
-    }
-    reshapeSetup(cpuCount, nextIncludeHuman);
   }
 
   function updateAutoNextHand(enabled) {
@@ -1538,7 +1608,7 @@ export default function PokerApp() {
             <p className="eyebrow">Gangwon Land Hold&apos;em</p>
             <h1>강원랜드 기준 베팅 시뮬레이터</h1>
             <p>
-              강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 사람 플레이어 포함 여부, 컴퓨터 수, 컴퓨터 성향과 수준 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
+              강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 플레이어 카드 구성, 컴퓨터 성향과 수준 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
             </p>
           </div>
         </section>
@@ -1582,34 +1652,6 @@ export default function PokerApp() {
           {setupTab === "game" ? (
             <div className="setup-section setup-game-section" role="tabpanel">
               <div className="setup-controls">
-                <label>
-                  컴퓨터 플레이어 수
-                  <select
-                    ref={cpuCountSelectRef}
-                    value={cpuCount}
-                    onChange={(event) => changeCpuCount(Number(event.target.value))}
-                    disabled={!canEditMultiplayerSettings}
-                  >
-                    {effectiveCpuCountOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}명
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {!isMultiplayerSetup ? (
-                  <>
-                    <label className="toggle-input">
-                      <input
-                        ref={includeHumanInputRef}
-                        type="checkbox"
-                        checked={includeHuman}
-                        onChange={(event) => changeIncludeHuman(event.target.checked)}
-                      />
-                      사람 플레이어 포함
-                    </label>
-                  </>
-                ) : null}
                 {isMultiplayerSetup ? (
                   <label className="toggle-input">
                     <input
@@ -1729,31 +1771,6 @@ export default function PokerApp() {
               <div className="setup-player-section">
                 <div className="setup-player-section-header">
                   <h3>플레이어 설정</h3>
-                  {isMultiplayerSetup ? (
-                    <div className="setup-player-tools">
-                      <button
-                        className="secondary"
-                        type="button"
-                        onClick={removeMultiplayerHumanSlot}
-                        disabled={Boolean(multiplayerRoom) || !canEditMultiplayerSettings || multiplayerHumanSlotCount <= MIN_MULTIPLAYER_HUMAN_SLOTS}
-                      >
-                        사람 자리 제거
-                      </button>
-                      <button
-                        className="secondary"
-                        type="button"
-                        onClick={addMultiplayerHumanSlot}
-                        disabled={
-                          Boolean(multiplayerRoom) ||
-                          !canEditMultiplayerSettings ||
-                          multiplayerHumanSlotCount >= MAX_MULTIPLAYER_HUMAN_SLOTS ||
-                          multiplayerConfiguredSeatCount >= MAX_TOTAL_PLAYERS
-                        }
-                      >
-                        사람 자리 추가
-                      </button>
-                    </div>
-                  ) : null}
                 </div>
                 <div className="balance-grid">
                   {displayedSetupPlayers.map((player) => (
@@ -1768,26 +1785,56 @@ export default function PokerApp() {
                     >
                       <div className="setup-player-card-header">
                         <strong>{player.name}</strong>
-                        {canEditMultiplayerSettings && setupPlayers.length > 1 ? (
-                          <span
-                            aria-label={`${player.name} 순서 변경`}
-                            className="drag-handle"
-                            draggable
-                            onDragEnd={handleSetupPlayerDragEnd}
-                            onDragStart={(event) => handleSetupPlayerDragStart(event, player.id)}
-                            title="드래그해서 순서 변경"
-                          >
-                            <svg aria-hidden="true" focusable="false" viewBox="0 0 16 16">
-                              <circle cx="5" cy="4" r="1.4" />
-                              <circle cx="11" cy="4" r="1.4" />
-                              <circle cx="5" cy="8" r="1.4" />
-                              <circle cx="11" cy="8" r="1.4" />
-                              <circle cx="5" cy="12" r="1.4" />
-                              <circle cx="11" cy="12" r="1.4" />
-                            </svg>
-                          </span>
-                        ) : null}
+                        <div className="setup-player-card-actions">
+                          {canEditMultiplayerSettings && setupPlayers.length > 1 ? (
+                            <span
+                              aria-label={`${player.name} 순서 변경`}
+                              className="drag-handle"
+                              draggable
+                              onDragEnd={handleSetupPlayerDragEnd}
+                              onDragStart={(event) => handleSetupPlayerDragStart(event, player.id)}
+                              title="드래그해서 순서 변경"
+                            >
+                              <svg aria-hidden="true" focusable="false" viewBox="0 0 16 16">
+                                <circle cx="5" cy="4" r="1.4" />
+                                <circle cx="11" cy="4" r="1.4" />
+                                <circle cx="5" cy="8" r="1.4" />
+                                <circle cx="11" cy="8" r="1.4" />
+                                <circle cx="5" cy="12" r="1.4" />
+                                <circle cx="11" cy="12" r="1.4" />
+                              </svg>
+                            </span>
+                          ) : null}
+                          {canRemoveSetupPlayer(player) ? (
+                            <button
+                              aria-label={`${player.name} 제거`}
+                              className="setup-card-icon-button"
+                              onClick={() => removeSetupPlayerCard(player.id)}
+                              title="플레이어 제거"
+                              type="button"
+                            >
+                              <svg aria-hidden="true" focusable="false" viewBox="0 0 16 16">
+                                <path d="M4.2 3.2 8 7l3.8-3.8 1 1L9 8l3.8 3.8-1 1L8 9l-3.8 3.8-1-1L7 8 3.2 4.2l1-1Z" />
+                              </svg>
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
+                      <label className="style-input">
+                        플레이어 유형
+                        <select
+                          value={setupPlayerType(player)}
+                          onChange={(event) => updateSetupPlayerType(player.id, event.target.value)}
+                          disabled={!canEditMultiplayerSettings || (isMultiplayerSetup && Boolean(multiplayerRoom))}
+                        >
+                          <option value="human" disabled={!canChangeSetupPlayerType(player, "human")}>
+                            사람
+                          </option>
+                          <option value="computer" disabled={!canChangeSetupPlayerType(player, "computer")}>
+                            컴퓨터
+                          </option>
+                        </select>
+                      </label>
                       <label className="balance-input">
                         시작 금액
                         <input
@@ -1835,11 +1882,23 @@ export default function PokerApp() {
                       )}
                     </div>
                   ))}
+                  {canEditMultiplayerSettings && setupPlayers.length < MAX_TOTAL_PLAYERS ? (
+                    <button
+                      aria-label="플레이어 카드 추가"
+                      className="setup-player-add-card"
+                      onClick={addSetupPlayerCard}
+                      type="button"
+                    >
+                      <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+                        <path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5Z" />
+                      </svg>
+                    </button>
+                  ) : null}
                 </div>
                 <p className="note">
                   {isMultiplayerSetup
-                    ? `사람 자리와 컴퓨터를 합쳐 최대 ${MAX_TOTAL_PLAYERS}명까지 구성합니다. 사람 자리는 룸 생성 전까지만 추가하거나 제거할 수 있습니다.`
-                    : "컴퓨터별 성향과 수준은 전략 조언이 아닌 앱 자동 진행 기준입니다. 랜덤은 게임 시작 시 실제 성향이나 수준으로 확정됩니다."}
+                    ? `마지막 + 카드에서 플레이어를 추가하고, 각 카드의 유형에서 사람 자리 또는 컴퓨터를 선택합니다. 전체 플레이어는 최대 ${MAX_TOTAL_PLAYERS}명입니다.`
+                    : `마지막 + 카드에서 플레이어를 추가하고, 각 카드의 유형에서 사람 또는 컴퓨터를 선택합니다. 전체 플레이어는 최대 ${MAX_TOTAL_PLAYERS}명입니다.`}
                   {" "}
                   엔들리스 게임 모드에서는 다음 핸드 시작 시 탈락 좌석에 새 컴퓨터가 입장합니다.
                 </p>
@@ -1986,7 +2045,7 @@ export default function PokerApp() {
           <p className="eyebrow">Gangwon Land Hold&apos;em</p>
           <h1>강원랜드 기준 베팅 시뮬레이터</h1>
           <p>
-            강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 사람 플레이어 포함 여부, 컴퓨터 수, 컴퓨터 성향과 수준 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
+            강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 플레이어 카드 구성, 컴퓨터 성향과 수준 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
           </p>
           <p className="note">컴퓨터 성향/수준: {activeComputerStyleSummary || "없음"}</p>
         </div>
