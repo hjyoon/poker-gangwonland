@@ -61,8 +61,7 @@ a {
 }
 
 .hero,
-.table,
-.info-panel,
+.active-game-panel,
 .log-panel,
 .rules,
 .step-panel,
@@ -102,12 +101,47 @@ a {
   line-height: 1.5;
 }
 
-.hero-controls {
-  min-width: 220px;
+.active-game-panel {
   display: grid;
-  gap: 12px;
+  gap: 18px;
 }
 
+.active-game-panel.is-table {
+  background:
+    radial-gradient(circle at center, rgba(18, 89, 56, 0.48), rgba(7, 20, 16, 0.95) 72%),
+    var(--panel);
+}
+
+.active-game-section {
+  min-width: 0;
+}
+
+.game-settings-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.game-settings-panel .note {
+  margin: 0;
+}
+
+.game-settings-controls {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.game-settings-controls button {
+  align-self: end;
+}
+
+.hero-controls {
+  display: grid;
+  gap: 12px;
+  min-width: 220px;
+}
+
+.game-settings-controls label,
 .hero-controls label {
   display: grid;
   gap: 8px;
@@ -565,6 +599,8 @@ td {
 
 .setup-controls input,
 .setup-controls select,
+.game-settings-controls input,
+.game-settings-controls select,
 .hero-controls input,
 .hero-controls select {
   width: 100%;

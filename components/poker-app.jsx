@@ -57,6 +57,11 @@ const GAME_INFO_TABS = [
   { key: "rules", label: "규칙 요약" },
   { key: "progress", label: "구현 기록" },
 ];
+const ACTIVE_GAME_TABS = [
+  { key: "table", label: "게임 테이블" },
+  { key: "settings", label: "게임 설정" },
+  { key: "info", label: "보조 정보" },
+];
 
 const CARD_RANK_ROWS = [
   "1. 로열 플러쉬",
@@ -484,6 +489,7 @@ export default function PokerApp() {
   const [timerNowMs, setTimerNowMs] = useState(() => Date.now());
   const [setupMode, setSetupMode] = useState("single");
   const [setupTab, setSetupTab] = useState("game");
+  const [activeGameTab, setActiveGameTab] = useState("table");
   const [gameInfoTab, setGameInfoTab] = useState("log");
   const multiplayerSocketRef = useRef(null);
   const multiplayerReconnectRef = useRef(null);
@@ -1759,7 +1765,31 @@ export default function PokerApp() {
           </p>
           <p className="note">컴퓨터 성향/수준: {activeComputerStyleSummary || "없음"}</p>
         </div>
-        <div className="hero-controls">
+      </section>
+
+      <section className={`panel active-game-panel${activeGameTab === "table" ? " is-table" : ""}`}>
+        <div className="section-tabs active-game-tabs" role="tablist" aria-label="게임 진행 섹션">
+          {ACTIVE_GAME_TABS.map((tab) => (
+            <button
+              aria-selected={activeGameTab === tab.key}
+              className={`section-tab active-game-tab${activeGameTab === tab.key ? " is-active" : ""}`}
+              key={tab.key}
+              onClick={() => setActiveGameTab(tab.key)}
+              role="tab"
+              type="button"
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+      {activeGameTab === "settings" ? (
+      <section className="active-game-section game-settings-panel" role="tabpanel">
+        <div>
+          <h2>게임 진행 설정</h2>
+          <p className="note">진행 중 변경 가능한 앱 옵션입니다. 멀티플레이에서는 방장만 변경할 수 있습니다.</p>
+        </div>
+        <div className="game-settings-controls">
           <label className="toggle-input">
             <input
               type="checkbox"
@@ -1865,8 +1895,10 @@ export default function PokerApp() {
           <button onClick={openSetup}>새 게임 설정</button>
         </div>
       </section>
+      ) : null}
 
-      <section className="table panel">
+      {activeGameTab === "table" ? (
+      <section className="active-game-section game-table-section" role="tabpanel">
         <header className="table-header">
           <div>
             <h2>{activeStreet.label}</h2>
@@ -1955,8 +1987,10 @@ export default function PokerApp() {
           <p className="note">보유 금액은 게임 시작 전에 입력한 앱 진행용 시작 금액에서 베팅과 정산을 반영한 값입니다.</p>
         </section>
       </section>
+      ) : null}
 
-      <section className="panel info-panel">
+      {activeGameTab === "info" ? (
+      <section className="active-game-section info-panel" role="tabpanel">
         <div className="info-panel-header">
           <div>
             <h2>보조 정보</h2>
@@ -2029,6 +2063,8 @@ export default function PokerApp() {
             </ol>
           </div>
         ) : null}
+      </section>
+      ) : null}
       </section>
     </main>
   );
