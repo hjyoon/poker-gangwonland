@@ -450,6 +450,10 @@ button:disabled {
 .history-list {
   display: grid;
   gap: 10px;
+  max-height: min(460px, 52vh);
+  overflow-y: auto;
+  padding-right: 6px;
+  scrollbar-color: rgba(216, 162, 61, 0.62) rgba(255, 255, 255, 0.06);
 }
 
 .history-item {
@@ -475,6 +479,9 @@ button:disabled {
 
 .history-item ol {
   margin-top: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 6px;
 }
 
 .rules-grid {
