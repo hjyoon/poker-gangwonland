@@ -314,7 +314,6 @@ button:disabled {
 .seat header span,
 .seat dd,
 .seat dt,
-.hand-label,
 .note {
   color: var(--muted);
 }
@@ -335,6 +334,33 @@ button:disabled {
   display: flex;
   gap: 8px;
   margin-bottom: 12px;
+}
+
+.showdown-hand {
+  background: rgba(216, 162, 61, 0.1);
+  border: 1px solid rgba(216, 162, 61, 0.28);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+}
+
+.showdown-hand.is-winner {
+  background: rgba(83, 184, 131, 0.13);
+  border-color: rgba(83, 184, 131, 0.5);
+}
+
+.showdown-hand span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.showdown-hand strong {
+  color: var(--text);
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
 }
 
 .eliminated-badge {
@@ -502,11 +528,6 @@ td {
   text-align: left;
   padding: 12px 10px;
   vertical-align: top;
-}
-
-.hand-label {
-  margin: 8px 0 0;
-  font-size: 0.92rem;
 }
 
 .note {

@@ -293,7 +293,7 @@ function cardSuitClass(card) {
   return card.suit === "H" || card.suit === "D" ? " is-red" : " is-black";
 }
 
-function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle, winner, blindRole, isDealer }) {
+function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle, winner, blindRole, isDealer, showdownLabel }) {
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
   const computerLabel = computerProfileLabel(player, showComputerStyle);
@@ -340,6 +340,12 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
           })
         )}
       </div>
+      {showdownLabel ? (
+        <div className={`showdown-hand${winner ? " is-winner" : ""}`}>
+          <span>최종 패</span>
+          <strong>{showdownLabel}</strong>
+        </div>
+      ) : null}
       <dl>
         <div>
           <dt>행동</dt>
@@ -1930,19 +1936,18 @@ export default function PokerApp() {
 
         <div className="seats">
           {state.players.map((player, index) => (
-            <div key={player.id}>
-              <Seat
-                player={player}
-                isTurn={state.currentPlayerIndex === index && !state.finished}
-                revealCards={revealCards}
-                showPrivateCards={multiplayerGameActive ? player.id === multiplayerPlayerId : player.isHuman}
-                showComputerStyle={showComputerStylesInGame}
-                winner={state.winnerIds.includes(player.id)}
-                blindRole={index === state.smallBlindIndex ? "SB" : index === state.bigBlindIndex ? "BB" : ""}
-                isDealer={index === state.dealerIndex}
-              />
-              {showdownMap[player.id] ? <p className="hand-label">{showdownMap[player.id]}</p> : null}
-            </div>
+            <Seat
+              blindRole={index === state.smallBlindIndex ? "SB" : index === state.bigBlindIndex ? "BB" : ""}
+              isDealer={index === state.dealerIndex}
+              isTurn={state.currentPlayerIndex === index && !state.finished}
+              key={player.id}
+              player={player}
+              revealCards={revealCards}
+              showdownLabel={showdownMap[player.id] ?? ""}
+              showComputerStyle={showComputerStylesInGame}
+              showPrivateCards={multiplayerGameActive ? player.id === multiplayerPlayerId : player.isHuman}
+              winner={state.winnerIds.includes(player.id)}
+            />
           ))}
         </div>
 
