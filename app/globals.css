@@ -648,7 +648,7 @@ td {
 
 .balance-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -781,6 +781,10 @@ td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .balance-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .setup-mode-switch {
     grid-template-columns: 1fr;
   }
@@ -791,6 +795,7 @@ td {
 }
 
 @media (max-width: 560px) {
+  .balance-grid,
   .seats {
     grid-template-columns: 1fr;
   }
