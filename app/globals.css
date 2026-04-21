@@ -667,12 +667,76 @@ td {
 }
 
 .setup-player-config {
+  position: relative;
   display: grid;
   gap: 12px;
   padding: 14px;
   border: 1px solid rgba(216, 162, 61, 0.14);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    filter 140ms ease,
+    opacity 140ms ease,
+    transform 140ms ease;
+}
+
+.setup-player-config.is-draggable {
+  cursor: default;
+}
+
+.setup-player-config.is-dragging {
+  filter: blur(0.3px);
+  opacity: 0.46;
+  transform: translate(8px, 8px) scale(0.98);
+}
+
+.setup-player-config.is-dragging::before {
+  background: rgba(216, 162, 61, 0.08);
+  border: 1px dashed rgba(216, 162, 61, 0.46);
+  border-radius: 8px;
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  transform: translate(-10px, -10px);
+}
+
+.setup-player-config.is-drop-target {
+  border-color: rgba(83, 184, 131, 0.72);
+  box-shadow: 0 0 0 1px rgba(83, 184, 131, 0.28);
+}
+
+.setup-player-card-header {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.setup-player-card-header strong {
+  min-width: 0;
+}
+
+.drag-handle {
+  display: grid;
+  place-items: center;
+  color: var(--gold);
+  cursor: grab;
+  flex: 0 0 auto;
+  height: 30px;
+  width: 30px;
+}
+
+.setup-player-config.is-dragging .drag-handle {
+  cursor: grabbing;
+}
+
+.drag-handle svg {
+  fill: currentColor;
+  height: 16px;
+  width: 16px;
 }
 
 .setup-player-config .note {

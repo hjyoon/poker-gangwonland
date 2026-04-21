@@ -81,19 +81,7 @@ const TERM_ROWS = [
   ["번 (Burn)", "제공된 기준에는 구체 설명이 명시되어 있지 않아 별도 운영 규정 확인 필요"],
 ];
 
-function clampHumanSeatIndex(value, cpuCount, includeHuman = true) {
-  if (!includeHuman) {
-    return 0;
-  }
-  const maxIndex = cpuCount;
-  return Math.min(Math.max(0, Number(value) || 0), maxIndex);
-}
-
-function buildHumanSeatOptions(cpuCount) {
-  return Array.from({ length: cpuCount + 1 }, (_, index) => index);
-}
-
-function buildSetupPlayers(cpuCount, includeHuman = true, humanSeatIndex = 0) {
+function buildBaseSetupPlayers(cpuCount, includeHuman = true) {
   const cpuPlayers = Array.from({ length: cpuCount }, (_, index) => ({
     id: `cpu-${index + 1}`,
     name: `컴퓨터 ${index + 1}`,
@@ -103,35 +91,84 @@ function buildSetupPlayers(cpuCount, includeHuman = true, humanSeatIndex = 0) {
     return cpuPlayers;
   }
 
-  const players = [...cpuPlayers];
-  players.splice(clampHumanSeatIndex(humanSeatIndex, cpuCount, includeHuman), 0, {
-    id: "human",
-    name: "플레이어",
-    isHuman: true,
-  });
-  return players;
+  return [
+    {
+      id: "human",
+      name: "플레이어",
+      isHuman: true,
+    },
+    ...cpuPlayers,
+  ];
 }
 
-function buildSetupBalances(cpuCount, includeHuman = true, previous = {}, humanSeatIndex = 0) {
+function normalizeSetupPlayerOrder(order, players) {
+  const playerIds = players.map((player) => player.id);
+  const keptIds = Array.isArray(order) ? order.filter((id) => playerIds.includes(id)) : [];
+  return [...keptIds, ...playerIds.filter((id) => !keptIds.includes(id))];
+}
+
+function buildSetupPlayers(cpuCount, includeHuman = true, playerOrder = []) {
+  const players = buildBaseSetupPlayers(cpuCount, includeHuman);
+  const playerById = new Map(players.map((player) => [player.id, player]));
+  return normalizeSetupPlayerOrder(playerOrder, players).map((id) => playerById.get(id)).filter(Boolean);
+}
+
+function buildSetupBalances(cpuCount, includeHuman = true, previous = {}, playerOrder = []) {
   return Object.fromEntries(
-    buildSetupPlayers(cpuCount, includeHuman, humanSeatIndex).map((player) => [player.id, previous[player.id] ?? DEFAULT_STARTING_BALANCE]),
+    buildSetupPlayers(cpuCount, includeHuman, playerOrder).map((player) => [player.id, previous[player.id] ?? DEFAULT_STARTING_BALANCE]),
   );
 }
 
-function buildSetupComputerStyles(cpuCount, includeHuman = true, previous = {}, humanSeatIndex = 0) {
+function buildSetupComputerStyles(cpuCount, includeHuman = true, previous = {}, playerOrder = []) {
   return Object.fromEntries(
-    buildSetupPlayers(cpuCount, includeHuman, humanSeatIndex)
+    buildSetupPlayers(cpuCount, includeHuman, playerOrder)
       .filter((player) => !player.isHuman)
       .map((player) => [player.id, getComputerStyleSelection(previous[player.id]).key]),
   );
 }
 
-function buildSetupComputerLevels(cpuCount, includeHuman = true, previous = {}, humanSeatIndex = 0) {
+function buildSetupComputerLevels(cpuCount, includeHuman = true, previous = {}, playerOrder = []) {
   return Object.fromEntries(
-    buildSetupPlayers(cpuCount, includeHuman, humanSeatIndex)
+    buildSetupPlayers(cpuCount, includeHuman, playerOrder)
       .filter((player) => !player.isHuman)
       .map((player) => [player.id, getComputerLevelSelection(previous[player.id]).key]),
   );
+}
+
+function moveSetupPlayerOrder(order, players, draggedId, targetId, placement = "before") {
+  if (!draggedId || !targetId || draggedId === targetId) {
+    return normalizeSetupPlayerOrder(order, players);
+  }
+
+  const normalizedOrder = normalizeSetupPlayerOrder(order, players);
+  const fromIndex = normalizedOrder.indexOf(draggedId);
+  const targetIndex = normalizedOrder.indexOf(targetId);
+  if (fromIndex < 0 || targetIndex < 0) {
+    return normalizedOrder;
+  }
+
+  const nextOrder = [...normalizedOrder];
+  const [dragged] = nextOrder.splice(fromIndex, 1);
+  let toIndex = targetIndex + (placement === "after" ? 1 : 0);
+  if (fromIndex < toIndex) {
+    toIndex -= 1;
+  }
+  nextOrder.splice(toIndex, 0, dragged);
+  return nextOrder;
+}
+
+function setupDragClass(playerId, draggedId, overId) {
+  return `${draggedId === playerId ? " is-dragging" : ""}${overId === playerId && draggedId !== playerId ? " is-drop-target" : ""}`;
+}
+
+function getSetupDropPlacement(event) {
+  const rect = event.currentTarget.getBoundingClientRect();
+  const xRatio = rect.width > 0 ? (event.clientX - rect.left) / rect.width : 0.5;
+  const yRatio = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5;
+  const horizontalDistance = Math.abs(xRatio - 0.5);
+  const verticalDistance = Math.abs(yRatio - 0.5);
+  const isAfter = verticalDistance > horizontalDistance ? yRatio > 0.5 : xRatio > 0.5;
+  return isAfter ? "after" : "before";
 }
 
 function getComputerStyleOption(styleKey) {
@@ -461,10 +498,13 @@ function RulesPanel({ embedded = false }) {
 export default function PokerApp() {
   const [cpuCount, setCpuCount] = useState(3);
   const [includeHuman, setIncludeHuman] = useState(true);
-  const [humanSeatIndex, setHumanSeatIndex] = useState(0);
-  const [computerStyles, setComputerStyles] = useState(() => buildSetupComputerStyles(3, true, {}, 0));
-  const [computerLevels, setComputerLevels] = useState(() => buildSetupComputerLevels(3, true, {}, 0));
-  const [setupBalances, setSetupBalances] = useState(() => buildSetupBalances(3, true, {}, 0));
+  const [setupPlayerOrder, setSetupPlayerOrder] = useState(() => buildBaseSetupPlayers(3, true).map((player) => player.id));
+  const [draggedSetupPlayerId, setDraggedSetupPlayerId] = useState("");
+  const [dragOverSetupPlayerId, setDragOverSetupPlayerId] = useState("");
+  const [dragPreviewPlayerOrder, setDragPreviewPlayerOrder] = useState([]);
+  const [computerStyles, setComputerStyles] = useState(() => buildSetupComputerStyles(3, true, {}));
+  const [computerLevels, setComputerLevels] = useState(() => buildSetupComputerLevels(3, true, {}));
+  const [setupBalances, setSetupBalances] = useState(() => buildSetupBalances(3, true, {}));
   const [dealerIndex, setDealerIndex] = useState(0);
   const [chipTotals, setChipTotals] = useState({});
   const [state, setState] = useState(null);
@@ -502,6 +542,7 @@ export default function PokerApp() {
   const multiplayerNameRef = useRef(multiplayerName);
   const multiplayerGameActiveRef = useRef(false);
   const lastSentRoomSettingsRef = useRef("");
+  const setupDragDropCommittedRef = useRef(false);
   const cpuCountSelectRef = useRef(null);
   const includeHumanInputRef = useRef(null);
   const hasSyncedRestoredCpuCountRef = useRef(false);
@@ -661,12 +702,19 @@ export default function PokerApp() {
   const isMultiplayerSetup = setupMode === "multiplayer" || Boolean(multiplayerRoom);
   const setupTabs = isMultiplayerSetup ? MULTIPLAYER_SETUP_TABS : SINGLEPLAY_SETUP_TABS;
   const setupIncludesLocalHuman = !isMultiplayerSetup && includeHuman;
-  const resolvedHumanSeatIndex = clampHumanSeatIndex(humanSeatIndex, cpuCount, setupIncludesLocalHuman);
   const setupPlayers = useMemo(
-    () => buildSetupPlayers(cpuCount, setupIncludesLocalHuman, resolvedHumanSeatIndex),
-    [cpuCount, resolvedHumanSeatIndex, setupIncludesLocalHuman],
+    () => buildSetupPlayers(cpuCount, setupIncludesLocalHuman, setupPlayerOrder),
+    [cpuCount, setupIncludesLocalHuman, setupPlayerOrder],
   );
-  const humanSeatOptions = useMemo(() => buildHumanSeatOptions(cpuCount), [cpuCount]);
+  const displayedSetupPlayers = useMemo(
+    () =>
+      buildSetupPlayers(
+        cpuCount,
+        setupIncludesLocalHuman,
+        draggedSetupPlayerId && dragPreviewPlayerOrder.length > 0 ? dragPreviewPlayerOrder : setupPlayerOrder,
+      ),
+    [cpuCount, dragPreviewPlayerOrder, draggedSetupPlayerId, setupIncludesLocalHuman, setupPlayerOrder],
+  );
   const multiplayerHumanSlotCount = multiplayerRoom?.humanSlots ?? multiplayerSlots;
   const multiplayerConfiguredSeatCount = multiplayerHumanSlotCount + cpuCount;
   const multiplayerTableSeatCount = Math.min(MAX_TOTAL_PLAYERS, multiplayerConfiguredSeatCount);
@@ -760,22 +808,23 @@ export default function PokerApp() {
     const nextCpuCount = clampMultiplayerCpuCount(computerPlayers.length, room.humanSlots);
     setMultiplayerSlots(room.humanSlots);
     setCpuCount(nextCpuCount);
+    setSetupPlayerOrder(normalizeSetupPlayerOrder([], buildBaseSetupPlayers(nextCpuCount, false)));
     setSetupBalances((current) => {
-      const nextBalances = buildSetupBalances(nextCpuCount, false, current, 0);
+      const nextBalances = buildSetupBalances(nextCpuCount, false, current);
       computerPlayers.forEach((player, index) => {
         nextBalances[`cpu-${index + 1}`] = Math.max(0, Number(player.startingBalance) || 0);
       });
       return nextBalances;
     });
     setComputerStyles((current) => {
-      const nextStyles = buildSetupComputerStyles(nextCpuCount, false, current, 0);
+      const nextStyles = buildSetupComputerStyles(nextCpuCount, false, current);
       computerPlayers.forEach((player, index) => {
         nextStyles[`cpu-${index + 1}`] = getComputerStyleSelection(player.computerStyle).key;
       });
       return nextStyles;
     });
     setComputerLevels((current) => {
-      const nextLevels = buildSetupComputerLevels(nextCpuCount, false, current, 0);
+      const nextLevels = buildSetupComputerLevels(nextCpuCount, false, current);
       computerPlayers.forEach((player, index) => {
         nextLevels[`cpu-${index + 1}`] = getComputerLevelSelection(player.computerLevel).key;
       });
@@ -795,14 +844,18 @@ export default function PokerApp() {
     setHumanActionTimeoutMs(clampDelay(settings.humanActionTimeoutMs, MIN_HUMAN_ACTION_TIMEOUT_MS, MAX_HUMAN_ACTION_TIMEOUT_MS));
   }
 
-  function applySetupShape(nextCpuCount, nextIncludeHuman, includeSetupHuman = nextIncludeHuman, nextHumanSeatIndex = humanSeatIndex) {
-    const clampedHumanSeatIndex = clampHumanSeatIndex(nextHumanSeatIndex, nextCpuCount, includeSetupHuman);
+  function applySetupShape(nextCpuCount, nextIncludeHuman, includeSetupHuman = nextIncludeHuman) {
+    const nextPlayers = buildBaseSetupPlayers(nextCpuCount, includeSetupHuman);
+    const nextPlayerOrder = normalizeSetupPlayerOrder(setupPlayerOrder, nextPlayers);
     setCpuCount(nextCpuCount);
     setIncludeHuman(nextIncludeHuman);
-    setHumanSeatIndex(clampedHumanSeatIndex);
-    setSetupBalances((current) => buildSetupBalances(nextCpuCount, includeSetupHuman, current, clampedHumanSeatIndex));
-    setComputerStyles((current) => buildSetupComputerStyles(nextCpuCount, includeSetupHuman, current, clampedHumanSeatIndex));
-    setComputerLevels((current) => buildSetupComputerLevels(nextCpuCount, includeSetupHuman, current, clampedHumanSeatIndex));
+    setSetupPlayerOrder(nextPlayerOrder);
+    setDragPreviewPlayerOrder([]);
+    setDraggedSetupPlayerId("");
+    setDragOverSetupPlayerId("");
+    setSetupBalances((current) => buildSetupBalances(nextCpuCount, includeSetupHuman, current, nextPlayerOrder));
+    setComputerStyles((current) => buildSetupComputerStyles(nextCpuCount, includeSetupHuman, current, nextPlayerOrder));
+    setComputerLevels((current) => buildSetupComputerLevels(nextCpuCount, includeSetupHuman, current, nextPlayerOrder));
   }
 
   function reshapeSetup(nextCpuCount, nextIncludeHuman) {
@@ -818,11 +871,14 @@ export default function PokerApp() {
 
     setSetupMode(resolvedMode);
     setSetupTab(resolvedMode === "multiplayer" ? "multiplayer" : "game");
+    setSetupPlayerOrder((current) =>
+      normalizeSetupPlayerOrder(current, buildBaseSetupPlayers(cpuCount, resolvedMode === "single" && includeHuman)),
+    );
 
     if (resolvedMode === "multiplayer") {
       const clampedCpuCount = clampMultiplayerCpuCount(cpuCount, multiplayerHumanSlotCount);
       if (clampedCpuCount !== cpuCount) {
-        applySetupShape(clampedCpuCount, includeHuman, false, humanSeatIndex);
+        applySetupShape(clampedCpuCount, includeHuman, false);
       }
     }
   }
@@ -832,14 +888,10 @@ export default function PokerApp() {
       if (!isMultiplayerHost) {
         return;
       }
-      applySetupShape(clampMultiplayerCpuCount(nextCpuCount, multiplayerRoom.humanSlots), includeHuman, false, humanSeatIndex);
+      applySetupShape(clampMultiplayerCpuCount(nextCpuCount, multiplayerRoom.humanSlots), includeHuman, false);
       return;
     }
     reshapeSetup(nextCpuCount, includeHuman);
-  }
-
-  function changeHumanSeatIndex(nextHumanSeatIndex) {
-    setHumanSeatIndex(clampHumanSeatIndex(nextHumanSeatIndex, cpuCount, includeHuman));
   }
 
   useEffect(() => {
@@ -852,9 +904,9 @@ export default function PokerApp() {
     const restoredCpuCount = Number(cpuCountSelectRef.current?.value);
     const nextCpuCount = Number.isFinite(restoredCpuCount) ? clampCpuCount(restoredCpuCount, restoredIncludeHuman) : cpuCount;
     if (restoredIncludeHuman !== includeHuman || nextCpuCount !== cpuCount) {
-      applySetupShape(nextCpuCount, restoredIncludeHuman, restoredIncludeHuman, humanSeatIndex);
+      applySetupShape(nextCpuCount, restoredIncludeHuman, restoredIncludeHuman);
     }
-  }, [cpuCount, humanSeatIndex, includeHuman, state]);
+  }, [cpuCount, includeHuman, state]);
 
   useEffect(() => {
     if (setupTabs.some((tab) => tab.key === setupTab)) {
@@ -870,9 +922,9 @@ export default function PokerApp() {
 
     const clampedCpuCount = clampMultiplayerCpuCount(cpuCount, multiplayerHumanSlotCount);
     if (clampedCpuCount !== cpuCount) {
-      applySetupShape(clampedCpuCount, includeHuman, false, humanSeatIndex);
+      applySetupShape(clampedCpuCount, includeHuman, false);
     }
-  }, [cpuCount, humanSeatIndex, includeHuman, isMultiplayerSetup, multiplayerHumanSlotCount, multiplayerRoom, state]);
+  }, [cpuCount, includeHuman, isMultiplayerSetup, multiplayerHumanSlotCount, multiplayerRoom, state]);
 
   useEffect(() => {
     if (!multiplayerRoom || state) {
@@ -881,9 +933,9 @@ export default function PokerApp() {
 
     const clampedCpuCount = clampMultiplayerCpuCount(cpuCount, multiplayerRoom.humanSlots);
     if (clampedCpuCount !== cpuCount) {
-      applySetupShape(clampedCpuCount, includeHuman, false, humanSeatIndex);
+      applySetupShape(clampedCpuCount, includeHuman, false);
     }
-  }, [cpuCount, humanSeatIndex, includeHuman, multiplayerRoom, state]);
+  }, [cpuCount, includeHuman, multiplayerRoom, state]);
 
   useEffect(() => {
     if (!multiplayerTimer) {
@@ -975,12 +1027,77 @@ export default function PokerApp() {
     }));
   }
 
+  function resetSetupPlayerDrag() {
+    setDraggedSetupPlayerId("");
+    setDragOverSetupPlayerId("");
+    setDragPreviewPlayerOrder([]);
+  }
+
+  function handleSetupPlayerDragStart(event, playerId) {
+    if (!canEditMultiplayerSettings || setupPlayers.length <= 1) {
+      event.preventDefault();
+      return;
+    }
+    const dragOrder = normalizeSetupPlayerOrder(setupPlayerOrder, setupPlayers);
+    setupDragDropCommittedRef.current = false;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", playerId);
+    const dragImage = event.currentTarget.closest(".setup-player-config");
+    if (dragImage) {
+      event.dataTransfer.setDragImage(dragImage, dragImage.clientWidth / 2, 24);
+    }
+    setDraggedSetupPlayerId(playerId);
+    setDragOverSetupPlayerId("");
+    setDragPreviewPlayerOrder(dragOrder);
+  }
+
+  function handleSetupPlayerDragOver(event, playerId) {
+    if (!canEditMultiplayerSettings || !draggedSetupPlayerId) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (draggedSetupPlayerId === playerId) {
+      return;
+    }
+    const placement = getSetupDropPlacement(event);
+    setDragOverSetupPlayerId(playerId);
+    setDragPreviewPlayerOrder((current) =>
+      moveSetupPlayerOrder(current.length > 0 ? current : setupPlayerOrder, setupPlayers, draggedSetupPlayerId, playerId, placement),
+    );
+  }
+
+  function handleSetupPlayerDrop(event, playerId) {
+    if (!canEditMultiplayerSettings) {
+      return;
+    }
+    event.preventDefault();
+    const draggedId = event.dataTransfer.getData("text/plain") || draggedSetupPlayerId;
+    const placement = getSetupDropPlacement(event);
+    const baseOrder = dragPreviewPlayerOrder.length > 0 ? dragPreviewPlayerOrder : setupPlayerOrder;
+    setupDragDropCommittedRef.current = true;
+    setSetupPlayerOrder(moveSetupPlayerOrder(baseOrder, setupPlayers, draggedId, playerId, placement));
+    resetSetupPlayerDrag();
+  }
+
+  function handleSetupPlayerDragEnd() {
+    if (setupDragDropCommittedRef.current) {
+      setupDragDropCommittedRef.current = false;
+      resetSetupPlayerDrag();
+      return;
+    }
+    if (draggedSetupPlayerId && dragOverSetupPlayerId && dragPreviewPlayerOrder.length > 0) {
+      setSetupPlayerOrder(normalizeSetupPlayerOrder(dragPreviewPlayerOrder, setupPlayers));
+    }
+    resetSetupPlayerDrag();
+  }
+
   function changeIncludeHuman(nextIncludeHuman) {
     if (multiplayerRoom) {
       if (!isMultiplayerHost) {
         return;
       }
-      applySetupShape(clampMultiplayerCpuCount(cpuCount, multiplayerRoom.humanSlots), nextIncludeHuman, false, humanSeatIndex);
+      applySetupShape(clampMultiplayerCpuCount(cpuCount, multiplayerRoom.humanSlots), nextIncludeHuman, false);
       return;
     }
     reshapeSetup(cpuCount, nextIncludeHuman);
@@ -1389,18 +1506,6 @@ export default function PokerApp() {
                       />
                       사람 플레이어 포함
                     </label>
-                    {includeHuman ? (
-                      <label>
-                        사람 플레이어 자리
-                        <select value={resolvedHumanSeatIndex} onChange={(event) => changeHumanSeatIndex(Number(event.target.value))}>
-                          {humanSeatOptions.map((option) => (
-                            <option key={option} value={option}>
-                              {option + 1}번 자리
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ) : null}
                   </>
                 ) : null}
                 <label className="toggle-input">
@@ -1511,10 +1616,40 @@ export default function PokerApp() {
               <div className="setup-player-section">
                 <h3>플레이어 설정</h3>
                 <div className="balance-grid">
-                  {setupPlayers.map((player) => (
-                    <div className="setup-player-config" key={player.id}>
+                  {displayedSetupPlayers.map((player) => (
+                    <div
+                      aria-label={`${player.name} 설정 카드`}
+                      className={`setup-player-config${canEditMultiplayerSettings ? " is-draggable" : ""}${setupDragClass(player.id, draggedSetupPlayerId, dragOverSetupPlayerId)}`}
+                      key={player.id}
+                      onDragEnter={(event) => handleSetupPlayerDragOver(event, player.id)}
+                      onDragOver={(event) => handleSetupPlayerDragOver(event, player.id)}
+                      onDrop={(event) => handleSetupPlayerDrop(event, player.id)}
+                      role="group"
+                    >
+                      <div className="setup-player-card-header">
+                        <strong>{player.name}</strong>
+                        {canEditMultiplayerSettings && setupPlayers.length > 1 ? (
+                          <span
+                            aria-label={`${player.name} 순서 변경`}
+                            className="drag-handle"
+                            draggable
+                            onDragEnd={handleSetupPlayerDragEnd}
+                            onDragStart={(event) => handleSetupPlayerDragStart(event, player.id)}
+                            title="드래그해서 순서 변경"
+                          >
+                            <svg aria-hidden="true" focusable="false" viewBox="0 0 16 16">
+                              <circle cx="5" cy="4" r="1.4" />
+                              <circle cx="11" cy="4" r="1.4" />
+                              <circle cx="5" cy="8" r="1.4" />
+                              <circle cx="11" cy="8" r="1.4" />
+                              <circle cx="5" cy="12" r="1.4" />
+                              <circle cx="11" cy="12" r="1.4" />
+                            </svg>
+                          </span>
+                        ) : null}
+                      </div>
                       <label className="balance-input">
-                        <span>{player.name}</span>
+                        시작 금액
                         <input
                           min="0"
                           step="1000"
