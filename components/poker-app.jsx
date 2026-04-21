@@ -37,6 +37,17 @@ const MAX_HUMAN_ACTION_TIMEOUT_MS = 60000;
 const MIN_MULTIPLAYER_HUMAN_SLOTS = 2;
 const MAX_MULTIPLAYER_HUMAN_SLOTS = MAX_TOTAL_PLAYERS;
 const MULTIPLAYER_RECONNECT_DELAY_MS = 1500;
+const SETUP_TABS = [
+  { key: "game", label: "게임 설정" },
+  { key: "multiplayer", label: "멀티플레이" },
+  { key: "players", label: "플레이어" },
+  { key: "rules", label: "규칙 요약" },
+];
+const GAME_INFO_TABS = [
+  { key: "log", label: "진행 로그" },
+  { key: "rules", label: "규칙 요약" },
+  { key: "progress", label: "구현 기록" },
+];
 
 const CARD_RANK_ROWS = [
   "1. 로열 플러쉬",
@@ -337,9 +348,9 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
   );
 }
 
-function RulesPanel() {
+function RulesPanel({ embedded = false }) {
   return (
-    <section className="panel rules">
+    <section className={embedded ? "rules embedded-rules" : "panel rules"}>
       <h2>강원랜드 기준 요약</h2>
       <p>
         52장 카드로 진행하며 개인 카드 2장과 공유 카드 5장을 조합합니다. 승리 방식은 상대를 폴드시키거나 쇼다운에서 더 높은 패를 만드는 것입니다.
@@ -462,6 +473,8 @@ export default function PokerApp() {
   const [handHistory, setHandHistory] = useState([]);
   const [archivedHandIds, setArchivedHandIds] = useState(() => new Set());
   const [timerNowMs, setTimerNowMs] = useState(() => Date.now());
+  const [setupTab, setSetupTab] = useState("game");
+  const [gameInfoTab, setGameInfoTab] = useState("log");
   const multiplayerSocketRef = useRef(null);
   const multiplayerReconnectRef = useRef(null);
   const multiplayerRoomIdRef = useRef("");
@@ -1255,328 +1268,359 @@ export default function PokerApp() {
               시작 금액, 컴퓨터 성향/수준, 잔액 부족 탈락은 앱 진행용 설정입니다. 잔액 {formatMoney(MIN_PLAYABLE_BALANCE)} 미만인 플레이어는 다음 핸드를 진행할 수 없어 탈락 처리됩니다.
             </p>
           </div>
-          <div className="setup-controls">
-            <label>
-              컴퓨터 플레이어 수
-              <select
-                ref={cpuCountSelectRef}
-                value={cpuCount}
-                onChange={(event) => changeCpuCount(Number(event.target.value))}
-                disabled={!canEditMultiplayerSettings}
+          <div className="section-tabs setup-tabs" role="tablist" aria-label="게임 시작 설정">
+            {SETUP_TABS.map((tab) => (
+              <button
+                aria-selected={setupTab === tab.key}
+                className={`section-tab setup-tab${setupTab === tab.key ? " is-active" : ""}`}
+                key={tab.key}
+                onClick={() => setSetupTab(tab.key)}
+                role="tab"
+                type="button"
               >
-                {effectiveCpuCountOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}명
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="toggle-input">
-              <input
-                ref={includeHumanInputRef}
-                type="checkbox"
-                checked={includeHuman}
-                onChange={(event) => changeIncludeHuman(event.target.checked)}
-                disabled={Boolean(multiplayerRoom)}
-              />
-              사람 플레이어 포함
-            </label>
-            {!multiplayerRoom && includeHuman ? (
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {setupTab === "game" ? (
+            <div className="setup-controls setup-section" role="tabpanel">
               <label>
-                사람 플레이어 자리
-                <select value={resolvedHumanSeatIndex} onChange={(event) => changeHumanSeatIndex(Number(event.target.value))}>
-                  {humanSeatOptions.map((option) => (
+                컴퓨터 플레이어 수
+                <select
+                  ref={cpuCountSelectRef}
+                  value={cpuCount}
+                  onChange={(event) => changeCpuCount(Number(event.target.value))}
+                  disabled={!canEditMultiplayerSettings}
+                >
+                  {effectiveCpuCountOptions.map((option) => (
                     <option key={option} value={option}>
-                      {option + 1}번 자리
+                      {option}명
                     </option>
                   ))}
                 </select>
               </label>
-            ) : null}
-            <label className="toggle-input">
-              <input
-                type="checkbox"
-                checked={autoNextHand}
-                onChange={(event) => updateAutoNextHand(event.target.checked)}
-                disabled={!canEditMultiplayerSettings}
-              />
-              다음 핸드 자동 진행
-            </label>
-            <label className="toggle-input">
-              <input
-                type="checkbox"
-                checked={endlessMode}
-                onChange={(event) => updateEndlessMode(event.target.checked)}
-                disabled={!canEditMultiplayerSettings}
-              />
-              엔들리스 게임 모드
-            </label>
-            <label>
-              엔들리스 신규 컴퓨터 성향
-              <select
-                value={getComputerStyleSelection(endlessReplacementComputerStyle).key}
-                onChange={(event) => updateEndlessReplacementStyle(event.target.value)}
-                disabled={!canEditMultiplayerSettings || !endlessMode}
-              >
-                {COMPUTER_STYLE_OPTIONS.map((style) => (
-                  <option key={style.key} value={style.key}>
-                    {style.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              엔들리스 신규 컴퓨터 수준
-              <select
-                value={getComputerLevelSelection(endlessReplacementComputerLevel).key}
-                onChange={(event) => updateEndlessReplacementLevel(event.target.value)}
-                disabled={!canEditMultiplayerSettings || !endlessMode}
-              >
-                {COMPUTER_LEVEL_OPTIONS.map((level) => (
-                  <option key={level.key} value={level.key}>
-                    {level.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="delay-input">
-              엔들리스 신규 시작 금액
-              <input
-                min={MIN_PLAYABLE_BALANCE}
-                step="1000"
-                type="number"
-                value={endlessReplacementStartingBalance}
-                onChange={(event) => updateEndlessReplacementBalance(event.target.value)}
-                disabled={!canEditMultiplayerSettings || !endlessMode}
-              />
-            </label>
-            <label className="toggle-input">
-              <input
-                type="checkbox"
-                checked={showComputerStylesInGame}
-                onChange={(event) => updateShowComputerStylesInGame(event.target.checked)}
-                disabled={!canEditMultiplayerSettings}
-              />
-              인게임 컴퓨터 성향/수준 표시
-            </label>
-            <label className="delay-input">
-              컴퓨터 행동 딜레이(ms)
-              <input
-                min={MIN_COMPUTER_ACTION_DELAY_MS}
-                max={MAX_COMPUTER_ACTION_DELAY_MS}
-                step="100"
-                type="number"
-                value={computerActionDelayMs}
-                onChange={(event) => updateComputerActionDelay(event.target.value)}
-                disabled={!canEditMultiplayerSettings}
-              />
-            </label>
-            <label className="delay-input">
-              다음 핸드 딜레이(ms)
-              <input
-                min={MIN_NEXT_HAND_DELAY_MS}
-                max={MAX_NEXT_HAND_DELAY_MS}
-                step="100"
-                type="number"
-                value={nextHandDelayMs}
-                onChange={(event) => updateNextHandDelay(event.target.value)}
-                disabled={!canEditMultiplayerSettings || !autoNextHand}
-              />
-            </label>
-            <label className="delay-input">
-              멀티플레이 제한 시간(ms)
-              <input
-                min={MIN_HUMAN_ACTION_TIMEOUT_MS}
-                max={MAX_HUMAN_ACTION_TIMEOUT_MS}
-                step="1000"
-                type="number"
-                value={humanActionTimeoutMs}
-                onChange={(event) => updateHumanActionTimeout(event.target.value)}
-                disabled={!canEditMultiplayerSettings}
-              />
-            </label>
-          </div>
-          <section className="multiplayer-lobby">
-            <div>
-              <h3>멀티플레이 룸</h3>
-              <p className="note">WebSocket 상태: {multiplayerStatus}</p>
-            </div>
-            <div className="setup-controls">
-              <label>
-                표시 이름
+              <label className="toggle-input">
                 <input
-                  maxLength="20"
-                  type="text"
-                  value={multiplayerName}
-                  onChange={(event) => setMultiplayerName(event.target.value)}
-                />
-              </label>
-              <label>
-                빈 사람 슬롯
-                <input
-                  min={MIN_MULTIPLAYER_HUMAN_SLOTS}
-                  max={MAX_MULTIPLAYER_HUMAN_SLOTS}
-                  step="1"
-                  type="number"
-                  value={multiplayerRoom?.humanSlots ?? multiplayerSlots}
-                  onChange={(event) => updateMultiplayerSlots(event.target.value)}
+                  ref={includeHumanInputRef}
+                  type="checkbox"
+                  checked={includeHuman}
+                  onChange={(event) => changeIncludeHuman(event.target.checked)}
                   disabled={Boolean(multiplayerRoom)}
                 />
+                사람 플레이어 포함
+              </label>
+              {!multiplayerRoom && includeHuman ? (
+                <label>
+                  사람 플레이어 자리
+                  <select value={resolvedHumanSeatIndex} onChange={(event) => changeHumanSeatIndex(Number(event.target.value))}>
+                    {humanSeatOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option + 1}번 자리
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <label className="toggle-input">
+                <input
+                  type="checkbox"
+                  checked={autoNextHand}
+                  onChange={(event) => updateAutoNextHand(event.target.checked)}
+                  disabled={!canEditMultiplayerSettings}
+                />
+                다음 핸드 자동 진행
+              </label>
+              <label className="toggle-input">
+                <input
+                  type="checkbox"
+                  checked={endlessMode}
+                  onChange={(event) => updateEndlessMode(event.target.checked)}
+                  disabled={!canEditMultiplayerSettings}
+                />
+                엔들리스 게임 모드
               </label>
               <label>
-                참가자 시작 금액
+                엔들리스 신규 컴퓨터 성향
+                <select
+                  value={getComputerStyleSelection(endlessReplacementComputerStyle).key}
+                  onChange={(event) => updateEndlessReplacementStyle(event.target.value)}
+                  disabled={!canEditMultiplayerSettings || !endlessMode}
+                >
+                  {COMPUTER_STYLE_OPTIONS.map((style) => (
+                    <option key={style.key} value={style.key}>
+                      {style.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                엔들리스 신규 컴퓨터 수준
+                <select
+                  value={getComputerLevelSelection(endlessReplacementComputerLevel).key}
+                  onChange={(event) => updateEndlessReplacementLevel(event.target.value)}
+                  disabled={!canEditMultiplayerSettings || !endlessMode}
+                >
+                  {COMPUTER_LEVEL_OPTIONS.map((level) => (
+                    <option key={level.key} value={level.key}>
+                      {level.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="delay-input">
+                엔들리스 신규 시작 금액
                 <input
-                  min="0"
+                  min={MIN_PLAYABLE_BALANCE}
                   step="1000"
                   type="number"
-                  value={multiplayerHumanBalance}
-                  onChange={(event) => updateMultiplayerHumanBalance(event.target.value)}
+                  value={endlessReplacementStartingBalance}
+                  onChange={(event) => updateEndlessReplacementBalance(event.target.value)}
+                  disabled={!canEditMultiplayerSettings || !endlessMode}
+                />
+              </label>
+              <label className="toggle-input">
+                <input
+                  type="checkbox"
+                  checked={showComputerStylesInGame}
+                  onChange={(event) => updateShowComputerStylesInGame(event.target.checked)}
+                  disabled={!canEditMultiplayerSettings}
+                />
+                인게임 컴퓨터 성향/수준 표시
+              </label>
+              <label className="delay-input">
+                컴퓨터 행동 딜레이(ms)
+                <input
+                  min={MIN_COMPUTER_ACTION_DELAY_MS}
+                  max={MAX_COMPUTER_ACTION_DELAY_MS}
+                  step="100"
+                  type="number"
+                  value={computerActionDelayMs}
+                  onChange={(event) => updateComputerActionDelay(event.target.value)}
                   disabled={!canEditMultiplayerSettings}
                 />
               </label>
-              <label>
-                룸 코드
+              <label className="delay-input">
+                다음 핸드 딜레이(ms)
                 <input
-                  maxLength="6"
-                  type="text"
-                  value={multiplayerJoinCode}
-                  onChange={(event) => setMultiplayerJoinCode(event.target.value.toUpperCase())}
-                  disabled={Boolean(multiplayerRoom)}
+                  min={MIN_NEXT_HAND_DELAY_MS}
+                  max={MAX_NEXT_HAND_DELAY_MS}
+                  step="100"
+                  type="number"
+                  value={nextHandDelayMs}
+                  onChange={(event) => updateNextHandDelay(event.target.value)}
+                  disabled={!canEditMultiplayerSettings || !autoNextHand}
+                />
+              </label>
+              <label className="delay-input">
+                멀티플레이 제한 시간(ms)
+                <input
+                  min={MIN_HUMAN_ACTION_TIMEOUT_MS}
+                  max={MAX_HUMAN_ACTION_TIMEOUT_MS}
+                  step="1000"
+                  type="number"
+                  value={humanActionTimeoutMs}
+                  onChange={(event) => updateHumanActionTimeout(event.target.value)}
+                  disabled={!canEditMultiplayerSettings}
                 />
               </label>
             </div>
-            <div className="setup-actions">
-              <button type="button" onClick={createMultiplayerRoom}>
-                룸 만들기
-              </button>
-              <button className="secondary" type="button" onClick={joinMultiplayerRoom}>
-                룸 참가
-              </button>
-              {multiplayerRoom ? (
-                <button className="secondary" type="button" onClick={leaveMultiplayerRoom}>
-                  룸 나가기
-                </button>
-              ) : null}
-            </div>
-            {multiplayerError ? <p className="note money-negative">{multiplayerError}</p> : null}
-            {multiplayerRoom ? (
-              <div className="room-state">
-                <strong>룸 코드: {multiplayerRoom.id}</strong>
-                <div className="room-slots">
-                  {multiplayerRoom.seats.map((seat) => (
-                    <div className={`room-slot${seat.playerId && !seat.connected ? " is-disconnected" : ""}`} key={seat.id}>
-                      <span>{seat.label}</span>
-                      <strong>{seat.name ? `${seat.name}${seat.connected ? "" : " (연결 끊김)"}` : "대기 중"}</strong>
-                    </div>
-                  ))}
-                </div>
-                <div className="room-table-seats">
-                  <strong>게임 자리 배치</strong>
-                  <label className="toggle-input seat-random-toggle">
-                    <input
-                      type="checkbox"
-                      checked={randomizeMultiplayerHumanSeats}
-                      onChange={(event) => setRandomizeMultiplayerHumanSeats(event.target.checked)}
-                      disabled={!canEditMultiplayerSettings}
-                    />
-                    사람 자리 랜덤 배치
-                  </label>
-                  <div className="seat-placement-grid">
-                    {multiplayerRoom.seats.map((seat, index) => (
-                      <label key={seat.id}>
-                        {seat.label}
-                        <select
-                          value={resolvedMultiplayerTableSeats[index] ?? 0}
-                          onChange={(event) => updateMultiplayerTableSeat(index, event.target.value)}
-                          disabled={randomizeMultiplayerHumanSeats || !canEditMultiplayerSettings}
-                        >
-                          {multiplayerTableSeatOptions.map((option) => (
-                            <option key={option} value={option}>
-                              {option + 1}번 자리
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    ))}
-                  </div>
-                  <p className="note">
-                    {randomizeMultiplayerHumanSeats
-                      ? "게임 시작 시 모든 사람 슬롯의 자리를 서버에서 랜덤으로 확정합니다."
-                      : "컴퓨터 플레이어는 사람이 지정되지 않은 남은 자리에 순서대로 배치됩니다."}
-                  </p>
-                </div>
+          ) : null}
+
+          {setupTab === "multiplayer" ? (
+            <section className="multiplayer-lobby setup-section" role="tabpanel">
+              <div>
+                <h3>멀티플레이 룸</h3>
+                <p className="note">WebSocket 상태: {multiplayerStatus}</p>
               </div>
-            ) : null}
-          </section>
-          <div className="balance-grid">
-            {setupPlayers.map((player) => (
-              <div className="setup-player-config" key={player.id}>
-                <label className="balance-input">
-                  <span>{player.name}</span>
+              <div className="setup-controls">
+                <label>
+                  표시 이름
+                  <input
+                    maxLength="20"
+                    type="text"
+                    value={multiplayerName}
+                    onChange={(event) => setMultiplayerName(event.target.value)}
+                  />
+                </label>
+                <label>
+                  빈 사람 슬롯
+                  <input
+                    min={MIN_MULTIPLAYER_HUMAN_SLOTS}
+                    max={MAX_MULTIPLAYER_HUMAN_SLOTS}
+                    step="1"
+                    type="number"
+                    value={multiplayerRoom?.humanSlots ?? multiplayerSlots}
+                    onChange={(event) => updateMultiplayerSlots(event.target.value)}
+                    disabled={Boolean(multiplayerRoom)}
+                  />
+                </label>
+                <label>
+                  참가자 시작 금액
                   <input
                     min="0"
                     step="1000"
                     type="number"
-                    value={setupBalances[player.id] ?? 0}
-                    onChange={(event) => updateSetupBalance(player.id, event.target.value)}
+                    value={multiplayerHumanBalance}
+                    onChange={(event) => updateMultiplayerHumanBalance(event.target.value)}
                     disabled={!canEditMultiplayerSettings}
                   />
                 </label>
-                {player.isHuman ? (
-                  <p className="note">사람 플레이어는 직접 행동을 선택합니다.</p>
-                ) : (
-                  <>
-                    <label className="style-input">
-                      컴퓨터 플레이 성향
-                      <select
-                        value={getComputerStyleSelection(computerStyles[player.id]).key}
-                        onChange={(event) => updateComputerStyle(player.id, event.target.value)}
-                        disabled={!canEditMultiplayerSettings}
-                      >
-                        {COMPUTER_STYLE_OPTIONS.map((style) => (
-                          <option key={style.key} value={style.key}>
-                            {style.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="style-input">
-                      컴퓨터 판단 수준
-                      <select
-                        value={getComputerLevelSelection(computerLevels[player.id]).key}
-                        onChange={(event) => updateComputerLevel(player.id, event.target.value)}
-                        disabled={!canEditMultiplayerSettings}
-                      >
-                      {COMPUTER_LEVEL_OPTIONS.map((level) => (
-                        <option key={level.key} value={level.key}>
-                          {level.label}
-                        </option>
-                        ))}
-                      </select>
-                    </label>
-                  </>
-                )}
+                <label>
+                  룸 코드
+                  <input
+                    maxLength="6"
+                    type="text"
+                    value={multiplayerJoinCode}
+                    onChange={(event) => setMultiplayerJoinCode(event.target.value.toUpperCase())}
+                    disabled={Boolean(multiplayerRoom)}
+                  />
+                </label>
               </div>
-            ))}
-          </div>
-          <p className="note">
-            컴퓨터별 성향과 수준은 전략 조언이 아닌 앱 자동 진행 기준입니다. 랜덤은 게임 시작 시 실제 성향이나 수준으로 확정됩니다.
-            엔들리스 게임 모드에서는 다음 핸드 시작 시 탈락 좌석에 새 컴퓨터가 입장합니다.
-          </p>
-          {multiplayerRoom ? (
-            <p className="note">
-              멀티플레이에서는 빈 사람 슬롯 {multiplayerRoom.humanSlots}명과 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.
-              {isMultiplayerHost ? " 방장만 게임 설정을 변경할 수 있습니다." : " 현재 설정은 방장이 정한 값으로 동기화됩니다."}
-            </p>
+              <div className="setup-actions">
+                <button type="button" onClick={createMultiplayerRoom}>
+                  룸 만들기
+                </button>
+                <button className="secondary" type="button" onClick={joinMultiplayerRoom}>
+                  룸 참가
+                </button>
+                {multiplayerRoom ? (
+                  <button className="secondary" type="button" onClick={leaveMultiplayerRoom}>
+                    룸 나가기
+                  </button>
+                ) : null}
+              </div>
+              {multiplayerError ? <p className="note money-negative">{multiplayerError}</p> : null}
+              {multiplayerRoom ? (
+                <>
+                  <div className="room-state">
+                    <strong>룸 코드: {multiplayerRoom.id}</strong>
+                    <div className="room-slots">
+                      {multiplayerRoom.seats.map((seat) => (
+                        <div className={`room-slot${seat.playerId && !seat.connected ? " is-disconnected" : ""}`} key={seat.id}>
+                          <span>{seat.label}</span>
+                          <strong>{seat.name ? `${seat.name}${seat.connected ? "" : " (연결 끊김)"}` : "대기 중"}</strong>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="room-table-seats">
+                      <strong>게임 자리 배치</strong>
+                      <label className="toggle-input seat-random-toggle">
+                        <input
+                          type="checkbox"
+                          checked={randomizeMultiplayerHumanSeats}
+                          onChange={(event) => setRandomizeMultiplayerHumanSeats(event.target.checked)}
+                          disabled={!canEditMultiplayerSettings}
+                        />
+                        사람 자리 랜덤 배치
+                      </label>
+                      <div className="seat-placement-grid">
+                        {multiplayerRoom.seats.map((seat, index) => (
+                          <label key={seat.id}>
+                            {seat.label}
+                            <select
+                              value={resolvedMultiplayerTableSeats[index] ?? 0}
+                              onChange={(event) => updateMultiplayerTableSeat(index, event.target.value)}
+                              disabled={randomizeMultiplayerHumanSeats || !canEditMultiplayerSettings}
+                            >
+                              {multiplayerTableSeatOptions.map((option) => (
+                                <option key={option} value={option}>
+                                  {option + 1}번 자리
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ))}
+                      </div>
+                      <p className="note">
+                        {randomizeMultiplayerHumanSeats
+                          ? "게임 시작 시 모든 사람 슬롯의 자리를 서버에서 랜덤으로 확정합니다."
+                          : "컴퓨터 플레이어는 사람이 지정되지 않은 남은 자리에 순서대로 배치됩니다."}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="note">
+                    멀티플레이에서는 빈 사람 슬롯 {multiplayerRoom.humanSlots}명과 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.
+                    {isMultiplayerHost ? " 방장만 게임 설정을 변경할 수 있습니다." : " 현재 설정은 방장이 정한 값으로 동기화됩니다."}
+                  </p>
+                </>
+              ) : null}
+            </section>
           ) : null}
-          <div className="setup-actions">
+
+          {setupTab === "players" ? (
+            <div className="setup-section" role="tabpanel">
+              <div className="balance-grid">
+                {setupPlayers.map((player) => (
+                  <div className="setup-player-config" key={player.id}>
+                    <label className="balance-input">
+                      <span>{player.name}</span>
+                      <input
+                        min="0"
+                        step="1000"
+                        type="number"
+                        value={setupBalances[player.id] ?? 0}
+                        onChange={(event) => updateSetupBalance(player.id, event.target.value)}
+                        disabled={!canEditMultiplayerSettings}
+                      />
+                    </label>
+                    {player.isHuman ? (
+                      <p className="note">사람 플레이어는 직접 행동을 선택합니다.</p>
+                    ) : (
+                      <>
+                        <label className="style-input">
+                          컴퓨터 플레이 성향
+                          <select
+                            value={getComputerStyleSelection(computerStyles[player.id]).key}
+                            onChange={(event) => updateComputerStyle(player.id, event.target.value)}
+                            disabled={!canEditMultiplayerSettings}
+                          >
+                            {COMPUTER_STYLE_OPTIONS.map((style) => (
+                              <option key={style.key} value={style.key}>
+                                {style.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="style-input">
+                          컴퓨터 판단 수준
+                          <select
+                            value={getComputerLevelSelection(computerLevels[player.id]).key}
+                            onChange={(event) => updateComputerLevel(player.id, event.target.value)}
+                            disabled={!canEditMultiplayerSettings}
+                          >
+                            {COMPUTER_LEVEL_OPTIONS.map((level) => (
+                              <option key={level.key} value={level.key}>
+                                {level.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="note">
+                컴퓨터별 성향과 수준은 전략 조언이 아닌 앱 자동 진행 기준입니다. 랜덤은 게임 시작 시 실제 성향이나 수준으로 확정됩니다.
+                엔들리스 게임 모드에서는 다음 핸드 시작 시 탈락 좌석에 새 컴퓨터가 입장합니다.
+              </p>
+            </div>
+          ) : null}
+
+          {setupTab === "rules" ? (
+            <div className="setup-section" role="tabpanel">
+              <RulesPanel embedded />
+            </div>
+          ) : null}
+
+          <div className="setup-actions setup-primary-action">
             <button onClick={startGame} disabled={!canStartSetupGame || (multiplayerRoom && !isMultiplayerHost)}>
               {multiplayerRoom ? "룸 게임 시작" : "게임 시작"}
             </button>
             {!canStartSetupGame ? <p className="note">진행 가능한 플레이어가 2명 이상 필요합니다.</p> : null}
           </div>
         </section>
-        <RulesPanel />
       </main>
     );
   }
@@ -1834,49 +1878,79 @@ export default function PokerApp() {
         </section>
       </section>
 
-      <section className="panel log-panel">
-        <h2>진행 로그</h2>
-        <h3>현재 핸드</h3>
-        <ol>
-          {[...state.log].reverse().map((line, index) => (
-            <li key={`${line}-${index}`}>{line}</li>
-          ))}
-        </ol>
-        <h3>이전 핸드 기록</h3>
-        {handHistory.filter((entry) => entry.id !== state.handId).length > 0 ? (
-          <div className="history-list">
-            {handHistory
-              .filter((entry) => entry.id !== state.handId)
-              .map((entry) => (
-                <details className="history-item" key={entry.id}>
-                  <summary>
-                    <span>{entry.title}</span>
-                    <span>{entry.summary}</span>
-                  </summary>
-                  <ol>
-                    {[...entry.log].reverse().map((line, index) => (
-                      <li key={`${entry.id}-${line}-${index}`}>{line}</li>
-                    ))}
-                  </ol>
-                </details>
-              ))}
+      <section className="panel info-panel">
+        <div className="info-panel-header">
+          <div>
+            <h2>보조 정보</h2>
+            <p className="note">진행 로그, 규칙 요약, 구현 기록을 필요한 항목만 열어 볼 수 있습니다.</p>
           </div>
-        ) : (
-          <p className="note">아직 완료된 이전 핸드가 없습니다.</p>
-        )}
-      </section>
+          <div className="section-tabs info-tabs" role="tablist" aria-label="게임 보조 정보">
+            {GAME_INFO_TABS.map((tab) => (
+              <button
+                aria-selected={gameInfoTab === tab.key}
+                className={`section-tab info-tab${gameInfoTab === tab.key ? " is-active" : ""}`}
+                key={tab.key}
+                onClick={() => setGameInfoTab(tab.key)}
+                role="tab"
+                type="button"
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
-      <RulesPanel />
+        {gameInfoTab === "log" ? (
+          <div className="info-section log-section" role="tabpanel">
+            <h3>현재 핸드</h3>
+            <ol>
+              {[...state.log].reverse().map((line, index) => (
+                <li key={`${line}-${index}`}>{line}</li>
+              ))}
+            </ol>
+            <h3>이전 핸드 기록</h3>
+            {handHistory.filter((entry) => entry.id !== state.handId).length > 0 ? (
+              <div className="history-list">
+                {handHistory
+                  .filter((entry) => entry.id !== state.handId)
+                  .map((entry) => (
+                    <details className="history-item" key={entry.id}>
+                      <summary>
+                        <span>{entry.title}</span>
+                        <span>{entry.summary}</span>
+                      </summary>
+                      <ol>
+                        {[...entry.log].reverse().map((line, index) => (
+                          <li key={`${entry.id}-${line}-${index}`}>{line}</li>
+                        ))}
+                      </ol>
+                    </details>
+                  ))}
+              </div>
+            ) : (
+              <p className="note">아직 완료된 이전 핸드가 없습니다.</p>
+            )}
+          </div>
+        ) : null}
 
-      <section className="panel step-panel">
-        <h2>프로젝트 진행 순서</h2>
-        <ol>
-          <li>`git init`으로 저장소를 초기화했습니다.</li>
-          <li>Next.js 앱 구조를 `app/`, `components/`, `lib/`로 분리했습니다.</li>
-          <li>강원랜드 기준 블라인드, 단계별 베팅 금액, 1인 최대 100,000원을 엔진에 고정했습니다.</li>
-          <li>앱 진행용 상대 선택 UI를 구성했습니다. 이 값은 제공된 기준의 좌석 수 규정이 아닙니다.</li>
-          <li>프리 플랍, 플랍, 턴, 리버, 쇼다운과 수수료 5% 정산을 연결했습니다.</li>
-        </ol>
+        {gameInfoTab === "rules" ? (
+          <div className="info-section" role="tabpanel">
+            <RulesPanel embedded />
+          </div>
+        ) : null}
+
+        {gameInfoTab === "progress" ? (
+          <div className="info-section step-section" role="tabpanel">
+            <h3>프로젝트 진행 순서</h3>
+            <ol>
+              <li>`git init`으로 저장소를 초기화했습니다.</li>
+              <li>Next.js 앱 구조를 `app/`, `components/`, `lib/`로 분리했습니다.</li>
+              <li>강원랜드 기준 블라인드, 단계별 베팅 금액, 1인 최대 100,000원을 엔진에 고정했습니다.</li>
+              <li>앱 진행용 상대 선택 UI를 구성했습니다. 이 값은 제공된 기준의 좌석 수 규정이 아닙니다.</li>
+              <li>프리 플랍, 플랍, 턴, 리버, 쇼다운과 수수료 5% 정산을 연결했습니다.</li>
+            </ol>
+          </div>
+        ) : null}
       </section>
     </main>
   );
