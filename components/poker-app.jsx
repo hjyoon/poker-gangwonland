@@ -119,6 +119,33 @@ function buildMultiplayerBaseSetupPlayers(humanSlots, cpuCount) {
   return [...buildMultiplayerHumanSetupPlayers(humanSlots), ...buildComputerSetupPlayers(cpuCount)];
 }
 
+function buildHumanActionHint(state, playerIndex, actions) {
+  const player = state.players[playerIndex];
+  if (!player) {
+    return "";
+  }
+
+  const toCall = Math.max(0, state.currentBet - player.streetContribution);
+  const wagerAction = actions.find((action) => action.key === "bet" || action.key === "raise");
+  if (!wagerAction) {
+    return "";
+  }
+
+  const isBigBlindPreflopSpot = state.streetIndex === 0 && playerIndex === state.bigBlindIndex && toCall === 0;
+  if (isBigBlindPreflopSpot) {
+    if (wagerAction.enabled) {
+      return "빅 블라인드는 추가로 맞출 금액이 없으면 체크하거나 레이즈할 수 있습니다.";
+    }
+    return `빅 블라인드는 체크 가능 상태입니다. 현재 잔액 ${formatMoney(player.chipBalance)}으로는 추가 레이즈가 불가능합니다. 잔액이 0원이 아니면 올인 레이즈가 열립니다.`;
+  }
+
+  if (toCall === 0 && !wagerAction.enabled && player.chipBalance > 0) {
+    return `현재 잔액 ${formatMoney(player.chipBalance)}으로는 이번 단계 기본 ${wagerAction.key === "bet" ? "베팅" : "레이즈"} 금액을 맞출 수 없지만, 0원이 아니면 올인 ${wagerAction.key === "bet" ? "베팅" : "레이즈"}가 가능합니다.`;
+  }
+
+  return "";
+}
+
 function normalizeSetupPlayerOrder(order, players) {
   const playerIds = players.map((player) => player.id);
   const keptIds = [];
@@ -2001,6 +2028,7 @@ export default function PokerApp() {
   const hasHumanPlayer = humanIndex >= 0;
   const isControlledHumanTurn = hasHumanPlayer && state.currentPlayerIndex === humanIndex && state.waitingForHuman && !state.finished;
   const humanActions = isControlledHumanTurn ? getAvailableActions(state, humanIndex) : [];
+  const humanActionHint = isControlledHumanTurn ? buildHumanActionHint(state, humanIndex, humanActions) : "";
   const revealCards = state.finished && state.showdownResults.length > 0;
   const currentActor = state.players[state.currentPlayerIndex];
   let statusText = "컴퓨터 진행 중입니다.";
@@ -2254,6 +2282,7 @@ export default function PokerApp() {
               ))}
             </div>
           ) : null}
+          {humanActionHint ? <p className="note">{humanActionHint}</p> : null}
           {isNextHandReadyPhase && multiplayerGameActive ? (
             <p className="note">
               {autoNextHand
