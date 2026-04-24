@@ -391,9 +391,50 @@ button:disabled {
 }
 
 .seat-cards {
+  align-items: stretch;
   display: flex;
   gap: 8px;
   margin-bottom: 12px;
+}
+
+.seat-card-pair {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.pocket-insight {
+  align-content: center;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  display: grid;
+  gap: 2px;
+  margin-left: auto;
+  min-width: 108px;
+  padding: 7px 9px;
+}
+
+.pocket-insight span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.pocket-insight strong {
+  color: var(--text);
+  font-size: 0.84rem;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.pocket-insight small {
+  color: var(--gold);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.2;
+  margin-bottom: 3px;
 }
 
 .showdown-hand {
@@ -1003,5 +1044,13 @@ td {
   .balance-grid,
   .seats {
     grid-template-columns: 1fr;
+  }
+
+  .seat-cards {
+    flex-wrap: wrap;
+  }
+
+  .pocket-insight {
+    flex: 1 1 128px;
   }
 }

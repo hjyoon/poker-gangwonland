@@ -11,6 +11,8 @@ import {
   applyAction,
   calculateFee,
   chooseComputerAction,
+  describePreflopHand,
+  estimateHoldemWinRate,
   formatCard,
   formatMoney,
   getAvailableActions,
@@ -485,6 +487,22 @@ function cardSuitClass(card) {
   return card.suit === "H" || card.suit === "D" ? " is-red" : " is-black";
 }
 
+function canShowSeatCards(player, showPrivateCards, revealCards) {
+  return Array.isArray(player.cards) && player.cards.length === 2 && player.cards.every(Boolean) && (showPrivateCards || (revealCards && !player.folded));
+}
+
+function winRateSampleCount(communityCardCount, opponentCount) {
+  const streetSamples = communityCardCount === 0 ? 700 : communityCardCount === 3 ? 620 : communityCardCount === 4 ? 560 : 520;
+  return opponentCount >= 6 ? Math.max(520, streetSamples - 80) : streetSamples;
+}
+
+function formatWinRatePercent(percent) {
+  if (!Number.isFinite(percent)) {
+    return "-";
+  }
+  return `${percent % 1 === 0 ? percent.toFixed(0) : percent.toFixed(1)}%`;
+}
+
 function seatActionLabel(player) {
   const contribution = Math.max(0, player.streetContribution ?? 0);
   const baseAction =
@@ -497,12 +515,13 @@ function seatActionLabel(player) {
   return shouldShowContribution ? `${baseAction}(${formatMoney(contribution)})` : baseAction;
 }
 
-function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle, winner, blindRole, isDealer, showdownLabel, isMucked }) {
+function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle, winner, blindRole, isDealer, showdownLabel, isMucked, pocketInsight }) {
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
   const computerLabel = computerProfileLabel(player, showComputerStyle);
   const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "인간" : computerLabel;
   const actionLabel = seatActionLabel(player);
+  const cardsVisible = canShowSeatCards(player, showPrivateCards, revealCards);
 
   return (
     <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
@@ -533,18 +552,34 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
         </span>
       </header>
       <div className="seat-cards">
-        {player.eliminated ? (
+        <div className="seat-card-pair">
+          {player.eliminated ? (
           <div className="eliminated-badge">탈락</div>
-        ) : (
-          player.cards.map((card, index) => {
-            const showCard = Boolean(card) && (showPrivateCards || (revealCards && !player.folded));
-            return (
-              <div className={`card${showCard ? cardSuitClass(card) : ""}`} key={`${player.id}-${index}`}>
-                {showCard ? formatCard(card) : "🂠"}
-              </div>
-            );
-          })
-        )}
+          ) : (
+            player.cards.map((card, index) => {
+              const showCard = Boolean(card) && cardsVisible;
+              return (
+                <div className={`card${showCard ? cardSuitClass(card) : ""}`} key={`${player.id}-${index}`}>
+                  {showCard ? formatCard(card) : "🂠"}
+                </div>
+              );
+            })
+          )}
+        </div>
+        {pocketInsight ? (
+          <div className="pocket-insight" title="현재 공개 카드 기준 추정 승률">
+            <span>핸드 랭킹</span>
+            <strong>
+              {pocketInsight.ordinal}/169 {pocketInsight.key}
+            </strong>
+            <small>
+              {pocketInsight.category}
+              {pocketInsight.nickname ? ` · ${pocketInsight.nickname}` : ""}
+            </small>
+            <span>승률</span>
+            <strong>{formatWinRatePercent(pocketInsight.winRatePercent)}</strong>
+          </div>
+        ) : null}
       </div>
       {showdownLabel ? (
         <div className={`showdown-hand${winner ? " is-winner" : ""}`}>
@@ -891,6 +926,44 @@ export default function PokerApp() {
     () => new Set(state?.muckIds ?? []),
     [state],
   );
+  const pocketInsightMap = useMemo(() => {
+    if (!state) {
+      return {};
+    }
+
+    return Object.fromEntries(
+      state.players
+        .map((player) => {
+          const showPrivateCards = multiplayerGameActive ? player.id === multiplayerPlayerId : player.isHuman;
+          const revealCards = openedShowdownIds.has(player.id);
+          if (player.eliminated || !canShowSeatCards(player, showPrivateCards, revealCards)) {
+            return null;
+          }
+
+          const preflopHand = describePreflopHand(player.cards);
+          if (!preflopHand) {
+            return null;
+          }
+
+          const opponentCount = state.players.filter((opponent) => opponent.id !== player.id && !opponent.folded && !opponent.eliminated).length;
+          const winRate = estimateHoldemWinRate({
+            playerCards: player.cards,
+            communityCards: state.communityCards,
+            opponentCount,
+            samples: winRateSampleCount(state.communityCards.length, opponentCount),
+          });
+
+          return [
+            player.id,
+            {
+              ...preflopHand,
+              winRatePercent: winRate?.percent,
+            },
+          ];
+        })
+        .filter(Boolean),
+    );
+  }, [multiplayerGameActive, multiplayerPlayerId, openedShowdownIds, state]);
   const isMultiplayerSetup = setupMode === "multiplayer" || Boolean(multiplayerRoom);
   const isMultiplayerHost = Boolean(multiplayerRoom && multiplayerPlayerId && multiplayerRoom.hostPlayerId === multiplayerPlayerId);
   const isMultiplayerCreateFlow = isMultiplayerSetup && (multiplayerLobbyMode === "create" || isMultiplayerHost);
@@ -2411,6 +2484,7 @@ export default function PokerApp() {
               isMucked={muckedShowdownIds.has(player.id)}
               key={player.id}
               player={player}
+              pocketInsight={pocketInsightMap[player.id]}
               revealCards={openedShowdownIds.has(player.id)}
               showdownLabel={showdownMap[player.id] ?? ""}
               showComputerStyle={showComputerStylesInGame}
