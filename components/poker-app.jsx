@@ -65,6 +65,7 @@ const ACTIVE_GAME_TABS = [
   { key: "settings", label: "게임 설정" },
   { key: "info", label: "보조 정보" },
 ];
+const HERO_INTRO_STORAGE_KEY = "poker-gangwonland-hero-intro-seen";
 
 const CARD_RANK_ROWS = [
   "1. 로열 플러쉬",
@@ -626,6 +627,36 @@ function RulesPanel({ embedded = false }) {
   );
 }
 
+function HeroPanel({ activeComputerStyleSummary = "", introOpen, onToggleIntro }) {
+  return (
+    <section className={`hero panel${introOpen ? " is-expanded" : " is-compact"}`}>
+      <div className="hero-header">
+        <div className="hero-title-block">
+          <p className="eyebrow">Gangwon Land Hold&apos;em</p>
+          <h1>강원랜드 기준 베팅 시뮬레이터</h1>
+          {activeComputerStyleSummary ? <p className="note hero-status">컴퓨터 성향/수준: {activeComputerStyleSummary}</p> : null}
+        </div>
+        <button
+          aria-expanded={introOpen}
+          className="secondary hero-intro-toggle"
+          onClick={onToggleIntro}
+          type="button"
+        >
+          {introOpen ? "설명 접기" : "설명 보기"}
+        </button>
+      </div>
+      {introOpen ? (
+        <div className="hero-intro">
+          <p>
+            강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다.
+            플레이어 카드 구성, 컴퓨터 성향과 수준 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
+          </p>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export default function PokerApp() {
   const [cpuCount, setCpuCount] = useState(3);
   const [includeHuman, setIncludeHuman] = useState(true);
@@ -665,6 +696,7 @@ export default function PokerApp() {
   const [setupTab, setSetupTab] = useState("game");
   const [activeGameTab, setActiveGameTab] = useState("table");
   const [gameInfoTab, setGameInfoTab] = useState("log");
+  const [heroIntroOpen, setHeroIntroOpen] = useState(false);
   const multiplayerSocketRef = useRef(null);
   const multiplayerReconnectRef = useRef(null);
   const multiplayerRoomIdRef = useRef("");
@@ -674,6 +706,31 @@ export default function PokerApp() {
   const multiplayerGameActiveRef = useRef(false);
   const lastSentRoomSettingsRef = useRef("");
   const setupDragDropCommittedRef = useRef(false);
+  const hasCollapsedHeroForGameRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      const hasSeenIntro = window.localStorage.getItem(HERO_INTRO_STORAGE_KEY) === "true";
+      if (!hasSeenIntro) {
+        setHeroIntroOpen(true);
+        window.localStorage.setItem(HERO_INTRO_STORAGE_KEY, "true");
+      }
+    } catch {
+      setHeroIntroOpen(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!state) {
+      hasCollapsedHeroForGameRef.current = false;
+      return;
+    }
+
+    if (!hasCollapsedHeroForGameRef.current) {
+      setHeroIntroOpen(false);
+      hasCollapsedHeroForGameRef.current = true;
+    }
+  }, [state]);
 
   useEffect(() => {
     if (multiplayerGameActive) {
@@ -1693,18 +1750,19 @@ export default function PokerApp() {
     setArchivedHandIds((current) => new Set(current).add(handId));
   }, [archivedHandIds, handHistory.length, state]);
 
+  function toggleHeroIntro() {
+    setHeroIntroOpen((current) => !current);
+    try {
+      window.localStorage.setItem(HERO_INTRO_STORAGE_KEY, "true");
+    } catch {
+      // localStorage may be unavailable in restricted browser contexts.
+    }
+  }
+
   if (!state) {
     return (
       <main className="app-shell">
-        <section className="hero panel">
-          <div>
-            <p className="eyebrow">Gangwon Land Hold&apos;em</p>
-            <h1>강원랜드 기준 베팅 시뮬레이터</h1>
-            <p>
-              강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 플레이어 카드 구성, 컴퓨터 성향과 수준 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
-            </p>
-          </div>
-        </section>
+        <HeroPanel introOpen={heroIntroOpen} onToggleIntro={toggleHeroIntro} />
         <section className="panel setup-panel">
           <div>
             <h2>게임 시작 설정</h2>
@@ -2171,16 +2229,11 @@ export default function PokerApp() {
 
   return (
     <main className="app-shell">
-      <section className="hero panel">
-        <div>
-          <p className="eyebrow">Gangwon Land Hold&apos;em</p>
-          <h1>강원랜드 기준 베팅 시뮬레이터</h1>
-          <p>
-            강원랜드 기준으로 제공된 베팅 금액, 블라인드, 쇼다운 수수료를 확인하며 진행하는 텍사스 홀덤 시뮬레이터입니다. 플레이어 카드 구성, 컴퓨터 성향과 수준 선택은 앱 진행용 설정이며, 제공된 기준의 좌석 수 규정이 아닙니다.
-          </p>
-          <p className="note">컴퓨터 성향/수준: {activeComputerStyleSummary || "없음"}</p>
-        </div>
-      </section>
+      <HeroPanel
+        activeComputerStyleSummary={activeComputerStyleSummary || "없음"}
+        introOpen={heroIntroOpen}
+        onToggleIntro={toggleHeroIntro}
+      />
 
       <section className={`panel active-game-panel${activeGameTab === "table" ? " is-table" : ""}`}>
         <div className="section-tabs active-game-tabs" role="tablist" aria-label="게임 진행 섹션">
