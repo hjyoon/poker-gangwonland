@@ -346,11 +346,11 @@ function getComputerStyleOption(styleKey) {
 }
 
 function getComputerStyleSelection(styleKey) {
-  return COMPUTER_STYLE_OPTIONS.find((style) => style.key === styleKey) ?? COMPUTER_STYLES[0];
+  return COMPUTER_STYLE_OPTIONS.find((style) => style.key === styleKey) ?? COMPUTER_STYLE_OPTIONS[0];
 }
 
 function getComputerLevelSelection(levelKey) {
-  return COMPUTER_LEVEL_OPTIONS.find((level) => level.key === levelKey) ?? COMPUTER_LEVELS[1];
+  return COMPUTER_LEVEL_OPTIONS.find((level) => level.key === levelKey) ?? COMPUTER_LEVEL_OPTIONS[0];
 }
 
 function computerProfileLabel(player, visible = true) {

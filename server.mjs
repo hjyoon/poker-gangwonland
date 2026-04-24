@@ -88,11 +88,11 @@ function sanitizeName(value, fallback = "참가자") {
 }
 
 function sanitizeComputerStyleKey(value) {
-  return COMPUTER_STYLE_KEYS.has(value) ? value : "balanced";
+  return COMPUTER_STYLE_KEYS.has(value) ? value : "random";
 }
 
 function sanitizeComputerLevelKey(value) {
-  return COMPUTER_LEVEL_KEYS.has(value) ? value : "intermediate";
+  return COMPUTER_LEVEL_KEYS.has(value) ? value : "random";
 }
 
 function defaultComputerSettings(humanSlots) {
@@ -100,8 +100,8 @@ function defaultComputerSettings(humanSlots) {
   return Array.from({ length: count }, (_, index) => ({
     name: `컴퓨터 ${index + 1}`,
     startingBalance: DEFAULT_STARTING_BALANCE,
-    computerStyle: "balanced",
-    computerLevel: "intermediate",
+    computerStyle: "random",
+    computerLevel: "random",
   }));
 }
 
