@@ -116,7 +116,7 @@ function computerPlayerId(index) {
 function defaultHumanSettings(humanSlots, startingBalance = DEFAULT_STARTING_BALANCE) {
   return Array.from({ length: humanSlots }, (_, index) => ({
     id: humanSlotId(index),
-    name: `사람 자리 ${index + 1}`,
+    name: `빈 자리 ${index + 1}`,
     startingBalance,
   }));
 }
@@ -130,7 +130,7 @@ function normalizeHumanSettings(settings = {}, humanSlots) {
     const startingBalance = Number(player.startingBalance);
     return {
       id: humanSlotId(index),
-      name: sanitizeName(player.name, `사람 자리 ${index + 1}`),
+      name: sanitizeName(player.name, `빈 자리 ${index + 1}`),
       startingBalance: Number.isFinite(startingBalance) ? Math.max(0, startingBalance) : fallbackBalance,
     };
   });
@@ -453,7 +453,7 @@ function createRoom(socket, payload) {
     hostPlayerId: playerId,
     seats: Array.from({ length: humanSlots }, (_, index) => ({
       id: `human-slot-${index + 1}`,
-      label: `사람 자리 ${index + 1}`,
+      label: `빈 자리 ${index + 1}`,
       playerId: index === 0 ? playerId : null,
       name: index === 0 ? sanitizeName(payload.playerName, "방장") : null,
       connected: index === 0,
@@ -496,7 +496,7 @@ function joinRoom(socket, targetRoomId, playerName, requestedPlayerId = null) {
     targetSeat = room.seats.find((seat) => !seat.playerId);
   }
   if (!targetSeat) {
-    sendError(socket, "빈 사람 자리가 없습니다.");
+    sendError(socket, "빈 자리가 없습니다.");
     return;
   }
 
@@ -516,6 +516,44 @@ function joinRoom(socket, targetRoomId, playerName, requestedPlayerId = null) {
   scheduleRoomAutomation(room);
 }
 
+function updatePlayerName(socket, playerName) {
+  const room = rooms.get(socket.roomId);
+  if (!room || !socket.playerId) {
+    sendError(socket, "먼저 멀티플레이 룸에 참가해야 합니다.");
+    return;
+  }
+
+  const nextName = sanitizeName(playerName, "플레이어");
+  const seat = room.seats.find((entry) => entry.playerId === socket.playerId);
+  if (seat) {
+    seat.name = nextName;
+  }
+
+  if (room.game?.playerConfigs) {
+    room.game.playerConfigs = room.game.playerConfigs.map((config) =>
+      config.id === socket.playerId ? { ...config, name: nextName } : config,
+    );
+  }
+
+  if (room.game?.state) {
+    room.game.state = {
+      ...room.game.state,
+      playerConfigs: Array.isArray(room.game.state.playerConfigs)
+        ? room.game.state.playerConfigs.map((config) => (config.id === socket.playerId ? { ...config, name: nextName } : config))
+        : room.game.state.playerConfigs,
+      players: room.game.state.players.map((player) => (player.id === socket.playerId ? { ...player, name: nextName } : player)),
+      showdownResults: Array.isArray(room.game.state.showdownResults)
+        ? room.game.state.showdownResults.map((result) => (result.id === socket.playerId ? { ...result, name: nextName } : result))
+        : room.game.state.showdownResults,
+    };
+    if (room.game.timer?.playerId === socket.playerId) {
+      room.game.timer = { ...room.game.timer, playerName: nextName };
+    }
+  }
+
+  broadcastRoom(room);
+}
+
 function buildRoomGame(room, payload) {
   const settings = normalizeRoomSettings(room, payload);
   const computerPlayers = settings.computerPlayers.map((player, index) => ({
@@ -527,7 +565,7 @@ function buildRoomGame(room, payload) {
     computerLevel: resolveComputerLevelKey(player.computerLevel),
   }));
   if (room.humanSlots + computerPlayers.length > MAX_TOTAL_PLAYERS) {
-    throw new Error(`사람 자리와 컴퓨터 플레이어를 합쳐 최대 ${MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.`);
+    throw new Error(`사람 플레이어와 컴퓨터 플레이어를 합쳐 최대 ${MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.`);
   }
   const connectedHumans = room.seats
     .map((seat, index) => ({
@@ -894,6 +932,10 @@ function handleMessage(socket, message) {
   }
   if (message.type === "rejoinRoom") {
     joinRoom(socket, message.roomId, message.playerName, message.playerId);
+    return;
+  }
+  if (message.type === "updatePlayerName") {
+    updatePlayerName(socket, message.playerName);
     return;
   }
   if (message.type === "leaveRoom") {

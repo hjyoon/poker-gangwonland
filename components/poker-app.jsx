@@ -117,7 +117,7 @@ function buildBaseSetupPlayers(cpuCount, includeHuman = true) {
 function buildMultiplayerHumanSetupPlayers(humanSlots) {
   return Array.from({ length: clampHumanSlots(humanSlots) }, (_, index) => ({
     id: humanSlotId(index),
-    name: `사람 자리 ${index + 1}`,
+    name: `빈 자리 ${index + 1}`,
     isHuman: true,
     isMultiplayerHumanSlot: true,
     humanSlotIndex: index,
@@ -670,6 +670,7 @@ export default function PokerApp() {
   const multiplayerRoomIdRef = useRef("");
   const multiplayerPlayerIdRef = useRef(null);
   const multiplayerNameRef = useRef(multiplayerName);
+  const multiplayerNameInputRef = useRef(null);
   const multiplayerGameActiveRef = useRef(false);
   const lastSentRoomSettingsRef = useRef("");
   const setupDragDropCommittedRef = useRef(false);
@@ -728,6 +729,10 @@ export default function PokerApp() {
       setMultiplayerLobbyMode(room.hostPlayerId === multiplayerPlayerIdRef.current ? "create" : "join");
       setMultiplayerRoom(room);
       setMultiplayerError("");
+      const ownSeat = room.seats.find((seat) => seat.playerId === multiplayerPlayerIdRef.current);
+      if (ownSeat?.name && document.activeElement !== multiplayerNameInputRef.current) {
+        setMultiplayerName(ownSeat.name);
+      }
       if (room.gameState) {
         multiplayerGameActiveRef.current = true;
         setMultiplayerGameActive(true);
@@ -1239,7 +1244,15 @@ export default function PokerApp() {
     if (!seat.playerId) {
       return "참가 대기 중입니다.";
     }
-    return `${seat.name ?? player.name}${seat.connected ? " 참가 중" : " 연결 끊김"}`;
+    return seat.connected ? "참가 중" : "연결 끊김";
+  }
+
+  function setupPlayerDisplayName(player) {
+    if (!player.isMultiplayerHumanSlot) {
+      return player.name;
+    }
+    const seat = multiplayerRoom?.seats[player.humanSlotIndex];
+    return seat?.name || `빈 자리 ${player.humanSlotIndex + 1}`;
   }
 
   function updateComputerStyle(playerId, styleKey) {
@@ -1430,6 +1443,22 @@ export default function PokerApp() {
       return;
     }
     socket.send(JSON.stringify(message));
+  }
+
+  function applyMultiplayerNameBlur() {
+    const nextName = multiplayerName.trim().slice(0, 20) || "플레이어";
+    if (nextName !== multiplayerName) {
+      setMultiplayerName(nextName);
+    }
+    if (!multiplayerRoom || !multiplayerPlayerId) {
+      return;
+    }
+
+    const ownSeat = multiplayerRoom.seats.find((seat) => seat.playerId === multiplayerPlayerId);
+    if (ownSeat?.name === nextName) {
+      return;
+    }
+    sendMultiplayerMessage({ type: "updatePlayerName", playerName: nextName });
   }
 
   function createMultiplayerRoom() {
@@ -1844,7 +1873,7 @@ export default function PokerApp() {
                 <div className="balance-grid">
                   {displayedSetupPlayers.map((player) => (
                     <div
-                      aria-label={`${player.name} 설정 카드`}
+                      aria-label={`${setupPlayerDisplayName(player)} 설정 카드`}
                       className={`setup-player-config${canEditMultiplayerSettings ? " is-draggable" : ""}${setupDragClass(player.id, draggedSetupPlayerId, dragOverSetupPlayerId)}`}
                       key={player.id}
                       onDragEnter={(event) => handleSetupPlayerDragOver(event, player.id)}
@@ -1853,11 +1882,11 @@ export default function PokerApp() {
                       role="group"
                     >
                       <div className="setup-player-card-header">
-                        <strong>{player.name}</strong>
+                        <strong>{setupPlayerDisplayName(player)}</strong>
                         <div className="setup-player-card-actions">
                           {canEditMultiplayerSettings && setupPlayers.length > 1 ? (
                             <span
-                              aria-label={`${player.name} 순서 변경`}
+                              aria-label={`${setupPlayerDisplayName(player)} 순서 변경`}
                               className="drag-handle"
                               draggable
                               onDragEnd={handleSetupPlayerDragEnd}
@@ -1876,7 +1905,7 @@ export default function PokerApp() {
                           ) : null}
                           {canRemoveSetupPlayer(player) ? (
                             <button
-                              aria-label={`${player.name} 제거`}
+                              aria-label={`${setupPlayerDisplayName(player)} 제거`}
                               className="setup-card-icon-button"
                               onClick={() => removeSetupPlayerCard(player.id)}
                               title="플레이어 제거"
@@ -1966,7 +1995,7 @@ export default function PokerApp() {
                 </div>
                 <p className="note">
                   {isMultiplayerSetup
-                    ? `마지막 + 카드에서 플레이어를 추가하고, 각 카드의 유형에서 사람 자리 또는 컴퓨터를 선택합니다. 전체 플레이어는 최대 ${MAX_TOTAL_PLAYERS}명입니다.`
+                    ? `마지막 + 카드에서 플레이어를 추가하고, 각 카드의 유형에서 사람 플레이어 또는 컴퓨터를 선택합니다. 전체 플레이어는 최대 ${MAX_TOTAL_PLAYERS}명입니다.`
                     : `마지막 + 카드에서 플레이어를 추가하고, 각 카드의 유형에서 사람 또는 컴퓨터를 선택합니다. 전체 플레이어는 최대 ${MAX_TOTAL_PLAYERS}명입니다.`}
                   {" "}
                   엔들리스 게임 모드에서는 다음 핸드 시작 시 탈락 좌석에 새 컴퓨터가 입장합니다.
@@ -2007,10 +2036,11 @@ export default function PokerApp() {
                       표시 이름
                       <input
                         maxLength="20"
+                        onBlur={applyMultiplayerNameBlur}
+                        ref={multiplayerNameInputRef}
                         type="text"
                         value={multiplayerName}
                         onChange={(event) => setMultiplayerName(event.target.value)}
-                        disabled={Boolean(multiplayerRoom)}
                       />
                     </label>
                     {multiplayerLobbyMode === "join" ? (
@@ -2053,14 +2083,14 @@ export default function PokerApp() {
                     <div className="room-slots">
                       {multiplayerRoom.seats.map((seat) => (
                         <div className={`room-slot${seat.playerId && !seat.connected ? " is-disconnected" : ""}`} key={seat.id}>
-                          <span>{seat.label}</span>
-                          <strong>{seat.name ? `${seat.name}${seat.connected ? "" : " (연결 끊김)"}` : "대기 중"}</strong>
+                          <span>{seat.playerId ? (seat.connected ? "참가 중" : "연결 끊김") : "빈 자리"}</span>
+                          <strong>{seat.name || "참가 대기 중"}</strong>
                         </div>
                       ))}
                     </div>
                   </div>
                   <p className="note">
-                    멀티플레이에서는 사람 자리 {multiplayerRoom.humanSlots}명과 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.
+                    멀티플레이에서는 사람 플레이어 {multiplayerRoom.humanSlots}명과 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.
                     {randomizeMultiplayerPlayerOrder ? " 게임 시작 시 모든 플레이어 순서는 서버에서 랜덤으로 확정됩니다." : " 플레이어 설정 카드 순서가 게임 시작 순서로 반영됩니다."}
                     {isMultiplayerHost ? " 방장만 게임 설정을 변경할 수 있습니다." : " 참가자는 방장이 정한 설정으로 진행합니다."}
                   </p>
