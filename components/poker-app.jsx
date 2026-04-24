@@ -59,7 +59,7 @@ const MULTIPLAYER_LOBBY_MODES = [
 const GAME_INFO_TABS = [
   { key: "log", label: "진행 로그" },
   { key: "rules", label: "규칙 요약" },
-  { key: "progress", label: "구현 기록" },
+  { key: "progress", label: "플레이 안내" },
 ];
 const ACTIVE_GAME_TABS = [
   { key: "table", label: "게임 테이블" },
@@ -777,7 +777,7 @@ export default function PokerApp() {
       try {
         message = JSON.parse(event.data);
       } catch {
-        setMultiplayerError("서버 메시지를 읽을 수 없습니다.");
+        setMultiplayerError("룸 정보를 불러오지 못했습니다. 잠시 후 다시 시도하세요.");
         return;
       }
 
@@ -1457,7 +1457,7 @@ export default function PokerApp() {
   function sendMultiplayerMessage(message) {
     const socket = multiplayerSocketRef.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
-      setMultiplayerError("WebSocket 서버에 연결되어 있지 않습니다. npm run dev 또는 npm run start로 실행해야 합니다.");
+      setMultiplayerError("멀티플레이 연결이 끊겼습니다. 다시 접속해 주세요.");
       return;
     }
     socket.send(JSON.stringify(message));
@@ -1721,7 +1721,7 @@ export default function PokerApp() {
           <div>
             <h2>게임 시작 설정</h2>
             <p className="note">
-              시작 금액, 컴퓨터 성향/수준, 잔액 부족 탈락은 앱 진행용 설정입니다. 잔액 {formatMoney(MIN_PLAYABLE_BALANCE)} 미만인 플레이어는 다음 핸드를 진행할 수 없어 탈락 처리됩니다.
+              시작 금액, 컴퓨터 성향/수준, 잔액 부족 탈락은 게임 진행을 위한 설정입니다. 잔액이 0원인 플레이어는 다음 핸드를 진행할 수 없어 탈락 처리됩니다.
             </p>
           </div>
           <div className="setup-mode-switch" role="radiogroup" aria-label="플레이 모드">
@@ -2019,7 +2019,7 @@ export default function PokerApp() {
             <section className="multiplayer-lobby setup-section" role="tabpanel">
               <div>
                 <h3>멀티플레이 룸</h3>
-                <p className="note">WebSocket 상태: {multiplayerStatus}</p>
+                <p className="note">연결 상태: {multiplayerStatus}</p>
               </div>
               <div className="setup-mode-switch multiplayer-room-choice" role="radiogroup" aria-label="멀티플레이 룸 선택">
                 {MULTIPLAYER_LOBBY_MODES.map((mode) => (
@@ -2102,7 +2102,7 @@ export default function PokerApp() {
                   </div>
                   <p className="note">
                     멀티플레이에서는 인간용 자리 {multiplayerRoom.humanSlots}개와 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.
-                    {randomizePlayerOrder ? " 게임 시작 시 모든 플레이어 순서는 서버에서 랜덤으로 확정됩니다." : " 플레이어 설정 카드 순서가 게임 시작 순서로 반영됩니다."}
+                    {randomizePlayerOrder ? " 게임 시작 시 모든 플레이어 순서는 랜덤으로 확정됩니다." : " 플레이어 설정 카드 순서가 게임 시작 순서로 반영됩니다."}
                     {isMultiplayerHost ? " 방장만 게임 설정을 변경할 수 있습니다." : " 참가자는 방장이 정한 설정으로 진행합니다."}
                   </p>
                 </>
@@ -2164,7 +2164,7 @@ export default function PokerApp() {
   } else if (multiplayerGameActive && currentActor?.isHuman) {
     statusText = `${currentActor.name} 차례입니다.`;
   } else if (multiplayerGameActive && hasHumanPlayer) {
-    statusText = "서버에서 컴퓨터 진행을 동기화 중입니다.";
+    statusText = "컴퓨터 진행을 기다리는 중입니다.";
   } else if (multiplayerGameActive) {
     statusText = "관전 중입니다.";
   } else if (!hasHumanPlayer) {
@@ -2406,7 +2406,7 @@ export default function PokerApp() {
             </p>
           ) : null}
           <p className="note">{state.note}</p>
-          <p className="note">보유 금액은 앱 진행용 시작 금액에서 베팅과 정산을 반영한 값입니다.</p>
+          <p className="note">보유 금액은 시작 금액에서 베팅과 정산을 반영한 값입니다.</p>
         </section>
       </section>
       ) : null}
@@ -2416,7 +2416,7 @@ export default function PokerApp() {
         <div className="info-panel-header">
           <div>
             <h2>보조 정보</h2>
-            <p className="note">진행 로그, 규칙 요약, 구현 기록을 필요한 항목만 열어 볼 수 있습니다.</p>
+            <p className="note">진행 로그, 규칙 요약, 플레이 안내를 필요한 항목만 열어 볼 수 있습니다.</p>
           </div>
           <div className="section-tabs info-tabs" role="tablist" aria-label="게임 보조 정보">
             {GAME_INFO_TABS.map((tab) => (
@@ -2475,13 +2475,13 @@ export default function PokerApp() {
 
         {gameInfoTab === "progress" ? (
           <div className="info-section step-section" role="tabpanel">
-            <h3>프로젝트 진행 순서</h3>
+            <h3>플레이 안내</h3>
             <ol>
-              <li>`git init`으로 저장소를 초기화했습니다.</li>
-              <li>Next.js 앱 구조를 `app/`, `components/`, `lib/`로 분리했습니다.</li>
-              <li>강원랜드 기준 블라인드, 단계별 베팅 금액, 1인 최대 100,000원을 엔진에 고정했습니다.</li>
-              <li>앱 진행용 상대 선택 UI를 구성했습니다. 이 값은 제공된 기준의 좌석 수 규정이 아닙니다.</li>
-              <li>프리 플랍, 플랍, 턴, 리버, 쇼다운과 수수료 5% 정산을 연결했습니다.</li>
+              <li>게임 설정에서 플레이어 구성, 시작 금액, 컴퓨터 성향과 판단 수준을 정합니다.</li>
+              <li>잔액이 0원인 플레이어는 다음 핸드부터 탈락 처리됩니다.</li>
+              <li>보유 금액이 부족해도 잔액이 남아 있으면 전액 콜, 베팅, 레이즈를 선택할 수 있습니다.</li>
+              <li>엔들리스 게임 모드를 켜면 탈락 좌석에 새 컴퓨터 플레이어가 입장합니다.</li>
+              <li>멀티플레이에서는 방장이 게임 설정을 정하고, 참가자는 자신의 차례에만 행동할 수 있습니다.</li>
             </ol>
           </div>
         ) : null}
