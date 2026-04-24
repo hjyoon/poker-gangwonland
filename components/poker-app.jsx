@@ -503,6 +503,18 @@ function formatWinRatePercent(percent) {
   return `${percent % 1 === 0 ? percent.toFixed(0) : percent.toFixed(1)}%`;
 }
 
+function orderHumanActions(actions, showdownPending) {
+  if (!showdownPending) {
+    return actions;
+  }
+
+  const showdownOrder = new Map([
+    ["muck", 0],
+    ["show", 1],
+  ]);
+  return [...actions].sort((left, right) => (showdownOrder.get(left.key) ?? 10) - (showdownOrder.get(right.key) ?? 10));
+}
+
 function seatActionLabel(player) {
   const contribution = Math.max(0, player.streetContribution ?? 0);
   const baseAction =
@@ -2246,7 +2258,7 @@ export default function PokerApp() {
     : state.players.findIndex((player) => player.isHuman);
   const hasHumanPlayer = humanIndex >= 0;
   const isControlledHumanTurn = hasHumanPlayer && state.currentPlayerIndex === humanIndex && state.waitingForHuman && !state.finished;
-  const humanActions = isControlledHumanTurn ? getAvailableActions(state, humanIndex) : [];
+  const humanActions = isControlledHumanTurn ? orderHumanActions(getAvailableActions(state, humanIndex), state.showdownPending) : [];
   const humanActionHint = isControlledHumanTurn ? buildHumanActionHint(state, humanIndex, humanActions) : "";
   const currentActor = state.players[state.currentPlayerIndex];
   const showdownOrderText =
