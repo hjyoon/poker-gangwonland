@@ -2180,7 +2180,7 @@ export default function PokerApp() {
   } else if (!hasHumanPlayer) {
     statusText = "컴퓨터 플레이어만으로 자동 진행 중입니다.";
   } else if (state.waitingForHuman) {
-    statusText = "인간 차례입니다.";
+    statusText = "내 차례입니다.";
   }
   const handFee = state.finished ? state.currentHandFee ?? 0 : calculateFee(state.pot);
   const handFeeLabel = state.finished ? "이번 핸드 수수료" : "이번 핸드 예상 수수료";
