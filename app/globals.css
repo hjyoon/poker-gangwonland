@@ -70,43 +70,8 @@ a {
 }
 
 .hero {
-  display: grid;
-  gap: 12px;
-  padding: 16px 20px;
-}
-
-.hero.is-expanded {
-  padding: 20px 24px;
-}
-
-.hero-header {
-  align-items: center;
   display: flex;
-  gap: 16px;
-  justify-content: space-between;
-}
-
-.hero-title-block {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.hero-intro {
-  max-width: 980px;
-}
-
-.hero-intro p,
-.hero-status {
-  margin: 0;
-}
-
-.hero-intro-toggle {
-  border-radius: 8px;
-  flex: 0 0 auto;
-  min-height: 38px;
-  padding: 0 12px;
-  white-space: nowrap;
+  padding: 10px 16px;
 }
 
 .eyebrow {
@@ -115,6 +80,10 @@ a {
   letter-spacing: 0.14em;
   color: var(--gold);
   font-size: 0.76rem;
+}
+
+.hero .eyebrow {
+  margin: 0;
 }
 
 .hero h1,
@@ -949,15 +918,6 @@ td {
   .table-header {
     grid-template-columns: 1fr;
     display: grid;
-  }
-
-  .hero-header {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .hero-intro-toggle {
-    width: 100%;
   }
 
   .seats {
