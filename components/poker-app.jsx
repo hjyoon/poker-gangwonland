@@ -1208,7 +1208,7 @@ export default function PokerApp() {
     }
     if (isMultiplayerSetup && multiplayerRoom && player.isHuman && nextType === "computer") {
       const seat = multiplayerRoom.seats[player.humanSlotIndex];
-      if (seat?.playerId || player.humanSlotIndex !== multiplayerHumanSlotCount - 1) {
+      if (seat?.playerId) {
         return false;
       }
     }

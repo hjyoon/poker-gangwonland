@@ -445,11 +445,16 @@ function resizeRoomHumanSlots(room, nextHumanSlots) {
   }
 
   if (humanSlots < room.humanSlots) {
-    const removedSeats = room.seats.slice(humanSlots);
-    if (removedSeats.some((seat) => seat.playerId)) {
-      throw new Error("참가자가 있는 사람 플레이어는 컴퓨터로 변경할 수 없습니다.");
+    const seats = [...room.seats];
+    const removeCount = room.humanSlots - humanSlots;
+    for (let index = 0; index < removeCount; index += 1) {
+      const emptySeatIndex = seats.findIndex((seat) => !seat.playerId);
+      if (emptySeatIndex < 0) {
+        throw new Error("참가자가 있는 사람 플레이어는 컴퓨터로 변경할 수 없습니다.");
+      }
+      seats.splice(emptySeatIndex, 1);
     }
-    room.seats = room.seats.slice(0, humanSlots);
+    room.seats = seats;
   } else {
     for (let index = room.humanSlots; index < humanSlots; index += 1) {
       room.seats.push({
@@ -463,6 +468,11 @@ function resizeRoomHumanSlots(room, nextHumanSlots) {
   }
 
   room.humanSlots = humanSlots;
+  room.seats = room.seats.map((seat, index) => ({
+    ...seat,
+    id: `human-slot-${index + 1}`,
+    label: `빈 자리 ${index + 1}`,
+  }));
 }
 
 function createRoom(socket, payload) {
