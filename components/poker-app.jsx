@@ -570,7 +570,7 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
           <div className="pocket-insight" title="현재 공개 카드 기준 추정 승률">
             <span>핸드 랭킹</span>
             <strong>
-              {pocketInsight.ordinal}/169 {pocketInsight.key}
+              {pocketInsight.rank}/169
             </strong>
             <small>
               {pocketInsight.category}
