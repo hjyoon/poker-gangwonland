@@ -1746,45 +1746,49 @@ export default function PokerApp() {
                   />
                   엔들리스 게임 모드
                 </label>
-                <label>
-                  엔들리스 신규 컴퓨터 성향
-                  <select
-                    value={getComputerStyleSelection(endlessReplacementComputerStyle).key}
-                    onChange={(event) => updateEndlessReplacementStyle(event.target.value)}
-                    disabled={!canEditMultiplayerSettings || !endlessMode}
-                  >
-                    {COMPUTER_STYLE_OPTIONS.map((style) => (
-                      <option key={style.key} value={style.key}>
-                        {style.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  엔들리스 신규 컴퓨터 수준
-                  <select
-                    value={getComputerLevelSelection(endlessReplacementComputerLevel).key}
-                    onChange={(event) => updateEndlessReplacementLevel(event.target.value)}
-                    disabled={!canEditMultiplayerSettings || !endlessMode}
-                  >
-                    {COMPUTER_LEVEL_OPTIONS.map((level) => (
-                      <option key={level.key} value={level.key}>
-                        {level.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="delay-input">
-                  엔들리스 신규 시작 금액
-                  <input
-                    min={MIN_PLAYABLE_BALANCE}
-                    step="1000"
-                    type="number"
-                    value={endlessReplacementStartingBalance}
-                    onChange={(event) => updateEndlessReplacementBalance(event.target.value)}
-                    disabled={!canEditMultiplayerSettings || !endlessMode}
-                  />
-                </label>
+                {endlessMode ? (
+                  <>
+                    <label>
+                      엔들리스 신규 컴퓨터 성향
+                      <select
+                        value={getComputerStyleSelection(endlessReplacementComputerStyle).key}
+                        onChange={(event) => updateEndlessReplacementStyle(event.target.value)}
+                        disabled={!canEditMultiplayerSettings}
+                      >
+                        {COMPUTER_STYLE_OPTIONS.map((style) => (
+                          <option key={style.key} value={style.key}>
+                            {style.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      엔들리스 신규 컴퓨터 수준
+                      <select
+                        value={getComputerLevelSelection(endlessReplacementComputerLevel).key}
+                        onChange={(event) => updateEndlessReplacementLevel(event.target.value)}
+                        disabled={!canEditMultiplayerSettings}
+                      >
+                        {COMPUTER_LEVEL_OPTIONS.map((level) => (
+                          <option key={level.key} value={level.key}>
+                            {level.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="delay-input">
+                      엔들리스 신규 시작 금액
+                      <input
+                        min={MIN_PLAYABLE_BALANCE}
+                        step="1000"
+                        type="number"
+                        value={endlessReplacementStartingBalance}
+                        onChange={(event) => updateEndlessReplacementBalance(event.target.value)}
+                        disabled={!canEditMultiplayerSettings}
+                      />
+                    </label>
+                  </>
+                ) : null}
                 <label className="toggle-input">
                   <input
                     type="checkbox"
@@ -2190,45 +2194,49 @@ export default function PokerApp() {
             />
             엔들리스 게임 모드
           </label>
-          <label>
-            엔들리스 신규 컴퓨터 성향
-            <select
-              value={getComputerStyleSelection(endlessReplacementComputerStyle).key}
-              onChange={(event) => updateEndlessReplacementStyle(event.target.value)}
-              disabled={!canEditActiveGameSettings || !endlessMode}
-            >
-              {COMPUTER_STYLE_OPTIONS.map((style) => (
-                <option key={style.key} value={style.key}>
-                  {style.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            엔들리스 신규 컴퓨터 수준
-            <select
-              value={getComputerLevelSelection(endlessReplacementComputerLevel).key}
-              onChange={(event) => updateEndlessReplacementLevel(event.target.value)}
-              disabled={!canEditActiveGameSettings || !endlessMode}
-            >
-              {COMPUTER_LEVEL_OPTIONS.map((level) => (
-                <option key={level.key} value={level.key}>
-                  {level.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            엔들리스 신규 시작 금액
-            <input
-              min={MIN_PLAYABLE_BALANCE}
-              step="1000"
-              type="number"
-              value={endlessReplacementStartingBalance}
-              onChange={(event) => updateEndlessReplacementBalance(event.target.value)}
-              disabled={!canEditActiveGameSettings || !endlessMode}
-            />
-          </label>
+          {endlessMode ? (
+            <>
+              <label>
+                엔들리스 신규 컴퓨터 성향
+                <select
+                  value={getComputerStyleSelection(endlessReplacementComputerStyle).key}
+                  onChange={(event) => updateEndlessReplacementStyle(event.target.value)}
+                  disabled={!canEditActiveGameSettings}
+                >
+                  {COMPUTER_STYLE_OPTIONS.map((style) => (
+                    <option key={style.key} value={style.key}>
+                      {style.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                엔들리스 신규 컴퓨터 수준
+                <select
+                  value={getComputerLevelSelection(endlessReplacementComputerLevel).key}
+                  onChange={(event) => updateEndlessReplacementLevel(event.target.value)}
+                  disabled={!canEditActiveGameSettings}
+                >
+                  {COMPUTER_LEVEL_OPTIONS.map((level) => (
+                    <option key={level.key} value={level.key}>
+                      {level.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                엔들리스 신규 시작 금액
+                <input
+                  min={MIN_PLAYABLE_BALANCE}
+                  step="1000"
+                  type="number"
+                  value={endlessReplacementStartingBalance}
+                  onChange={(event) => updateEndlessReplacementBalance(event.target.value)}
+                  disabled={!canEditActiveGameSettings}
+                />
+              </label>
+            </>
+          ) : null}
           <label className="toggle-input">
             <input
               type="checkbox"
