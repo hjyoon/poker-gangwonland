@@ -324,6 +324,7 @@ button:disabled {
 }
 
 .blind-badge {
+  background: rgba(216, 162, 61, 0.12);
   border: 1px solid rgba(216, 162, 61, 0.34);
   border-radius: 999px;
   color: var(--gold);
@@ -334,10 +335,10 @@ button:disabled {
 }
 
 .dealer-badge {
-  background: rgba(83, 184, 131, 0.14);
-  border: 1px solid rgba(83, 184, 131, 0.38);
+  background: rgba(64, 189, 206, 0.13);
+  border: 1px solid rgba(64, 189, 206, 0.42);
   border-radius: 999px;
-  color: var(--green);
+  color: #54d4e6;
   font-size: 0.76rem;
   font-weight: 800;
   line-height: 1;
@@ -378,7 +379,7 @@ button:disabled {
 }
 
 .seat header .dealer-badge {
-  color: var(--green);
+  color: #54d4e6;
 }
 
 .seat header .winner-badge {
