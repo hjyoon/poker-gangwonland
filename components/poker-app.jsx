@@ -20,6 +20,7 @@ import {
 } from "../lib/poker";
 
 const DEFAULT_STARTING_BALANCE = 100000;
+const MAX_PLAYER_TOTAL_BET = 100000;
 const MAX_TOTAL_PLAYERS = 8;
 const DEFAULT_COMPUTER_ACTION_DELAY_MS = 700;
 const DEFAULT_NEXT_HAND_DELAY_MS = 1800;
@@ -140,16 +141,25 @@ function buildHumanActionHint(state, playerIndex, actions) {
     return "";
   }
 
+  const street = STREETS[state.streetIndex];
+  const wagerSubject = wagerAction.key === "bet" ? "베팅이" : "레이즈가";
+  const reachedStreetMax = state.currentBet >= street.maxBet;
+  const reachedPlayerLimit = player.totalContribution >= MAX_PLAYER_TOTAL_BET;
+  const disabledWagerHint = reachedStreetMax
+    ? `현재 단계 최대 베팅에 도달해 추가 ${wagerSubject} 불가능합니다.`
+    : reachedPlayerLimit
+      ? `1인 기준 최대 베팅 ${formatMoney(MAX_PLAYER_TOTAL_BET)}에 도달해 추가 ${wagerSubject} 불가능합니다.`
+      : `현재 조건에서는 추가 ${wagerSubject} 불가능합니다.`;
   const isBigBlindPreflopSpot = state.streetIndex === 0 && playerIndex === state.bigBlindIndex && toCall === 0;
   if (isBigBlindPreflopSpot) {
     if (wagerAction.enabled) {
       return "빅 블라인드는 추가로 맞출 금액이 없으면 체크하거나 레이즈할 수 있습니다.";
     }
-    return `빅 블라인드는 체크 가능 상태입니다. 현재 잔액 ${formatMoney(player.chipBalance)}으로는 추가 레이즈가 불가능합니다. 잔액이 0원이 아니면 올인 레이즈가 열립니다.`;
+    return `빅 블라인드는 체크 가능 상태입니다. ${disabledWagerHint}`;
   }
 
   if (toCall === 0 && !wagerAction.enabled && player.chipBalance > 0) {
-    return `현재 잔액 ${formatMoney(player.chipBalance)}으로는 이번 단계 기본 ${wagerAction.key === "bet" ? "베팅" : "레이즈"} 금액을 맞출 수 없지만, 0원이 아니면 올인 ${wagerAction.key === "bet" ? "베팅" : "레이즈"}가 가능합니다.`;
+    return disabledWagerHint;
   }
 
   return "";
@@ -385,7 +395,7 @@ function clampDelay(value, min, max) {
 
 function timerLabel(timer) {
   if (timer.phase === "humanAction") {
-    return `${timer.playerName ?? "사람 플레이어"} 행동 제한 시간`;
+    return `${timer.playerName ?? "인간 플레이어"} 행동 제한 시간`;
   }
   if (timer.phase === "nextHandReady") {
     return "다음 핸드 준비 제한 시간";
@@ -472,7 +482,7 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
   const computerLabel = computerProfileLabel(player, showComputerStyle);
-  const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "사람" : computerLabel;
+  const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "인간" : computerLabel;
   const actionLabel =
     player.lastAction === "스몰 블라인드" || player.lastAction === "빅 블라인드" || player.lastAction === "잔액 전액 콜"
       ? "대기"
@@ -613,7 +623,7 @@ function RulesPanel({ embedded = false }) {
             <li>최종 베팅 이후 남아 있는 플레이어가 카드를 공개합니다.</li>
             <li>콜을 제외한 마지막 베팅 관련 액션을 한 플레이어부터 공개합니다.</li>
             <li>더 높은 패를 가진 플레이어가 승리합니다.</li>
-            <li>승자는 전체 금액에서 수수료 5%를 제외한 칩스를 가져갑니다.</li>
+            <li>승자는 정산 대상 금액에서 수수료 5%를 제외한 칩스를 가져갑니다.</li>
           </ul>
         </div>
         <div>
@@ -1242,7 +1252,7 @@ export default function PokerApp() {
 
   function setupHumanPlayerNote(player) {
     if (!player.isMultiplayerHumanSlot) {
-      return "사람 플레이어는 직접 행동을 선택합니다.";
+      return "인간 플레이어는 직접 행동을 선택합니다.";
     }
 
     const seat = multiplayerRoom?.seats[player.humanSlotIndex];
@@ -1925,7 +1935,7 @@ export default function PokerApp() {
                           disabled={!canEditMultiplayerSettings}
                         >
                           <option value="human" disabled={!canChangeSetupPlayerType(player, "human")}>
-                            사람
+                            인간
                           </option>
                           <option value="computer" disabled={!canChangeSetupPlayerType(player, "computer")}>
                             컴퓨터
@@ -1994,12 +2004,12 @@ export default function PokerApp() {
                 </div>
                 <p className="note">
                   {isMultiplayerSetup
-                    ? `마지막 + 카드에서 플레이어를 추가하고, 각 카드의 유형에서 사람 플레이어 또는 컴퓨터를 선택합니다. 전체 플레이어는 최대 ${MAX_TOTAL_PLAYERS}명입니다.`
-                    : `마지막 + 카드에서 플레이어를 추가하고, 각 카드의 유형에서 사람 또는 컴퓨터를 선택합니다. 전체 플레이어는 최대 ${MAX_TOTAL_PLAYERS}명입니다.`}
+                    ? `마지막 + 카드에서 플레이어를 추가하고, 각 카드의 유형에서 인간용 자리 또는 컴퓨터를 선택합니다. 전체 플레이어는 최대 ${MAX_TOTAL_PLAYERS}명입니다.`
+                    : `마지막 + 카드에서 플레이어를 추가하고, 각 카드의 유형에서 인간 또는 컴퓨터를 선택합니다. 전체 플레이어는 최대 ${MAX_TOTAL_PLAYERS}명입니다.`}
                   {" "}
                   {randomizePlayerOrder ? "게임 시작 시 모든 플레이어 순서가 랜덤으로 확정됩니다." : "플레이어 설정 카드 순서가 게임 시작 순서로 반영됩니다."}
                   {" "}
-                  엔들리스 게임 모드에서는 다음 핸드 시작 시 탈락 좌석에 새 컴퓨터가 입장합니다.
+                  엔들리스 게임 모드를 켜면 다음 핸드 시작 시 탈락 좌석에 새 컴퓨터가 입장합니다.
                 </p>
               </div>
             </div>
@@ -2091,7 +2101,7 @@ export default function PokerApp() {
                     </div>
                   </div>
                   <p className="note">
-                    멀티플레이에서는 사람 플레이어 {multiplayerRoom.humanSlots}명과 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.
+                    멀티플레이에서는 인간용 자리 {multiplayerRoom.humanSlots}개와 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.
                     {randomizePlayerOrder ? " 게임 시작 시 모든 플레이어 순서는 서버에서 랜덤으로 확정됩니다." : " 플레이어 설정 카드 순서가 게임 시작 순서로 반영됩니다."}
                     {isMultiplayerHost ? " 방장만 게임 설정을 변경할 수 있습니다." : " 참가자는 방장이 정한 설정으로 진행합니다."}
                   </p>
@@ -2142,7 +2152,7 @@ export default function PokerApp() {
   } else if (state.finished && multiplayerGameActive && autoNextHand) {
     statusText = "핸드가 종료되었습니다. 자동 진행 옵션에 따라 다음 핸드를 대기 중입니다.";
   } else if (state.finished && multiplayerGameActive && hasConfirmedMultiplayerNextHand) {
-    statusText = "다른 사람 플레이어의 다음 핸드 클릭을 기다립니다.";
+    statusText = "다른 인간 플레이어의 다음 핸드 클릭을 기다립니다.";
   } else if (state.finished && multiplayerGameActive) {
     statusText = "핸드가 종료되었습니다. 다음 핸드를 눌러 준비하세요.";
   } else if (state.finished && autoNextHand) {
@@ -2160,7 +2170,7 @@ export default function PokerApp() {
   } else if (!hasHumanPlayer) {
     statusText = "컴퓨터 플레이어만으로 자동 진행 중입니다.";
   } else if (state.waitingForHuman) {
-    statusText = "사람 차례입니다.";
+    statusText = "인간 차례입니다.";
   }
   const dealerName = state.gameOver ? "-" : state.players[state.dealerIndex]?.name;
   const turnName = state.gameOver ? "-" : state.players[state.currentPlayerIndex]?.name;
@@ -2386,8 +2396,8 @@ export default function PokerApp() {
           {isNextHandReadyPhase && multiplayerGameActive ? (
             <p className="note">
               {autoNextHand
-                ? `자동 진행 옵션이 켜져 있습니다. 직접 진행하려면 사람 플레이어 전원이 다음 핸드를 눌러야 합니다. 준비 ${multiplayerNextHandReadyCount}/${multiplayerNextHandRequiredIds.length}명`
-                : `사람 플레이어 전원이 다음 핸드를 눌러야 진행됩니다. 준비 ${multiplayerNextHandReadyCount}/${multiplayerNextHandRequiredIds.length}명`}
+                ? `자동 진행 옵션이 켜져 있습니다. 직접 진행하려면 인간 플레이어 전원이 다음 핸드를 눌러야 합니다. 준비 ${multiplayerNextHandReadyCount}/${multiplayerNextHandRequiredIds.length}명`
+                : `인간 플레이어 전원이 다음 핸드를 눌러야 진행됩니다. 준비 ${multiplayerNextHandReadyCount}/${multiplayerNextHandRequiredIds.length}명`}
             </p>
           ) : null}
           {state.finished ? (
@@ -2396,7 +2406,7 @@ export default function PokerApp() {
             </p>
           ) : null}
           <p className="note">{state.note}</p>
-          <p className="note">보유 금액은 게임 시작 전에 입력한 앱 진행용 시작 금액에서 베팅과 정산을 반영한 값입니다.</p>
+          <p className="note">보유 금액은 앱 진행용 시작 금액에서 베팅과 정산을 반영한 값입니다.</p>
         </section>
       </section>
       ) : null}

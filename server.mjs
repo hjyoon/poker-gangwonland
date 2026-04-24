@@ -450,7 +450,7 @@ function resizeRoomHumanSlots(room, nextHumanSlots) {
     for (let index = 0; index < removeCount; index += 1) {
       const emptySeatIndex = seats.findIndex((seat) => !seat.playerId);
       if (emptySeatIndex < 0) {
-        throw new Error("참가자가 있는 사람 플레이어는 컴퓨터로 변경할 수 없습니다.");
+        throw new Error("참가자가 있는 인간 플레이어는 컴퓨터로 변경할 수 없습니다.");
       }
       seats.splice(emptySeatIndex, 1);
     }
@@ -602,7 +602,7 @@ function buildRoomGame(room, payload) {
     computerLevel: resolveComputerLevelKey(player.computerLevel),
   }));
   if (room.humanSlots + computerPlayers.length > MAX_TOTAL_PLAYERS) {
-    throw new Error(`사람 플레이어와 컴퓨터 플레이어를 합쳐 최대 ${MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.`);
+    throw new Error(`인간 플레이어와 컴퓨터 플레이어를 합쳐 최대 ${MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.`);
   }
   const connectedHumans = room.seats
     .map((seat, index) => ({
@@ -625,7 +625,7 @@ function buildRoomGame(room, payload) {
   const playerConfigs = orderedPlayers.map(({ id, name, isHuman, startingBalance }) => ({ id, name, isHuman, startingBalance }));
 
   if (playerConfigs.length < 2) {
-    throw new Error("게임 시작에는 연결된 사람 또는 컴퓨터가 2명 이상 필요합니다.");
+    throw new Error("게임 시작에는 연결된 인간 또는 컴퓨터가 2명 이상 필요합니다.");
   }
 
   const chipTotals = Object.fromEntries(
