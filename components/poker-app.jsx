@@ -46,6 +46,15 @@ const MULTIPLAYER_SETUP_TABS = [
   { key: "game", label: "게임 설정" },
   { key: "rules", label: "규칙 요약" },
 ];
+const MULTIPLAYER_LOBBY_TABS = [{ key: "multiplayer", label: "멀티플레이" }];
+const MULTIPLAYER_JOIN_SETUP_TABS = [
+  { key: "multiplayer", label: "멀티플레이" },
+  { key: "rules", label: "규칙 요약" },
+];
+const MULTIPLAYER_LOBBY_MODES = [
+  { key: "create", label: "룸 만들기" },
+  { key: "join", label: "룸 참가" },
+];
 const GAME_INFO_TABS = [
   { key: "log", label: "진행 로그" },
   { key: "rules", label: "규칙 요약" },
@@ -652,6 +661,7 @@ export default function PokerApp() {
   const [archivedHandIds, setArchivedHandIds] = useState(() => new Set());
   const [timerNowMs, setTimerNowMs] = useState(() => Date.now());
   const [setupMode, setSetupMode] = useState("single");
+  const [multiplayerLobbyMode, setMultiplayerLobbyMode] = useState("");
   const [setupTab, setSetupTab] = useState("game");
   const [activeGameTab, setActiveGameTab] = useState("table");
   const [gameInfoTab, setGameInfoTab] = useState("log");
@@ -715,7 +725,7 @@ export default function PokerApp() {
       multiplayerRoomIdRef.current = room.id;
       applyMultiplayerRoomSettings(room);
       setSetupMode("multiplayer");
-      setSetupTab((current) => (current === "multiplayer" ? current : "multiplayer"));
+      setMultiplayerLobbyMode(room.hostPlayerId === multiplayerPlayerIdRef.current ? "create" : "join");
       setMultiplayerRoom(room);
       setMultiplayerError("");
       if (room.gameState) {
@@ -757,6 +767,8 @@ export default function PokerApp() {
         setMultiplayerRoom(null);
         setMultiplayerPlayerId(null);
         setMultiplayerGameActive(false);
+        setMultiplayerLobbyMode("");
+        setSetupTab("multiplayer");
         setState(null);
       }
       if (message.type === "error") {
@@ -817,7 +829,15 @@ export default function PokerApp() {
     [state],
   );
   const isMultiplayerSetup = setupMode === "multiplayer" || Boolean(multiplayerRoom);
-  const setupTabs = isMultiplayerSetup ? MULTIPLAYER_SETUP_TABS : SINGLEPLAY_SETUP_TABS;
+  const isMultiplayerHost = Boolean(multiplayerRoom && multiplayerPlayerId && multiplayerRoom.hostPlayerId === multiplayerPlayerId);
+  const isMultiplayerCreateFlow = isMultiplayerSetup && (multiplayerLobbyMode === "create" || isMultiplayerHost);
+  const setupTabs = !isMultiplayerSetup
+    ? SINGLEPLAY_SETUP_TABS
+    : isMultiplayerCreateFlow
+      ? MULTIPLAYER_SETUP_TABS
+      : multiplayerLobbyMode === "join" || multiplayerRoom
+        ? MULTIPLAYER_JOIN_SETUP_TABS
+        : MULTIPLAYER_LOBBY_TABS;
   const setupIncludesLocalHuman = !isMultiplayerSetup && includeHuman;
   const multiplayerHumanSlotCount = multiplayerRoom?.humanSlots ?? multiplayerSlots;
   const multiplayerConfiguredSeatCount = multiplayerHumanSlotCount + cpuCount;
@@ -856,11 +876,13 @@ export default function PokerApp() {
   const playableSetupCount = setupPlayers.filter((player) => (setupBalances[player.id] ?? 0) >= MIN_PLAYABLE_BALANCE).length;
   const canStartSetupGame = multiplayerRoom
     ? multiplayerPlayableSetupCount >= 2 && multiplayerConfiguredPlayerCount <= MAX_TOTAL_PLAYERS
-    : !isMultiplayerSetup && playableSetupCount >= 2;
-  const setupStartButtonLabel = isMultiplayerSetup ? (multiplayerRoom ? "룸 게임 시작" : "룸 생성 후 시작") : "게임 시작";
-  const isMultiplayerHost = Boolean(multiplayerRoom && multiplayerPlayerId && multiplayerRoom.hostPlayerId === multiplayerPlayerId);
-  const canEditMultiplayerSettings = !multiplayerRoom || isMultiplayerHost;
+    : isMultiplayerSetup
+      ? isMultiplayerCreateFlow
+      : playableSetupCount >= 2;
+  const setupStartButtonLabel = isMultiplayerSetup ? (multiplayerRoom ? "룸 게임 시작" : "룸 만들기") : "게임 시작";
+  const canEditMultiplayerSettings = !isMultiplayerSetup || (isMultiplayerCreateFlow && (!multiplayerRoom || isMultiplayerHost));
   const canEditActiveGameSettings = !multiplayerGameActive || isMultiplayerHost;
+  const showSetupStartAction = !isMultiplayerSetup || (isMultiplayerCreateFlow && (multiplayerRoom || setupTab !== "multiplayer"));
   const multiplayerTimer = multiplayerRoom?.timer ?? null;
   const multiplayerNextHandRequiredIds = multiplayerRoom?.nextHandRequiredPlayerIds ?? [];
   const multiplayerNextHandReadyIds = multiplayerRoom?.nextHandReadyPlayerIds ?? [];
@@ -993,6 +1015,9 @@ export default function PokerApp() {
 
     setSetupMode(resolvedMode);
     setSetupTab(resolvedMode === "multiplayer" ? "multiplayer" : "game");
+    if (resolvedMode === "single") {
+      setMultiplayerLobbyMode("");
+    }
     setSetupPlayerOrder((current) => {
       const nextPlayers =
         resolvedMode === "multiplayer"
@@ -1408,6 +1433,7 @@ export default function PokerApp() {
   }
 
   function createMultiplayerRoom() {
+    setMultiplayerLobbyMode("create");
     sendMultiplayerMessage({
       type: "createRoom",
       playerName: multiplayerName,
@@ -1417,6 +1443,7 @@ export default function PokerApp() {
   }
 
   function joinMultiplayerRoom() {
+    setMultiplayerLobbyMode("join");
     sendMultiplayerMessage({
       type: "joinRoom",
       playerName: multiplayerName,
@@ -1429,6 +1456,8 @@ export default function PokerApp() {
     setMultiplayerRoom(null);
     setMultiplayerPlayerId(null);
     setMultiplayerGameActive(false);
+    setMultiplayerLobbyMode("");
+    setSetupTab("multiplayer");
     setState(null);
     multiplayerRoomIdRef.current = "";
     multiplayerPlayerIdRef.current = null;
@@ -1436,6 +1465,15 @@ export default function PokerApp() {
   }
 
   function startGame() {
+    if (isMultiplayerSetup && !multiplayerRoom) {
+      if (!isMultiplayerCreateFlow) {
+        setMultiplayerError("룸 만들기를 선택해야 게임 설정으로 룸을 만들 수 있습니다.");
+        return;
+      }
+      createMultiplayerRoom();
+      return;
+    }
+
     if (multiplayerRoom) {
       if (!isMultiplayerHost) {
         setMultiplayerError("방장만 게임을 시작할 수 있습니다.");
@@ -1939,40 +1977,70 @@ export default function PokerApp() {
                 <h3>멀티플레이 룸</h3>
                 <p className="note">WebSocket 상태: {multiplayerStatus}</p>
               </div>
-              <div className="setup-controls">
-                <label>
-                  표시 이름
-                  <input
-                    maxLength="20"
-                    type="text"
-                    value={multiplayerName}
-                    onChange={(event) => setMultiplayerName(event.target.value)}
-                  />
-                </label>
-                <label>
-                  룸 코드
-                  <input
-                    maxLength="6"
-                    type="text"
-                    value={multiplayerJoinCode}
-                    onChange={(event) => setMultiplayerJoinCode(event.target.value.toUpperCase())}
+              <div className="setup-mode-switch multiplayer-room-choice" role="radiogroup" aria-label="멀티플레이 룸 선택">
+                {MULTIPLAYER_LOBBY_MODES.map((mode) => (
+                  <button
+                    aria-checked={multiplayerLobbyMode === mode.key}
+                    className={`mode-option${multiplayerLobbyMode === mode.key ? " is-active" : ""}`}
                     disabled={Boolean(multiplayerRoom)}
-                  />
-                </label>
-              </div>
-              <div className="setup-actions">
-                <button type="button" onClick={createMultiplayerRoom}>
-                  룸 만들기
-                </button>
-                <button className="secondary" type="button" onClick={joinMultiplayerRoom}>
-                  룸 참가
-                </button>
-                {multiplayerRoom ? (
-                  <button className="secondary" type="button" onClick={leaveMultiplayerRoom}>
-                    룸 나가기
+                    key={mode.key}
+                    onClick={() => {
+                      setMultiplayerLobbyMode(mode.key);
+                      setSetupTab("multiplayer");
+                    }}
+                    role="radio"
+                    type="button"
+                  >
+                    {mode.label}
                   </button>
-                ) : null}
+                ))}
               </div>
+              {!multiplayerLobbyMode && !multiplayerRoom ? <p className="note">룸 만들기 또는 룸 참가를 먼저 선택하세요.</p> : null}
+              {multiplayerLobbyMode || multiplayerRoom ? (
+                <>
+                  <div className="setup-controls">
+                    <label>
+                      표시 이름
+                      <input
+                        maxLength="20"
+                        type="text"
+                        value={multiplayerName}
+                        onChange={(event) => setMultiplayerName(event.target.value)}
+                        disabled={Boolean(multiplayerRoom)}
+                      />
+                    </label>
+                    {multiplayerLobbyMode === "join" ? (
+                      <label>
+                        룸 코드
+                        <input
+                          maxLength="6"
+                          type="text"
+                          value={multiplayerJoinCode}
+                          onChange={(event) => setMultiplayerJoinCode(event.target.value.toUpperCase())}
+                          disabled={Boolean(multiplayerRoom)}
+                        />
+                      </label>
+                    ) : null}
+                  </div>
+                  <div className="setup-actions">
+                    {!multiplayerRoom && multiplayerLobbyMode === "create" ? (
+                      <button type="button" onClick={createMultiplayerRoom}>
+                        룸 만들기
+                      </button>
+                    ) : null}
+                    {!multiplayerRoom && multiplayerLobbyMode === "join" ? (
+                      <button className="secondary" type="button" onClick={joinMultiplayerRoom}>
+                        룸 참가
+                      </button>
+                    ) : null}
+                    {multiplayerRoom ? (
+                      <button className="secondary" type="button" onClick={leaveMultiplayerRoom}>
+                        룸 나가기
+                      </button>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
               {multiplayerError ? <p className="note money-negative">{multiplayerError}</p> : null}
               {multiplayerRoom ? (
                 <>
@@ -1990,7 +2058,7 @@ export default function PokerApp() {
                   <p className="note">
                     멀티플레이에서는 사람 자리 {multiplayerRoom.humanSlots}명과 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.
                     {randomizeMultiplayerHumanSeats ? " 게임 시작 시 사람 자리 순서는 서버에서 랜덤으로 확정됩니다." : " 플레이어 설정 카드 순서가 게임 시작 순서로 반영됩니다."}
-                    {isMultiplayerHost ? " 방장만 게임 설정을 변경할 수 있습니다." : " 현재 설정은 방장이 정한 값으로 동기화됩니다."}
+                    {isMultiplayerHost ? " 방장만 게임 설정을 변경할 수 있습니다." : " 참가자는 방장이 정한 설정으로 진행합니다."}
                   </p>
                 </>
               ) : null}
@@ -2003,18 +2071,20 @@ export default function PokerApp() {
             </div>
           ) : null}
 
-          <div className="setup-actions setup-primary-action">
-            <button onClick={startGame} disabled={!canStartSetupGame || (multiplayerRoom && !isMultiplayerHost)}>
-              {setupStartButtonLabel}
-            </button>
-            {!canStartSetupGame ? (
-              <p className="note">
-                {isMultiplayerSetup && !multiplayerRoom
-                  ? "멀티플레이는 룸을 만들거나 참가한 뒤 방장이 시작합니다."
-                  : "진행 가능한 플레이어가 2명 이상 필요합니다."}
-              </p>
-            ) : null}
-          </div>
+          {showSetupStartAction ? (
+            <div className="setup-actions setup-primary-action">
+              <button onClick={startGame} disabled={!canStartSetupGame || (multiplayerRoom && !isMultiplayerHost)}>
+                {setupStartButtonLabel}
+              </button>
+              {!canStartSetupGame ? (
+                <p className="note">
+                  {isMultiplayerSetup && !multiplayerRoom
+                    ? "멀티플레이는 룸을 만든 뒤 방장이 시작합니다."
+                    : "진행 가능한 플레이어가 2명 이상 필요합니다."}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </section>
       </main>
     );
