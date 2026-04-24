@@ -844,7 +844,7 @@ export default function PokerApp() {
         ? MULTIPLAYER_JOIN_SETUP_TABS
         : MULTIPLAYER_LOBBY_TABS;
   const setupIncludesLocalHuman = !isMultiplayerSetup && includeHuman;
-  const multiplayerHumanSlotCount = multiplayerRoom?.humanSlots ?? multiplayerSlots;
+  const multiplayerHumanSlotCount = isMultiplayerHost && !multiplayerGameActive ? multiplayerSlots : multiplayerRoom?.humanSlots ?? multiplayerSlots;
   const multiplayerConfiguredSeatCount = multiplayerHumanSlotCount + cpuCount;
   const setupPlayers = useMemo(
     () => buildSetupPlayersForMode(isMultiplayerSetup, cpuCount, setupIncludesLocalHuman, multiplayerHumanSlotCount, setupPlayerOrder),
@@ -1114,10 +1114,6 @@ export default function PokerApp() {
 
     const nextHumanCount = normalizedTypes.filter((type) => type === "human").length;
     const nextCpuCount = normalizedTypes.filter((type) => type === "computer").length;
-    if (isMultiplayerSetup && multiplayerRoom && nextHumanCount !== multiplayerRoom.humanSlots) {
-      return;
-    }
-
     const nextIncludeHuman = normalizedTypes.includes("human");
     const nextHumanSlots = isMultiplayerSetup ? nextHumanCount : multiplayerHumanSlotCount;
     const nextPlayerOrder = buildSetupPlayerOrderFromTypes(normalizedTypes, isMultiplayerSetup);
@@ -1207,11 +1203,14 @@ export default function PokerApp() {
     if (!canEditMultiplayerSettings) {
       return false;
     }
-    if (isMultiplayerSetup && multiplayerRoom) {
-      return false;
-    }
     if (isMultiplayerSetup && player.isHuman && nextType === "computer" && multiplayerHumanSlotCount <= MIN_MULTIPLAYER_HUMAN_SLOTS) {
       return false;
+    }
+    if (isMultiplayerSetup && multiplayerRoom && player.isHuman && nextType === "computer") {
+      const seat = multiplayerRoom.seats[player.humanSlotIndex];
+      if (seat?.playerId || player.humanSlotIndex !== multiplayerHumanSlotCount - 1) {
+        return false;
+      }
     }
     return true;
   }
@@ -1923,7 +1922,7 @@ export default function PokerApp() {
                         <select
                           value={setupPlayerType(player)}
                           onChange={(event) => updateSetupPlayerType(player.id, event.target.value)}
-                          disabled={!canEditMultiplayerSettings || (isMultiplayerSetup && Boolean(multiplayerRoom))}
+                          disabled={!canEditMultiplayerSettings}
                         >
                           <option value="human" disabled={!canChangeSetupPlayerType(player, "human")}>
                             사람

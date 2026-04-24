@@ -438,6 +438,33 @@ function detachSocketFromRoom(socket, { clearSeat = false } = {}) {
   }
 }
 
+function resizeRoomHumanSlots(room, nextHumanSlots) {
+  const humanSlots = clamp(nextHumanSlots, MIN_HUMAN_SLOTS, MAX_HUMAN_SLOTS, room.humanSlots);
+  if (humanSlots === room.humanSlots) {
+    return;
+  }
+
+  if (humanSlots < room.humanSlots) {
+    const removedSeats = room.seats.slice(humanSlots);
+    if (removedSeats.some((seat) => seat.playerId)) {
+      throw new Error("참가자가 있는 사람 플레이어는 컴퓨터로 변경할 수 없습니다.");
+    }
+    room.seats = room.seats.slice(0, humanSlots);
+  } else {
+    for (let index = room.humanSlots; index < humanSlots; index += 1) {
+      room.seats.push({
+        id: `human-slot-${index + 1}`,
+        label: `빈 자리 ${index + 1}`,
+        playerId: null,
+        name: null,
+        connected: false,
+      });
+    }
+  }
+
+  room.humanSlots = humanSlots;
+}
+
 function createRoom(socket, payload) {
   detachSocketFromRoom(socket, { clearSeat: true });
   let id = roomId();
@@ -651,6 +678,9 @@ function startRoomGame(socket, payload) {
   }
 
   try {
+    if (Array.isArray(payload.humanPlayers)) {
+      resizeRoomHumanSlots(room, payload.humanPlayers.length);
+    }
     room.settings = normalizeRoomSettings(room, { ...room.settings, ...payload });
     room.game = buildRoomGame(room, room.settings);
     scheduleRoomAutomation(room);
@@ -851,7 +881,16 @@ function handleUpdateRoomSettings(socket, payload) {
     return;
   }
 
-  room.settings = normalizeRoomSettings(room, { ...room.settings, ...(payload.settings ?? payload) });
+  const nextSettings = payload.settings ?? payload;
+  if (Array.isArray(nextSettings.humanPlayers)) {
+    try {
+      resizeRoomHumanSlots(room, nextSettings.humanPlayers.length);
+    } catch (error) {
+      sendError(socket, error.message);
+      return;
+    }
+  }
+  room.settings = normalizeRoomSettings(room, { ...room.settings, ...nextSettings });
   broadcastRoom(room);
 }
 
