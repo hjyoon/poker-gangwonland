@@ -554,7 +554,7 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
       ) : null}
       {isMucked ? (
         <div className="showdown-hand is-mucked">
-          <span>쇼다운</span>
+          <span>최종 패</span>
           <strong>머크</strong>
         </div>
       ) : null}
