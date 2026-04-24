@@ -2327,10 +2327,10 @@ export default function PokerApp() {
         <header className="table-header">
           <div>
             <h2>{activeStreet.label}</h2>
-            <p>
-              누적 수수료 {formatMoney(cumulativeFee)} / {handFeeLabel} {formatMoney(handFee)}
-            </p>
           </div>
+          <p className="table-fee-display">
+            누적 수수료 {formatMoney(cumulativeFee)} / {handFeeLabel} {formatMoney(handFee)}
+          </p>
         </header>
 
         <div className="table-pot-display">

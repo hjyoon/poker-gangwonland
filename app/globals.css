@@ -190,6 +190,7 @@ button:disabled {
 }
 
 .table-header {
+  align-items: flex-start;
   display: flex;
   justify-content: space-between;
   gap: 16px;
@@ -199,6 +200,17 @@ button:disabled {
 .table-header p {
   margin: 6px 0 0;
   color: var(--muted);
+}
+
+.table-fee-display {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  flex: 0 1 auto;
+  line-height: 1.4;
+  margin: 0;
+  padding: 8px 12px;
+  text-align: right;
 }
 
 .table-pot-display {
@@ -943,6 +955,10 @@ td {
   .table-header {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .table-fee-display {
+    text-align: left;
   }
 
   .seats {
