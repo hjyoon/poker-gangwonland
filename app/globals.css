@@ -201,6 +201,31 @@ button:disabled {
   color: var(--muted);
 }
 
+.table-pot-display {
+  align-items: center;
+  background: rgba(216, 162, 61, 0.11);
+  border: 1px solid rgba(216, 162, 61, 0.32);
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin: 0 auto 14px;
+  max-width: 360px;
+  min-height: 48px;
+  padding: 8px 18px;
+}
+
+.table-pot-display span {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.table-pot-display strong {
+  color: var(--gold);
+  font-size: 1.35rem;
+}
+
 .community {
   display: flex;
   gap: 12px;

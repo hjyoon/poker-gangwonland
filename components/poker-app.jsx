@@ -2177,8 +2177,6 @@ export default function PokerApp() {
   } else if (state.waitingForHuman) {
     statusText = "인간 차례입니다.";
   }
-  const dealerName = state.gameOver ? "-" : state.players[state.dealerIndex]?.name;
-  const turnName = state.gameOver ? "-" : state.players[state.currentPlayerIndex]?.name;
   const handFee = state.finished ? state.currentHandFee ?? 0 : calculateFee(state.pot);
   const handFeeLabel = state.finished ? "이번 핸드 수수료" : "이번 핸드 예상 수수료";
   const cumulativeFee = state.feeTotal ?? 0;
@@ -2330,17 +2328,15 @@ export default function PokerApp() {
           <div>
             <h2>{activeStreet.label}</h2>
             <p>
-              먹(Pot) {formatMoney(state.pot)} / 현재 베팅 {formatMoney(state.currentBet)}
-            </p>
-            <p>
               누적 수수료 {formatMoney(cumulativeFee)} / {handFeeLabel} {formatMoney(handFee)}
             </p>
           </div>
-          <div>
-            <p>딜러: {dealerName}</p>
-            <p>현재 턴: {turnName}</p>
-          </div>
         </header>
+
+        <div className="table-pot-display">
+          <span>먹(Pot)</span>
+          <strong>{formatMoney(state.pot)}</strong>
+        </div>
 
         <div className="community">
           {state.communityCards.map((card, index) => (
