@@ -56,15 +56,6 @@ function tableSeatOptions(seatCount) {
   return Array.from({ length: seatCount }, (_, index) => index);
 }
 
-function shuffledTableSeats(seatCount) {
-  const seats = tableSeatOptions(seatCount);
-  for (let index = seats.length - 1; index > 0; index -= 1) {
-    const swapIndex = crypto.randomInt(index + 1);
-    [seats[index], seats[swapIndex]] = [seats[swapIndex], seats[index]];
-  }
-  return seats;
-}
-
 function defaultHumanTableSeats(humanSlots, totalSeatCount) {
   const slotCount = clamp(humanSlots, MIN_HUMAN_SLOTS, MAX_HUMAN_SLOTS, MIN_HUMAN_SLOTS);
   const seatCount = clamp(totalSeatCount, slotCount, MAX_TOTAL_PLAYERS, slotCount);
@@ -161,6 +152,15 @@ function normalizePlayerOrder(order, humanSlots, computerCount) {
   return [...keptIds, ...validIds.filter((id) => !keptIds.includes(id))];
 }
 
+function shuffledPlayerOrder(humanSlots, computerCount) {
+  const order = normalizePlayerOrder([], humanSlots, computerCount);
+  for (let index = order.length - 1; index > 0; index -= 1) {
+    const swapIndex = crypto.randomInt(index + 1);
+    [order[index], order[swapIndex]] = [order[swapIndex], order[index]];
+  }
+  return order;
+}
+
 function playerOrderFromHumanSeats(humanSeatPlacements, humanSlots, computerCount) {
   const totalSeatCount = humanSlots + computerCount;
   const humanSeats = normalizeHumanTableSeats(humanSeatPlacements, humanSlots, totalSeatCount);
@@ -205,13 +205,15 @@ function normalizeRoomSettings(room, settings = {}) {
   const playerOrder = Array.isArray(settings.playerOrder)
     ? normalizePlayerOrder(settings.playerOrder, room.humanSlots, computerPlayers.length)
     : playerOrderFromHumanSeats(settings.humanSeatPlacements, room.humanSlots, computerPlayers.length);
+  const randomizePlayerOrder = Boolean(settings.randomizePlayerOrder ?? settings.randomizeHumanSeats);
 
   return {
     humanStartingBalance: humanPlayers[0]?.startingBalance ?? DEFAULT_STARTING_BALANCE,
     humanPlayers,
     humanSeatPlacements: humanSeatsFromPlayerOrder(playerOrder, room.humanSlots, computerPlayers.length),
     playerOrder,
-    randomizeHumanSeats: Boolean(settings.randomizeHumanSeats),
+    randomizePlayerOrder,
+    randomizeHumanSeats: randomizePlayerOrder,
     computerPlayers,
     autoNextHand: Boolean(settings.autoNextHand),
     endlessMode: Boolean(settings.endlessMode),
@@ -537,8 +539,8 @@ function buildRoomGame(room, payload) {
       connected: seat.connected,
     }))
     .filter((seat) => seat.id && seat.connected);
-  const normalizedPlayerOrder = settings.randomizeHumanSeats
-    ? playerOrderFromHumanSeats(shuffledTableSeats(room.humanSlots + computerPlayers.length).slice(0, room.humanSlots), room.humanSlots, computerPlayers.length)
+  const normalizedPlayerOrder = settings.randomizePlayerOrder
+    ? shuffledPlayerOrder(room.humanSlots, computerPlayers.length)
     : normalizePlayerOrder(settings.playerOrder, room.humanSlots, computerPlayers.length);
   const humansBySetupId = new Map(connectedHumans.map((player) => [player.setupPlayerId, player]));
   const computersBySetupId = new Map(computerPlayers.map((player) => [player.id, player]));

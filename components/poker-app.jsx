@@ -650,7 +650,7 @@ export default function PokerApp() {
   const [humanActionTimeoutMs, setHumanActionTimeoutMs] = useState(DEFAULT_HUMAN_ACTION_TIMEOUT_MS);
   const [multiplayerName, setMultiplayerName] = useState("플레이어");
   const [multiplayerSlots, setMultiplayerSlots] = useState(2);
-  const [randomizeMultiplayerHumanSeats, setRandomizeMultiplayerHumanSeats] = useState(false);
+  const [randomizeMultiplayerPlayerOrder, setRandomizeMultiplayerPlayerOrder] = useState(false);
   const [multiplayerJoinCode, setMultiplayerJoinCode] = useState("");
   const [multiplayerRoom, setMultiplayerRoom] = useState(null);
   const [multiplayerPlayerId, setMultiplayerPlayerId] = useState(null);
@@ -895,7 +895,7 @@ export default function PokerApp() {
       humanPlayers: buildMultiplayerHumanSettings(multiplayerHumanSlotCount, setupBalances),
       humanSeatPlacements: resolvedMultiplayerTableSeats,
       playerOrder: setupPlayers.map((player) => player.id),
-      randomizeHumanSeats: randomizeMultiplayerHumanSeats,
+      randomizePlayerOrder: randomizeMultiplayerPlayerOrder,
       computerPlayers: setupPlayers
         .filter((player) => !player.isHuman)
         .map((player) => ({
@@ -926,7 +926,7 @@ export default function PokerApp() {
       humanActionTimeoutMs,
       multiplayerHumanSlotCount,
       nextHandDelayMs,
-      randomizeMultiplayerHumanSeats,
+      randomizeMultiplayerPlayerOrder,
       resolvedMultiplayerTableSeats,
       setupBalances,
       setupPlayers,
@@ -972,7 +972,7 @@ export default function PokerApp() {
       });
       return nextLevels;
     });
-    setRandomizeMultiplayerHumanSeats(Boolean(settings.randomizeHumanSeats));
+    setRandomizeMultiplayerPlayerOrder(Boolean(settings.randomizePlayerOrder ?? settings.randomizeHumanSeats));
     setAutoNextHand(Boolean(settings.autoNextHand));
     setEndlessMode(Boolean(settings.endlessMode));
     setEndlessReplacementComputerStyle(getComputerStyleSelection(settings.endlessReplacementComputerStyle).key);
@@ -1721,11 +1721,11 @@ export default function PokerApp() {
                   <label className="toggle-input">
                     <input
                       type="checkbox"
-                      checked={randomizeMultiplayerHumanSeats}
-                      onChange={(event) => setRandomizeMultiplayerHumanSeats(event.target.checked)}
+                      checked={randomizeMultiplayerPlayerOrder}
+                      onChange={(event) => setRandomizeMultiplayerPlayerOrder(event.target.checked)}
                       disabled={!canEditMultiplayerSettings}
                     />
-                    사람 자리 랜덤 배치
+                    모든 플레이어 랜덤 배치
                   </label>
                 ) : null}
                 <label className="toggle-input">
@@ -2061,7 +2061,7 @@ export default function PokerApp() {
                   </div>
                   <p className="note">
                     멀티플레이에서는 사람 자리 {multiplayerRoom.humanSlots}명과 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.
-                    {randomizeMultiplayerHumanSeats ? " 게임 시작 시 사람 자리 순서는 서버에서 랜덤으로 확정됩니다." : " 플레이어 설정 카드 순서가 게임 시작 순서로 반영됩니다."}
+                    {randomizeMultiplayerPlayerOrder ? " 게임 시작 시 모든 플레이어 순서는 서버에서 랜덤으로 확정됩니다." : " 플레이어 설정 카드 순서가 게임 시작 순서로 반영됩니다."}
                     {isMultiplayerHost ? " 방장만 게임 설정을 변경할 수 있습니다." : " 참가자는 방장이 정한 설정으로 진행합니다."}
                   </p>
                 </>
