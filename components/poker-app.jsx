@@ -135,6 +135,13 @@ function buildHumanActionHint(state, playerIndex, actions) {
     return "";
   }
 
+  if (state.showdownPending) {
+    const canMuck = actions.some((action) => action.key === "muck" && action.enabled);
+    return canMuck
+      ? "오픈은 개인 카드를 공개하고, 머크는 패를 공개하지 않고 이번 쇼다운의 승부 주장을 포기합니다."
+      : "마지막으로 남은 쇼다운 플레이어는 오픈해야 정산됩니다.";
+  }
+
   const toCall = Math.max(0, state.currentBet - player.streetContribution);
   const wagerAction = actions.find((action) => action.key === "bet" || action.key === "raise");
   if (!wagerAction) {
@@ -490,7 +497,7 @@ function seatActionLabel(player) {
   return shouldShowContribution ? `${baseAction}(${formatMoney(contribution)})` : baseAction;
 }
 
-function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle, winner, blindRole, isDealer, showdownLabel }) {
+function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle, winner, blindRole, isDealer, showdownLabel, isMucked }) {
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
   const computerLabel = computerProfileLabel(player, showComputerStyle);
@@ -543,6 +550,12 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
         <div className={`showdown-hand${winner ? " is-winner" : ""}`}>
           <span>최종 패</span>
           <strong>{showdownLabel}</strong>
+        </div>
+      ) : null}
+      {isMucked ? (
+        <div className="showdown-hand is-mucked">
+          <span>쇼다운</span>
+          <strong>머크</strong>
         </div>
       ) : null}
       <dl>
@@ -867,7 +880,15 @@ export default function PokerApp() {
   }, []);
 
   const showdownMap = useMemo(
-    () => (state ? Object.fromEntries(state.showdownResults.map((entry) => [entry.id, entry.label])) : {}),
+    () => (state ? Object.fromEntries((state.showdownResults ?? []).map((entry) => [entry.id, entry.label])) : {}),
+    [state],
+  );
+  const openedShowdownIds = useMemo(
+    () => new Set((state?.showdownResults ?? []).map((entry) => entry.id)),
+    [state],
+  );
+  const muckedShowdownIds = useMemo(
+    () => new Set(state?.muckIds ?? []),
     [state],
   );
   const isMultiplayerSetup = setupMode === "multiplayer" || Boolean(multiplayerRoom);
@@ -2154,8 +2175,19 @@ export default function PokerApp() {
   const isControlledHumanTurn = hasHumanPlayer && state.currentPlayerIndex === humanIndex && state.waitingForHuman && !state.finished;
   const humanActions = isControlledHumanTurn ? getAvailableActions(state, humanIndex) : [];
   const humanActionHint = isControlledHumanTurn ? buildHumanActionHint(state, humanIndex, humanActions) : "";
-  const revealCards = state.finished && state.showdownResults.length > 0;
   const currentActor = state.players[state.currentPlayerIndex];
+  const showdownOrderText =
+    state.revealOrder
+      ?.map((id) => {
+        const player = state.players.find((entry) => entry.id === id);
+        if (!player) {
+          return "";
+        }
+        const suffix = muckedShowdownIds.has(id) ? " (머크)" : openedShowdownIds.has(id) ? " (오픈)" : "";
+        return `${player.name}${suffix}`;
+      })
+      .filter(Boolean)
+      .join(" → ") || "즉시 종료";
   let statusText = "컴퓨터 진행 중입니다.";
   if (state.gameOver) {
     statusText = "게임이 종료되었습니다.";
@@ -2169,6 +2201,20 @@ export default function PokerApp() {
     statusText = "핸드가 종료되었습니다. 자동 진행 옵션에 따라 다음 핸드를 대기 중입니다.";
   } else if (state.finished) {
     statusText = "핸드가 종료되었습니다. 테이블의 다음 핸드 버튼을 눌러 진행하세요.";
+  } else if (state.showdownPending && multiplayerGameActive && isControlledHumanTurn) {
+    statusText = "내 쇼다운 공개 차례입니다.";
+  } else if (state.showdownPending && multiplayerGameActive && currentActor?.isHuman) {
+    statusText = `${currentActor.name} 쇼다운 공개 차례입니다.`;
+  } else if (state.showdownPending && multiplayerGameActive && hasHumanPlayer) {
+    statusText = "쇼다운 공개를 기다리는 중입니다.";
+  } else if (state.showdownPending && multiplayerGameActive) {
+    statusText = "쇼다운 공개를 관전 중입니다.";
+  } else if (state.showdownPending && !hasHumanPlayer) {
+    statusText = "컴퓨터 쇼다운 공개 중입니다.";
+  } else if (state.showdownPending && state.waitingForHuman) {
+    statusText = "내 쇼다운 공개 차례입니다.";
+  } else if (state.showdownPending) {
+    statusText = "쇼다운 공개를 기다리는 중입니다.";
   } else if (multiplayerGameActive && isControlledHumanTurn) {
     statusText = "내 차례입니다.";
   } else if (multiplayerGameActive && currentActor?.isHuman) {
@@ -2362,9 +2408,10 @@ export default function PokerApp() {
               blindRole={index === state.smallBlindIndex ? "SB" : index === state.bigBlindIndex ? "BB" : ""}
               isDealer={index === state.dealerIndex}
               isTurn={state.currentPlayerIndex === index && !state.finished}
+              isMucked={muckedShowdownIds.has(player.id)}
               key={player.id}
               player={player}
-              revealCards={revealCards}
+              revealCards={openedShowdownIds.has(player.id)}
               showdownLabel={showdownMap[player.id] ?? ""}
               showComputerStyle={showComputerStylesInGame}
               showPrivateCards={multiplayerGameActive ? player.id === multiplayerPlayerId : player.isHuman}
@@ -2406,10 +2453,8 @@ export default function PokerApp() {
                 : `인간 플레이어 전원이 다음 핸드를 눌러야 진행됩니다. 준비 ${multiplayerNextHandReadyCount}/${multiplayerNextHandRequiredIds.length}명`}
             </p>
           ) : null}
-          {state.finished ? (
-            <p className="note">
-              공개 순서: {state.revealOrder.map((id) => state.players.find((player) => player.id === id)?.name).join(" → ") || "즉시 종료"}
-            </p>
+          {(state.showdownPending || state.finished) && state.revealOrder.length > 0 ? (
+            <p className="note">쇼다운 공개 순서: {showdownOrderText}</p>
           ) : null}
           <p className="note">{state.note}</p>
           <p className="note">보유 금액은 시작 금액에서 베팅과 정산을 반영한 값입니다.</p>

@@ -411,6 +411,11 @@ button:disabled {
   border-color: rgba(83, 184, 131, 0.5);
 }
 
+.showdown-hand.is-mucked {
+  background: rgba(255, 255, 255, 0.045);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
 .showdown-hand span {
   color: var(--muted);
   font-size: 0.78rem;

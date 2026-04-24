@@ -7,6 +7,7 @@ import {
   MIN_PLAYABLE_BALANCE,
   applyAction,
   chooseComputerAction,
+  getAvailableActions,
   resolveComputerLevelKey,
   resolveComputerStyleKey,
   startNewHand,
@@ -245,14 +246,14 @@ function publicGameState(state, playerId, showComputerStyles = true) {
     return null;
   }
 
-  const revealShowdownCards = state.finished && state.showdownResults.length > 0;
+  const showdownOpenIds = new Set((state.showdownResults ?? []).map((result) => result.id));
   return {
     ...state,
     computerStyles: showComputerStyles ? state.computerStyles : {},
     computerLevels: showComputerStyles ? state.computerLevels : {},
     deck: [],
     players: state.players.map((player) => {
-      const revealCards = player.id === playerId || (revealShowdownCards && !player.folded);
+      const revealCards = player.id === playerId || showdownOpenIds.has(player.id);
       return {
         ...player,
         computerStyle: showComputerStyles || player.isHuman ? player.computerStyle : null,
@@ -801,7 +802,9 @@ function scheduleRoomAutomation(room) {
         }
         const currentActor = room.game.state.players[room.game.state.currentPlayerIndex];
         if (currentActor?.id === actor.id && currentActor.isHuman) {
-          applyRoomAction(room, "fold", actor.id, { timedOut: true });
+          const timeoutActions = getAvailableActions(room.game.state, room.game.state.currentPlayerIndex).filter((action) => action.enabled);
+          const timeoutAction = room.game.state.showdownPending && timeoutActions.some((action) => action.key === "muck") ? "muck" : room.game.state.showdownPending ? "show" : "fold";
+          applyRoomAction(room, timeoutAction, actor.id, { timedOut: true });
         }
       },
     });
