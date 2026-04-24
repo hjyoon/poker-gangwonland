@@ -344,6 +344,17 @@ button:disabled {
   padding: 4px 7px;
 }
 
+.winner-badge {
+  background: rgba(83, 184, 131, 0.16);
+  border: 1px solid rgba(83, 184, 131, 0.48);
+  border-radius: 999px;
+  color: var(--green);
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 4px 7px;
+}
+
 .all-in-badge {
   background: rgba(226, 82, 73, 0.13);
   border: 1px solid rgba(226, 82, 73, 0.42);
@@ -367,6 +378,10 @@ button:disabled {
 }
 
 .seat header .dealer-badge {
+  color: var(--green);
+}
+
+.seat header .winner-badge {
   color: var(--green);
 }
 

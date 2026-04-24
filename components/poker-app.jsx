@@ -486,7 +486,7 @@ function seatActionLabel(player) {
       : player.lastAction === "잔액 전액 콜"
         ? "콜"
         : player.lastAction;
-  const shouldShowContribution = contribution > 0 && !["폴드", "탈락", "승리", "정산"].includes(baseAction);
+  const shouldShowContribution = contribution > 0 && !["폴드", "탈락"].includes(baseAction);
   return shouldShowContribution ? `${baseAction}(${formatMoney(contribution)})` : baseAction;
 }
 
@@ -516,6 +516,11 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
           {player.actionLocked ? (
             <span className="all-in-badge" title="잔액 전액 투입">
               올인
+            </span>
+          ) : null}
+          {winner ? (
+            <span className="winner-badge" title="승리">
+              승리
             </span>
           ) : null}
         </span>
