@@ -169,6 +169,15 @@ function normalizeSetupPlayerOrder(order, players) {
   return [...keptIds, ...playerIds.filter((id) => !keptIds.includes(id))];
 }
 
+function shuffleSetupPlayers(players) {
+  const shuffledPlayers = [...players];
+  for (let index = shuffledPlayers.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffledPlayers[index], shuffledPlayers[swapIndex]] = [shuffledPlayers[swapIndex], shuffledPlayers[index]];
+  }
+  return shuffledPlayers;
+}
+
 function buildSetupPlayers(cpuCount, includeHuman = true, playerOrder = []) {
   const players = buildBaseSetupPlayers(cpuCount, includeHuman);
   const playerById = new Map(players.map((player) => [player.id, player]));
@@ -681,7 +690,7 @@ export default function PokerApp() {
   const [humanActionTimeoutMs, setHumanActionTimeoutMs] = useState(DEFAULT_HUMAN_ACTION_TIMEOUT_MS);
   const [multiplayerName, setMultiplayerName] = useState("플레이어");
   const [multiplayerSlots, setMultiplayerSlots] = useState(2);
-  const [randomizeMultiplayerPlayerOrder, setRandomizeMultiplayerPlayerOrder] = useState(false);
+  const [randomizePlayerOrder, setRandomizePlayerOrder] = useState(false);
   const [multiplayerJoinCode, setMultiplayerJoinCode] = useState("");
   const [multiplayerRoom, setMultiplayerRoom] = useState(null);
   const [multiplayerPlayerId, setMultiplayerPlayerId] = useState(null);
@@ -957,7 +966,7 @@ export default function PokerApp() {
       humanPlayers: buildMultiplayerHumanSettings(multiplayerHumanSlotCount, setupBalances),
       humanSeatPlacements: resolvedMultiplayerTableSeats,
       playerOrder: setupPlayers.map((player) => player.id),
-      randomizePlayerOrder: randomizeMultiplayerPlayerOrder,
+      randomizePlayerOrder,
       computerPlayers: setupPlayers
         .filter((player) => !player.isHuman)
         .map((player) => ({
@@ -988,7 +997,7 @@ export default function PokerApp() {
       humanActionTimeoutMs,
       multiplayerHumanSlotCount,
       nextHandDelayMs,
-      randomizeMultiplayerPlayerOrder,
+      randomizePlayerOrder,
       resolvedMultiplayerTableSeats,
       setupBalances,
       setupPlayers,
@@ -1034,7 +1043,7 @@ export default function PokerApp() {
       });
       return nextLevels;
     });
-    setRandomizeMultiplayerPlayerOrder(Boolean(settings.randomizePlayerOrder ?? settings.randomizeHumanSeats));
+    setRandomizePlayerOrder(Boolean(settings.randomizePlayerOrder ?? settings.randomizeHumanSeats));
     setAutoNextHand(Boolean(settings.autoNextHand));
     setEndlessMode(Boolean(settings.endlessMode));
     setEndlessReplacementComputerStyle(getComputerStyleSelection(settings.endlessReplacementComputerStyle).key);
@@ -1571,18 +1580,19 @@ export default function PokerApp() {
       return;
     }
 
+    const initialPlayers = randomizePlayerOrder ? shuffleSetupPlayers(setupPlayers) : setupPlayers;
     const initialComputerStyles = Object.fromEntries(
-      setupPlayers
+      initialPlayers
         .filter((player) => !player.isHuman)
         .map((player) => [player.id, resolveComputerStyleKey(getComputerStyleSelection(computerStyles[player.id]).key)]),
     );
     const initialComputerLevels = Object.fromEntries(
-      setupPlayers
+      initialPlayers
         .filter((player) => !player.isHuman)
         .map((player) => [player.id, resolveComputerLevelKey(getComputerLevelSelection(computerLevels[player.id]).key)]),
     );
     const initialChipTotals = Object.fromEntries(
-      setupPlayers.map((player) => [
+      initialPlayers.map((player) => [
         player.id,
         {
           chipBalance: setupBalances[player.id] ?? 0,
@@ -1603,7 +1613,7 @@ export default function PokerApp() {
       endlessReplacementComputerStyle: getComputerStyleSelection(endlessReplacementComputerStyle).key,
       endlessReplacementComputerLevel: getComputerLevelSelection(endlessReplacementComputerLevel).key,
       endlessReplacementStartingBalance,
-      playerConfigs: setupPlayers.map((player) => ({
+      playerConfigs: initialPlayers.map((player) => ({
         id: player.id,
         name: player.name,
         isHuman: player.isHuman,
@@ -1803,17 +1813,15 @@ export default function PokerApp() {
           {setupTab === "game" ? (
             <div className="setup-section setup-game-section" role="tabpanel">
               <div className="setup-controls">
-                {isMultiplayerSetup ? (
-                  <label className="toggle-input">
-                    <input
-                      type="checkbox"
-                      checked={randomizeMultiplayerPlayerOrder}
-                      onChange={(event) => setRandomizeMultiplayerPlayerOrder(event.target.checked)}
-                      disabled={!canEditMultiplayerSettings}
-                    />
-                    모든 플레이어 랜덤 배치
-                  </label>
-                ) : null}
+                <label className="toggle-input">
+                  <input
+                    type="checkbox"
+                    checked={randomizePlayerOrder}
+                    onChange={(event) => setRandomizePlayerOrder(event.target.checked)}
+                    disabled={!canEditMultiplayerSettings}
+                  />
+                  모든 플레이어 랜덤 배치
+                </label>
                 <label className="toggle-input">
                   <input
                     type="checkbox"
@@ -2055,6 +2063,8 @@ export default function PokerApp() {
                     ? `마지막 + 카드에서 플레이어를 추가하고, 각 카드의 유형에서 사람 플레이어 또는 컴퓨터를 선택합니다. 전체 플레이어는 최대 ${MAX_TOTAL_PLAYERS}명입니다.`
                     : `마지막 + 카드에서 플레이어를 추가하고, 각 카드의 유형에서 사람 또는 컴퓨터를 선택합니다. 전체 플레이어는 최대 ${MAX_TOTAL_PLAYERS}명입니다.`}
                   {" "}
+                  {randomizePlayerOrder ? "게임 시작 시 모든 플레이어 순서가 랜덤으로 확정됩니다." : "플레이어 설정 카드 순서가 게임 시작 순서로 반영됩니다."}
+                  {" "}
                   엔들리스 게임 모드에서는 다음 핸드 시작 시 탈락 좌석에 새 컴퓨터가 입장합니다.
                 </p>
               </div>
@@ -2148,7 +2158,7 @@ export default function PokerApp() {
                   </div>
                   <p className="note">
                     멀티플레이에서는 사람 플레이어 {multiplayerRoom.humanSlots}명과 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.
-                    {randomizeMultiplayerPlayerOrder ? " 게임 시작 시 모든 플레이어 순서는 서버에서 랜덤으로 확정됩니다." : " 플레이어 설정 카드 순서가 게임 시작 순서로 반영됩니다."}
+                    {randomizePlayerOrder ? " 게임 시작 시 모든 플레이어 순서는 서버에서 랜덤으로 확정됩니다." : " 플레이어 설정 카드 순서가 게임 시작 순서로 반영됩니다."}
                     {isMultiplayerHost ? " 방장만 게임 설정을 변경할 수 있습니다." : " 참가자는 방장이 정한 설정으로 진행합니다."}
                   </p>
                 </>
