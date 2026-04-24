@@ -81,8 +81,8 @@ const CARD_RANK_ROWS = [
 ];
 
 const TERM_ROWS = [
-  ["스몰 블라인드 (Small Blind)", "강제 베팅 2,000원"],
-  ["빅 블라인드 (Big Blind)", "강제 베팅 5,000원"],
+  ["스몰 블라인드 (Small Blind)", "강제 베팅 ₩2,000"],
+  ["빅 블라인드 (Big Blind)", "강제 베팅 ₩5,000"],
   ["먹 (Pot)", "원문 기준 표현. 일반 포커 용어와 다를 수 있어 별도 운영 규정 확인 필요"],
   ["번 (Burn)", "제공된 기준에는 구체 설명이 명시되어 있지 않아 별도 운영 규정 확인 필요"],
 ];
@@ -478,15 +478,24 @@ function cardSuitClass(card) {
   return card.suit === "H" || card.suit === "D" ? " is-red" : " is-black";
 }
 
+function seatActionLabel(player) {
+  const contribution = Math.max(0, player.streetContribution ?? 0);
+  const baseAction =
+    player.lastAction === "스몰 블라인드" || player.lastAction === "빅 블라인드"
+      ? "대기"
+      : player.lastAction === "잔액 전액 콜"
+        ? "콜"
+        : player.lastAction;
+  const shouldShowContribution = contribution > 0 && !["폴드", "탈락", "승리", "정산"].includes(baseAction);
+  return shouldShowContribution ? `${baseAction}(${formatMoney(contribution)})` : baseAction;
+}
+
 function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle, winner, blindRole, isDealer, showdownLabel }) {
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
   const computerLabel = computerProfileLabel(player, showComputerStyle);
   const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "인간" : computerLabel;
-  const actionLabel =
-    player.lastAction === "스몰 블라인드" || player.lastAction === "빅 블라인드" || player.lastAction === "잔액 전액 콜"
-      ? "대기"
-      : player.lastAction;
+  const actionLabel = seatActionLabel(player);
 
   return (
     <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
@@ -537,10 +546,6 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
           <dd>{actionLabel}</dd>
         </div>
         <div>
-          <dt>이번 핸드</dt>
-          <dd>{formatMoney(player.totalContribution)}</dd>
-        </div>
-        <div>
           <dt>보유 금액</dt>
           <dd className={balanceClass}>{formatMoney(chipBalance)}</dd>
         </div>
@@ -573,8 +578,8 @@ function RulesPanel({ embedded = false }) {
         <div>
           <h3>블라인드</h3>
           <ul>
-            <li>스몰 블라인드 (Small Blind): 2,000원</li>
-            <li>빅 블라인드 (Big Blind): 5,000원</li>
+            <li>스몰 블라인드 (Small Blind): ₩2,000</li>
+            <li>빅 블라인드 (Big Blind): ₩5,000</li>
           </ul>
           <h3>핵심 액션</h3>
           <ul>
@@ -640,7 +645,7 @@ function RulesPanel({ embedded = false }) {
           </table>
         </div>
       </div>
-      <p className="note">1인 기준 한 게임당 최대 베팅 금액은 100,000원입니다.</p>
+      <p className="note">1인 기준 한 게임당 최대 베팅 금액은 ₩100,000입니다.</p>
     </section>
   );
 }
