@@ -614,6 +614,20 @@ button:disabled {
   font-weight: 700;
 }
 
+.returned-cards-badge {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  border-radius: 16px;
+  color: var(--muted);
+  display: flex;
+  font-size: 0.86rem;
+  font-weight: 800;
+  justify-content: center;
+  min-height: 82px;
+  width: 124px;
+}
+
 .seat dl {
   margin: 0;
   display: grid;

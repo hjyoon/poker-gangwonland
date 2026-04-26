@@ -578,6 +578,7 @@ function Seat({
   const computerLabel = computerProfileLabel(player, showComputerStyle);
   const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "인간" : computerLabel;
   const actionLabel = seatActionLabel(player);
+  const cardsReturned = player.folded && !player.eliminated && (!Array.isArray(player.cards) || player.cards.length === 0);
   const privateCardsPeekable = canPeekSeatCards(player, showPrivateCards, revealCards);
   const cardsVisible = canShowSeatCards(player, showPrivateCards && (!privateCardsPeekable || privateCardsPeeked), revealCards);
   const shouldTrackCardOverlay = privateCardsPeekable || (hasPocketInsight && cardsVisible) || hasShowdownOverlay;
@@ -651,6 +652,8 @@ function Seat({
         >
           {player.eliminated ? (
           <div className="eliminated-badge">탈락</div>
+          ) : cardsReturned ? (
+            <div className="returned-cards-badge">카드 반납</div>
           ) : (
             player.cards.map((card, index) => {
               const showCard = Boolean(card) && cardsVisible;
