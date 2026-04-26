@@ -393,6 +393,7 @@ function publicTableSeats(room, publicPlayers) {
       return humanSeat
         ? {
             ...activePlayer,
+            isDisconnected: !humanSeat.connected,
             isPendingStandUp: Boolean(humanSeat.pendingStandUp),
             missedSmallBlind: Boolean(humanSeat.missedSmallBlind),
             missedBigBlind: Boolean(humanSeat.missedBigBlind),
@@ -648,7 +649,7 @@ function activePlayerConfigsForNextHand(room) {
       return chipBalance >= MIN_PLAYABLE_BALANCE;
     }
     const seat = room.seats.find((entry) => entry.playerId === config.id);
-    return Boolean(seat && seat.connected && seatWillParticipateNextHand(room, room.game?.state, seat));
+    return Boolean(seat && (seat.connected || seat.pendingStandUp) && seatWillParticipateNextHand(room, room.game?.state, seat));
   });
 }
 
@@ -985,6 +986,12 @@ function detachSocketFromRoom(socket, { clearSeat = false } = {}) {
       seat.missedSmallBlind = false;
       seat.missedBigBlind = false;
     }
+    if (room.game && !shouldClearSeat) {
+      seat.pendingStandUp = true;
+      seat.pendingAway = false;
+      seat.pendingReturn = false;
+      seat.pendingJoin = false;
+    }
     seat.connected = false;
   }
   room.game?.cardPeekPlayerIds?.delete(playerId);
@@ -1002,6 +1009,8 @@ function detachSocketFromRoom(socket, { clearSeat = false } = {}) {
       room.game.timer = null;
     }
     scheduleEmptyRoomCleanup(room);
+  } else if (room.game?.state && !room.game.state.finished) {
+    scheduleRoomAutomation(room);
   } else if (!startNextRoomHandIfReady(room)) {
     broadcastRoom(room);
   }
@@ -1383,7 +1392,7 @@ function startNextRoomHand(room) {
   scheduleRoomAutomation(room);
 }
 
-function applyRoomAction(room, actionKey, actorPlayerId = null, { timedOut = false } = {}) {
+function applyRoomAction(room, actionKey, actorPlayerId = null, { timedOut = false, autoReason = "" } = {}) {
   if (!room.game?.state || room.game.state.finished) {
     return false;
   }
@@ -1392,7 +1401,12 @@ function applyRoomAction(room, actionKey, actorPlayerId = null, { timedOut = fal
     ? room.game.state.players.findIndex((player) => player.id === actorPlayerId)
     : room.game.state.currentPlayerIndex;
   const actor = room.game.state.players[actorIndex];
-  const sourceState = timedOut && actor ? { ...room.game.state, log: [...room.game.state.log, `${actor.name}: 제한 시간 초과`] } : room.game.state;
+  const sourceState =
+    timedOut && actor
+      ? { ...room.game.state, log: [...room.game.state.log, `${actor.name}: 제한 시간 초과`] }
+      : autoReason && actor
+        ? { ...room.game.state, log: [...room.game.state.log, `${actor.name}: ${autoReason}`] }
+      : room.game.state;
   const nextState = applyAction(sourceState, actionKey, actorIndex);
   if (nextState === sourceState) {
     return false;
@@ -1407,6 +1421,19 @@ function applyRoomAction(room, actionKey, actorPlayerId = null, { timedOut = fal
   }
   scheduleRoomAutomation(room);
   return true;
+}
+
+function disconnectedHumanAction(room, actor) {
+  const seat = room.seats.find((entry) => entry.playerId === actor?.id);
+  if (!actor?.isHuman || !seat || seat.connected || !seat.pendingStandUp) {
+    return null;
+  }
+
+  const actions = getAvailableActions(room.game.state, room.game.state.currentPlayerIndex).filter((action) => action.enabled);
+  if (room.game.state.showdownPending) {
+    return actions.find((action) => action.key === "muck")?.key ?? actions.find((action) => action.key === "show")?.key ?? null;
+  }
+  return actions.find((action) => action.key === "fold")?.key ?? actions.find((action) => action.key === "check")?.key ?? null;
 }
 
 function scheduleRoomAutomation(room) {
@@ -1475,6 +1502,17 @@ function scheduleRoomAutomation(room) {
       applyRoomAction(room, action);
     }, actionDelayMs);
   } else if (actor?.isHuman) {
+    const automaticAction = disconnectedHumanAction(room, actor);
+    if (automaticAction) {
+      room.automationTimer = setTimeout(() => {
+        const currentActor = room.game?.state?.players?.[room.game.state.currentPlayerIndex];
+        if (currentActor?.id === actor.id && currentActor.isHuman) {
+          applyRoomAction(room, automaticAction, actor.id, { autoReason: "연결 끊김 자동 처리" });
+        }
+      }, 0);
+      broadcastRoom(room);
+      return;
+    }
     scheduleRoomTimer(room, {
       phase: "humanAction",
       playerId: actor.id,
