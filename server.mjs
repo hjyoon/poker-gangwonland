@@ -1670,6 +1670,11 @@ function handleJoinGameSeat(socket, payload) {
     sendError(socket, "이미 현재 게임에 참여 중입니다.");
     return;
   }
+  const currentParticipantSeat = room.seats.find((seat) => seat.playerId === socket.playerId);
+  if (currentParticipantSeat?.pendingJoin) {
+    sendError(socket, "이미 다음 핸드 참가가 예약되어 있습니다.");
+    return;
+  }
 
   const numericTableSeatIndex = Number(payload.tableSeatIndex);
   const tableSeatIndex = Number.isInteger(numericTableSeatIndex) ? numericTableSeatIndex : -1;
@@ -1685,14 +1690,22 @@ function handleJoinGameSeat(socket, payload) {
   }
 
   const targetSeat = room.seats[slotIndex];
-  const currentSeat = room.seats.find((seat) => seat.playerId === socket.playerId);
-  if (currentSeat && currentSeat !== targetSeat) {
-    sendError(socket, "이미 다른 게임 좌석에 연결되어 있습니다.");
-    return;
-  }
+  const currentSeat = currentParticipantSeat;
   if (targetSeat.playerId && targetSeat.playerId !== socket.playerId) {
     sendError(socket, "이미 다른 참가자가 예약한 자리입니다.");
     return;
+  }
+  if (currentSeat && currentSeat !== targetSeat) {
+    currentSeat.playerId = null;
+    currentSeat.name = null;
+    currentSeat.connected = false;
+    currentSeat.away = false;
+    currentSeat.pendingAway = false;
+    currentSeat.pendingReturn = false;
+    currentSeat.pendingStandUp = false;
+    currentSeat.pendingJoin = false;
+    currentSeat.missedSmallBlind = false;
+    currentSeat.missedBigBlind = false;
   }
 
   const playerName = sanitizeName(payload.playerName, "플레이어");

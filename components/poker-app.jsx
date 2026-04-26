@@ -1500,6 +1500,8 @@ export default function PokerApp() {
   const canConfirmMultiplayerNextHand = Boolean(multiplayerPlayerId && multiplayerNextHandRequiredIds.includes(multiplayerPlayerId));
   const hasConfirmedMultiplayerNextHand = Boolean(multiplayerPlayerId && multiplayerNextHandReadyIds.includes(multiplayerPlayerId));
   const ownMultiplayerSeat = multiplayerRoom?.seats.find((seat) => seat.playerId === multiplayerPlayerId) ?? null;
+  const ownMultiplayerGamePlayer = state?.players.find((player) => player.id === multiplayerPlayerId && !player.eliminated) ?? null;
+  const ownMultiplayerCanJoinSeat = Boolean(multiplayerGameActive && multiplayerPlayerId && !ownMultiplayerGamePlayer && !state?.gameOver);
   const ownSeatAway = Boolean(ownMultiplayerSeat?.away);
   const ownSeatPendingAway = Boolean(ownMultiplayerSeat?.pendingAway);
   const ownSeatPendingReturn = Boolean(ownMultiplayerSeat?.pendingReturn);
@@ -2365,7 +2367,7 @@ export default function PokerApp() {
   }
 
   function joinMultiplayerGameSeat(player) {
-    if (!multiplayerGameActive || ownMultiplayerSeat || !player?.isJoinableHumanSeat) {
+    if (!ownMultiplayerCanJoinSeat || !player?.isJoinableHumanSeat) {
       return;
     }
     sendMultiplayerMessage({
@@ -3291,7 +3293,7 @@ export default function PokerApp() {
               hasShowdownOverlay={Boolean(showdownMap[player.id] || muckedShowdownIds.has(player.id))}
               onPrivateCardsPeekChange={handlePrivateCardsPeekChange}
               onCardOverlayPointerChange={handleCardOverlayPointerChange}
-              canJoinSeat={multiplayerGameActive && !ownMultiplayerSeat && player.isEmptySeat && player.isJoinableHumanSeat && !state.gameOver}
+              canJoinSeat={ownMultiplayerCanJoinSeat && player.isEmptySeat && player.isJoinableHumanSeat}
               onJoinSeat={joinMultiplayerGameSeat}
               player={player}
               privateCardsPeeked={privateCardPeekedIds.has(player.id)}
