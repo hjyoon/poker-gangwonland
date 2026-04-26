@@ -226,6 +226,7 @@ function normalizeRoomSettings(room, settings = {}) {
       Number(settings.endlessReplacementStartingBalance) || DEFAULT_STARTING_BALANCE,
     ),
     showComputerStyles: settings.showComputerStyles !== false,
+    showCumulativeWins: settings.showCumulativeWins !== false,
     computerActionDelayMs: clamp(
       settings.computerActionDelayMs,
       MIN_COMPUTER_ACTION_DELAY_MS,
@@ -279,6 +280,7 @@ function publicRoomSettings(room) {
     endlessReplacementComputerLevel: room.game.endlessReplacementComputerLevel,
     endlessReplacementStartingBalance: room.game.endlessReplacementStartingBalance,
     showComputerStyles: room.game.showComputerStyles,
+    showCumulativeWins: room.game.showCumulativeWins,
     computerActionDelayMs: room.game.computerActionDelayMs,
     nextHandDelayMs: room.game.nextHandDelayMs,
     humanActionTimeoutMs: room.game.humanActionTimeoutMs,
@@ -346,6 +348,7 @@ function publicRoom(room, socket) {
     createdAt: room.createdAt,
     settings,
     showComputerStyles: settings.showComputerStyles,
+    showCumulativeWins: settings.showCumulativeWins,
     nextHandRequiredPlayerIds: nextHandRequiredPlayerIds(room),
     nextHandReadyPlayerIds: nextHandReadyPlayerIds(room),
     cardPeekPlayerIds: publicCardPeekPlayerIds(room),
@@ -693,6 +696,7 @@ function buildRoomGame(room, payload) {
     endlessReplacementComputerLevel: settings.endlessReplacementComputerLevel,
     endlessReplacementStartingBalance: settings.endlessReplacementStartingBalance,
     showComputerStyles: settings.showComputerStyles,
+    showCumulativeWins: settings.showCumulativeWins,
     computerActionDelayMs: settings.computerActionDelayMs,
     nextHandDelayMs: settings.nextHandDelayMs,
     humanActionTimeoutMs: settings.humanActionTimeoutMs,
@@ -1024,6 +1028,9 @@ function handleUpdateGameOptions(socket, payload) {
   if (Object.hasOwn(payload, "showComputerStyles")) {
     room.game.showComputerStyles = Boolean(payload.showComputerStyles);
   }
+  if (Object.hasOwn(payload, "showCumulativeWins")) {
+    room.game.showCumulativeWins = Boolean(payload.showCumulativeWins);
+  }
   room.settings = normalizeRoomSettings(room, {
     ...room.settings,
     autoNextHand: room.game.autoNextHand,
@@ -1032,6 +1039,7 @@ function handleUpdateGameOptions(socket, payload) {
     endlessReplacementComputerLevel: room.game.endlessReplacementComputerLevel,
     endlessReplacementStartingBalance: room.game.endlessReplacementStartingBalance,
     showComputerStyles: room.game.showComputerStyles,
+    showCumulativeWins: room.game.showCumulativeWins,
     computerActionDelayMs: room.game.computerActionDelayMs,
     nextHandDelayMs: room.game.nextHandDelayMs,
     humanActionTimeoutMs: room.game.humanActionTimeoutMs,

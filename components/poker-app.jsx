@@ -569,6 +569,7 @@ function Seat({
   isMucked,
   hasPocketInsight,
   hasShowdownOverlay,
+  showCumulativeWins,
   privateCardsPeeked,
   isCardPeeking,
   onPrivateCardsPeekChange,
@@ -683,10 +684,12 @@ function Seat({
           <dt>보유 금액</dt>
           <dd className={balanceClass}>{formatMoney(chipBalance)}</dd>
         </div>
-        <div>
-          <dt>누적 승리</dt>
-          <dd>{formatMoney(player.chipsWon)}</dd>
-        </div>
+        {showCumulativeWins ? (
+          <div>
+            <dt>누적 승리</dt>
+            <dd>{formatMoney(player.chipsWon)}</dd>
+          </div>
+        ) : null}
       </dl>
     </article>
   );
@@ -907,6 +910,7 @@ export default function PokerApp() {
   const [endlessReplacementComputerLevel, setEndlessReplacementComputerLevel] = useState("random");
   const [endlessReplacementStartingBalance, setEndlessReplacementStartingBalance] = useState(DEFAULT_STARTING_BALANCE);
   const [showComputerStylesInGame, setShowComputerStylesInGame] = useState(true);
+  const [showCumulativeWinsInGame, setShowCumulativeWinsInGame] = useState(true);
   const [showPocketRankInGame, setShowPocketRankInGame] = useState(true);
   const [showPocketWinRateInGame, setShowPocketWinRateInGame] = useState(true);
   const [showPocketNicknameInGame, setShowPocketNicknameInGame] = useState(true);
@@ -1022,6 +1026,7 @@ export default function PokerApp() {
         multiplayerGameActiveRef.current = true;
         setMultiplayerGameActive(true);
         setShowComputerStylesInGame(room.showComputerStyles !== false);
+        setShowCumulativeWinsInGame(room.showCumulativeWins !== false);
         setState(room.gameState);
       } else if (multiplayerGameActiveRef.current) {
         multiplayerGameActiveRef.current = false;
@@ -1262,6 +1267,7 @@ export default function PokerApp() {
       endlessReplacementComputerLevel: getComputerLevelSelection(endlessReplacementComputerLevel).key,
       endlessReplacementStartingBalance,
       showComputerStyles: showComputerStylesInGame,
+      showCumulativeWins: showCumulativeWinsInGame,
       computerActionDelayMs,
       nextHandDelayMs,
       humanActionTimeoutMs,
@@ -1283,6 +1289,7 @@ export default function PokerApp() {
       setupBalances,
       setupPlayers,
       showComputerStylesInGame,
+      showCumulativeWinsInGame,
     ],
   );
 
@@ -1331,6 +1338,7 @@ export default function PokerApp() {
     setEndlessReplacementComputerLevel(getComputerLevelSelection(settings.endlessReplacementComputerLevel).key);
     setEndlessReplacementStartingBalance(Math.max(MIN_PLAYABLE_BALANCE, Number(settings.endlessReplacementStartingBalance) || DEFAULT_STARTING_BALANCE));
     setShowComputerStylesInGame(settings.showComputerStyles !== false);
+    setShowCumulativeWinsInGame(settings.showCumulativeWins !== false);
     setComputerActionDelayMs(clampDelay(settings.computerActionDelayMs, MIN_COMPUTER_ACTION_DELAY_MS, MAX_COMPUTER_ACTION_DELAY_MS));
     setNextHandDelayMs(clampDelay(settings.nextHandDelayMs, MIN_NEXT_HAND_DELAY_MS, MAX_NEXT_HAND_DELAY_MS));
     setHumanActionTimeoutMs(clampDelay(settings.humanActionTimeoutMs, MIN_HUMAN_ACTION_TIMEOUT_MS, MAX_HUMAN_ACTION_TIMEOUT_MS));
@@ -1746,6 +1754,16 @@ export default function PokerApp() {
     setShowComputerStylesInGame(enabled);
     if (multiplayerGameActive) {
       sendMultiplayerMessage({ type: "updateGameOptions", showComputerStyles: enabled });
+    }
+  }
+
+  function updateShowCumulativeWinsInGame(enabled) {
+    if (multiplayerRoom && !isMultiplayerHost) {
+      return;
+    }
+    setShowCumulativeWinsInGame(enabled);
+    if (multiplayerGameActive) {
+      sendMultiplayerMessage({ type: "updateGameOptions", showCumulativeWins: enabled });
     }
   }
 
@@ -2218,6 +2236,15 @@ export default function PokerApp() {
                     disabled={!canEditMultiplayerSettings}
                   />
                   인게임 컴퓨터 성향/수준 표시
+                </label>
+                <label className="toggle-input">
+                  <input
+                    type="checkbox"
+                    checked={showCumulativeWinsInGame}
+                    onChange={(event) => updateShowCumulativeWinsInGame(event.target.checked)}
+                    disabled={!canEditMultiplayerSettings}
+                  />
+                  플레이어 카드 누적 승리 표시
                 </label>
                 <label className="delay-input">
                   컴퓨터 행동 딜레이(ms)
@@ -2736,6 +2763,15 @@ export default function PokerApp() {
               />
               인게임 컴퓨터 성향/수준 표시
             </label>
+            <label className="toggle-input">
+              <input
+                type="checkbox"
+                checked={showCumulativeWinsInGame}
+                onChange={(event) => updateShowCumulativeWinsInGame(event.target.checked)}
+                disabled={!canEditActiveGameSettings}
+              />
+              플레이어 카드 누적 승리 표시
+            </label>
             <label>
               컴퓨터 행동 딜레이(ms)
               <input
@@ -2837,6 +2873,7 @@ export default function PokerApp() {
               privateCardsPeeked={privateCardPeekedIds.has(player.id)}
               revealCards={openedShowdownIds.has(player.id)}
               showdownLabel={showdownMap[player.id] ?? ""}
+              showCumulativeWins={showCumulativeWinsInGame}
               showComputerStyle={showComputerStylesInGame}
               showPrivateCards={multiplayerGameActive ? player.id === multiplayerPlayerId : player.isHuman}
               winner={state.winnerIds.includes(player.id)}
