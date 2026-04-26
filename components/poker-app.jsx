@@ -650,15 +650,25 @@ function seatActionLabel(player) {
   if (player.isEmptySeat) {
     return "비어 있음";
   }
-  const contribution = Math.max(0, player.streetContribution ?? 0);
   const baseAction =
     player.lastAction === "스몰 블라인드" || player.lastAction === "빅 블라인드"
       ? "대기"
       : player.lastAction === "잔액 전액 콜"
         ? "콜"
         : player.lastAction;
+  const explicitAmount = String(baseAction || "").startsWith("미스드 블라인드") ? Math.max(0, Number(player.lastActionAmount) || 0) : 0;
+  const contribution = explicitAmount > 0 ? explicitAmount : Math.max(0, player.streetContribution ?? 0);
   const shouldShowContribution = contribution > 0 && !["폴드", "탈락"].includes(baseAction);
   return shouldShowContribution ? `${baseAction}(${formatMoney(contribution)})` : baseAction;
+}
+
+function missedBlindAmountForSeat(seat) {
+  return Math.max(0, Number(seat?.missedBlindAmount) || 0);
+}
+
+function missedBlindStatusText(seat) {
+  const amount = missedBlindAmountForSeat(seat);
+  return amount > 0 ? `미스드 블라인드 ${formatMoney(amount)}` : "";
 }
 
 function emptyTableSeat(index) {
@@ -677,6 +687,7 @@ function emptyTableSeat(index) {
     chipsWon: 0,
     lastAction: "비어 있음",
     stateIndex: -1,
+    missedBlindAmount: 0,
   };
 }
 
@@ -735,6 +746,7 @@ function Seat({
   const shouldShowEliminatedPlaceholder = player.eliminated && !hasSeatCards;
   const privateCardsPeekable = canPeekSeatCards(player, showPrivateCards, revealCards);
   const cardsVisible = canShowSeatCards(player, showPrivateCards && (!privateCardsPeekable || privateCardsPeeked), revealCards);
+  const missedBlindText = missedBlindStatusText(player);
   const shouldTrackCardOverlay = privateCardsPeekable || (hasPocketInsight && cardsVisible) || hasShowdownOverlay;
   const updatePrivateCardsPeek = (nextPeeked) => {
     if (privateCardsPeekable) {
@@ -767,6 +779,11 @@ function Seat({
           {player.actionLocked ? (
             <span className="all-in-badge" title="잔액 전액 투입">
               올인
+            </span>
+          ) : null}
+          {missedBlindText ? (
+            <span className="missed-blind-badge" title={missedBlindText}>
+              미스드 {formatMoney(missedBlindAmountForSeat(player))}
             </span>
           ) : null}
           {winner ? (
@@ -849,6 +866,12 @@ function Seat({
               <dt>보유 금액</dt>
               <dd className={balanceClass}>{formatMoney(chipBalance)}</dd>
             </div>
+            {missedBlindText ? (
+              <div>
+                <dt>미스드</dt>
+                <dd>{formatMoney(missedBlindAmountForSeat(player))}</dd>
+              </div>
+            ) : null}
             {showCumulativeWins ? (
               <div>
                 <dt>누적 승리</dt>
@@ -1465,6 +1488,8 @@ export default function PokerApp() {
   const ownSeatAway = Boolean(ownMultiplayerSeat?.away);
   const ownSeatPendingAway = Boolean(ownMultiplayerSeat?.pendingAway);
   const ownSeatPendingReturn = Boolean(ownMultiplayerSeat?.pendingReturn);
+  const ownSeatMissedBlindText = missedBlindStatusText(ownMultiplayerSeat);
+  const ownSeatMissedBlindSuffix = ownSeatMissedBlindText ? ` 복귀 시 ${ownSeatMissedBlindText}를 납부합니다.` : "";
   const ownSeatNextAwayRequest = ownSeatPendingAway ? false : ownSeatPendingReturn ? true : !ownSeatAway;
   const ownSeatAwayButtonLabel = ownSeatPendingAway
     ? "자리 비움 예약 취소"
@@ -1474,12 +1499,12 @@ export default function PokerApp() {
         ? "다음 핸드부터 복귀"
         : "다음 핸드부터 자리 비움";
   const ownSeatParticipationText = ownSeatPendingAway
-    ? "이번 핸드가 끝나면 자리 비움으로 전환됩니다."
+    ? `이번 핸드가 끝나면 자리 비움으로 전환됩니다.${ownSeatMissedBlindSuffix}`
     : ownSeatPendingReturn
-      ? "이번 핸드가 끝나면 다시 참가합니다."
+      ? `이번 핸드가 끝나면 다시 참가합니다.${ownSeatMissedBlindSuffix}`
       : ownSeatAway
-        ? "현재 자리 비움 상태입니다. 복귀를 누르면 다음 핸드부터 참가합니다."
-        : "현재 참가 중입니다. 자리 비움은 다음 핸드부터 적용됩니다.";
+        ? `현재 자리 비움 상태입니다. 복귀를 누르면 다음 핸드부터 참가합니다.${ownSeatMissedBlindSuffix}`
+        : `현재 참가 중입니다. 자리 비움은 다음 핸드부터 적용됩니다.${ownSeatMissedBlindSuffix}`;
   const multiplayerSettingsPayload = useMemo(
     () => {
       const payload = {
@@ -1848,19 +1873,21 @@ export default function PokerApp() {
     if (!seat) {
       return "룸 생성 전 대기 자리입니다.";
     }
+    const missedText = missedBlindStatusText(seat);
+    const missedSuffix = missedText ? ` · ${missedText}` : "";
     if (!seat.playerId) {
       return "참가 대기 중입니다.";
     }
     if (seat.pendingAway) {
-      return "자리 비움 예약";
+      return `자리 비움 예약${missedSuffix}`;
     }
     if (seat.pendingReturn) {
-      return "복귀 예약";
+      return `복귀 예약${missedSuffix}`;
     }
     if (seat.away) {
-      return seat.connected ? "자리 비움" : "자리 비움 · 연결 끊김";
+      return `${seat.connected ? "자리 비움" : "자리 비움 · 연결 끊김"}${missedSuffix}`;
     }
-    return seat.connected ? "참가 중" : "연결 끊김";
+    return `${seat.connected ? "참가 중" : "연결 끊김"}${missedSuffix}`;
   }
 
   function setupPlayerDisplayName(player) {
@@ -2839,6 +2866,7 @@ export default function PokerApp() {
                                       : "연결 끊김"}
                           </span>
                           <strong>{seat.name || "참가 대기 중"}</strong>
+                          {missedBlindStatusText(seat) ? <small>{missedBlindStatusText(seat)}</small> : null}
                         </div>
                       ))}
                     </div>

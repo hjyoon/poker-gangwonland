@@ -8,6 +8,7 @@ import {
   applyAction,
   chooseComputerAction,
   computerCardPeekPlan,
+  formatMoney,
   getAvailableActions,
   resolveComputerLevelKey,
   resolveComputerStyleKey,
@@ -27,6 +28,8 @@ const DEFAULT_STARTING_BALANCE = 100000;
 const DEFAULT_COMPUTER_ACTION_DELAY_MS = 700;
 const DEFAULT_NEXT_HAND_DELAY_MS = 1800;
 const DEFAULT_HUMAN_ACTION_TIMEOUT_MS = 15000;
+const SMALL_BLIND_AMOUNT = 2000;
+const BIG_BLIND_AMOUNT = 5000;
 const MIN_COMPUTER_ACTION_DELAY_MS = 100;
 const MAX_COMPUTER_ACTION_DELAY_MS = 3000;
 const MIN_NEXT_HAND_DELAY_MS = 500;
@@ -261,7 +264,26 @@ function emptyTableSeat(index, label = "빈 자리") {
     stateIndex: -1,
     computerStyle: null,
     computerLevel: null,
+    missedBlindAmount: 0,
   };
+}
+
+function missedBlindAmountForSeat(seat) {
+  if (!seat) {
+    return 0;
+  }
+  return (seat.missedSmallBlind ? SMALL_BLIND_AMOUNT : 0) + (seat.missedBigBlind ? BIG_BLIND_AMOUNT : 0);
+}
+
+function missedBlindLabelForSeat(seat) {
+  const roles = [];
+  if (seat?.missedSmallBlind) {
+    roles.push("SB");
+  }
+  if (seat?.missedBigBlind) {
+    roles.push("BB");
+  }
+  return roles.length > 0 ? roles.join("+") : "";
 }
 
 function publicInactiveHumanSeat(seat, index, ledger = {}) {
@@ -284,6 +306,9 @@ function publicInactiveHumanSeat(seat, index, ledger = {}) {
     stateIndex: -1,
     computerStyle: null,
     computerLevel: null,
+    missedSmallBlind: Boolean(seat.missedSmallBlind),
+    missedBigBlind: Boolean(seat.missedBigBlind),
+    missedBlindAmount: missedBlindAmountForSeat(seat),
   };
 }
 
@@ -313,7 +338,15 @@ function publicTableSeats(room, publicPlayers) {
     }
     const activePlayer = activeById.get(entry.playerId);
     if (activePlayer) {
-      return activePlayer;
+      const humanSeat = room?.seats.find((seat) => seat.playerId === entry.playerId);
+      return humanSeat
+        ? {
+            ...activePlayer,
+            missedSmallBlind: Boolean(humanSeat.missedSmallBlind),
+            missedBigBlind: Boolean(humanSeat.missedBigBlind),
+            missedBlindAmount: missedBlindAmountForSeat(humanSeat),
+          }
+        : activePlayer;
     }
     const humanSeat = room?.seats.find((seat) => seat.playerId === entry.playerId);
     if (humanSeat) {
@@ -376,6 +409,9 @@ function normalizeSeat(seat) {
     away: Boolean(seat.away),
     pendingAway: Boolean(seat.pendingAway),
     pendingReturn: Boolean(seat.pendingReturn),
+    missedSmallBlind: Boolean(seat.missedSmallBlind),
+    missedBigBlind: Boolean(seat.missedBigBlind),
+    missedBlindAmount: missedBlindAmountForSeat(seat),
   };
 }
 
@@ -561,6 +597,112 @@ function nextDealerIndexForPlayerConfigs(room, currentState, nextPlayerConfigs) 
   return 0;
 }
 
+function eligibleConfigsForBlindRotation(room, currentState) {
+  const allPlayerConfigs = room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? currentState.playerConfigs ?? [];
+  const chipTotals = room.game?.chipTotals ?? currentState.chipTotals ?? {};
+  return allPlayerConfigs.filter((config) => {
+    const ledger = chipTotals[config.id];
+    const chipBalance = Number(ledger?.chipBalance ?? config.startingBalance ?? 0);
+    if (chipBalance < MIN_PLAYABLE_BALANCE) {
+      return false;
+    }
+    if (!config.isHuman) {
+      return true;
+    }
+    return room.seats.some((seat) => seat.playerId === config.id);
+  });
+}
+
+function nextConfigAfter(configs, startIndex, eligibleIds) {
+  if (!configs.length || eligibleIds.size === 0) {
+    return null;
+  }
+  for (let offset = 1; offset <= configs.length; offset += 1) {
+    const config = configs[(startIndex + offset + configs.length) % configs.length];
+    if (eligibleIds.has(config.id)) {
+      return config;
+    }
+  }
+  return null;
+}
+
+function nextFullBlindRoleIds(room, currentState) {
+  const allPlayerConfigs = room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? currentState.playerConfigs ?? [];
+  const eligibleConfigs = eligibleConfigsForBlindRotation(room, currentState);
+  if (eligibleConfigs.length < 2) {
+    return { smallBlindId: null, bigBlindId: null };
+  }
+
+  const eligibleIds = new Set(eligibleConfigs.map((config) => config.id));
+  const previousDealerId = currentState.players[currentState.dealerIndex]?.id;
+  const previousDealerOrderIndex = allPlayerConfigs.findIndex((config) => config.id === previousDealerId);
+  const dealerConfig = nextConfigAfter(allPlayerConfigs, previousDealerOrderIndex >= 0 ? previousDealerOrderIndex : -1, eligibleIds);
+  const dealerIndex = allPlayerConfigs.findIndex((config) => config.id === dealerConfig?.id);
+  const smallBlindConfig = nextConfigAfter(allPlayerConfigs, dealerIndex, eligibleIds);
+  const smallBlindIndex = allPlayerConfigs.findIndex((config) => config.id === smallBlindConfig?.id);
+  const bigBlindConfig = nextConfigAfter(allPlayerConfigs, smallBlindIndex, eligibleIds);
+
+  return {
+    smallBlindId: smallBlindConfig?.id ?? null,
+    bigBlindId: bigBlindConfig?.id ?? null,
+  };
+}
+
+function recordMissedBlindsForAwaySeats(room, currentState) {
+  const { smallBlindId, bigBlindId } = nextFullBlindRoleIds(room, currentState);
+  const log = [];
+
+  room.seats = room.seats.map((seat) => {
+    const nextSeat = normalizeSeat(seat);
+    if (!nextSeat.playerId || !seatWillBeAwayNextHand(nextSeat)) {
+      return nextSeat;
+    }
+
+    const name = nextSeat.name || nextSeat.label || "참가자";
+    const updates = {};
+    if (nextSeat.playerId === smallBlindId && !nextSeat.missedSmallBlind) {
+      updates.missedSmallBlind = true;
+      log.push(`${name}: 자리 비움으로 스몰 블라인드 미스드 기록 (${formatMoney(SMALL_BLIND_AMOUNT)})`);
+    }
+    if (nextSeat.playerId === bigBlindId && !nextSeat.missedBigBlind) {
+      updates.missedBigBlind = true;
+      log.push(`${name}: 자리 비움으로 빅 블라인드 미스드 기록 (${formatMoney(BIG_BLIND_AMOUNT)})`);
+    }
+
+    return Object.keys(updates).length > 0 ? { ...nextSeat, ...updates } : nextSeat;
+  });
+
+  return log;
+}
+
+function missedBlindForcedContributions(room, nextPlayerConfigs) {
+  const activeIds = new Set(nextPlayerConfigs.map((config) => config.id));
+  const contributions = [];
+
+  room.seats = room.seats.map((seat) => {
+    const nextSeat = normalizeSeat(seat);
+    const amount = missedBlindAmountForSeat(nextSeat);
+    if (!nextSeat.playerId || amount <= 0 || !activeIds.has(nextSeat.playerId)) {
+      return nextSeat;
+    }
+
+    const label = `미스드 블라인드(${missedBlindLabelForSeat(nextSeat)})`;
+    contributions.push({
+      playerId: nextSeat.playerId,
+      amount,
+      label,
+    });
+
+    return {
+      ...nextSeat,
+      missedSmallBlind: false,
+      missedBigBlind: false,
+    };
+  });
+
+  return contributions;
+}
+
 function syncAllPlayerConfigs(room, activeBefore, activeAfter) {
   const allPlayerConfigs = room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? [];
   const replacements = new Map();
@@ -636,6 +778,8 @@ function detachSocketFromRoom(socket, { clearSeat = false } = {}) {
       seat.away = false;
       seat.pendingAway = false;
       seat.pendingReturn = false;
+      seat.missedSmallBlind = false;
+      seat.missedBigBlind = false;
     }
     seat.connected = false;
   }
@@ -695,6 +839,8 @@ function resizeRoomHumanSlots(room, nextHumanSlots, removedHumanSlotIds = []) {
         away: false,
         pendingAway: false,
         pendingReturn: false,
+        missedSmallBlind: false,
+        missedBigBlind: false,
       });
     }
   }
@@ -729,6 +875,8 @@ function createRoom(socket, payload) {
       away: false,
       pendingAway: false,
       pendingReturn: false,
+      missedSmallBlind: false,
+      missedBigBlind: false,
     })),
     clients: new Set([socket]),
     createdAt: Date.now(),
@@ -786,10 +934,14 @@ function joinRoom(socket, targetRoomId, playerName, requestedPlayerId = null) {
     targetSeat.away = false;
     targetSeat.pendingAway = false;
     targetSeat.pendingReturn = false;
+    targetSeat.missedSmallBlind = false;
+    targetSeat.missedBigBlind = false;
   } else {
     targetSeat.away = Boolean(targetSeat.away);
     targetSeat.pendingAway = Boolean(targetSeat.pendingAway);
     targetSeat.pendingReturn = Boolean(targetSeat.pendingReturn);
+    targetSeat.missedSmallBlind = Boolean(targetSeat.missedSmallBlind);
+    targetSeat.missedBigBlind = Boolean(targetSeat.missedBigBlind);
   }
   socket.roomId = room.id;
   socket.playerId = playerId;
@@ -980,8 +1132,10 @@ function startNextRoomHand(room) {
 
   const currentState = room.game.state;
   const reservationLog = applySeatParticipationReservations(room);
+  const missedBlindLog = recordMissedBlindsForAwaySeats(room, currentState);
   const nextPlayerConfigs = activePlayerConfigsForNextHand(room);
   const nextDealerIndex = nextDealerIndexForPlayerConfigs(room, currentState, nextPlayerConfigs);
+  const forcedContributions = missedBlindForcedContributions(room, nextPlayerConfigs);
   room.game.nextHandReadyPlayerIds = new Set();
   room.game.cardPeekPlayerIds = new Set();
   room.game.computerCardCheckedPlayerIds = new Set();
@@ -1001,8 +1155,10 @@ function startNextRoomHand(room) {
     endlessReplacementStartingBalance: room.game.endlessReplacementStartingBalance,
     playerStats: currentState.playerStats ?? {},
     playerConfigs: nextPlayerConfigs,
+    forcedContributions,
   });
-  room.game.state = reservationLog.length ? { ...nextState, log: [...reservationLog, ...nextState.log] } : nextState;
+  const participationLog = [...reservationLog, ...missedBlindLog];
+  room.game.state = participationLog.length ? { ...nextState, log: [...participationLog, ...nextState.log] } : nextState;
   room.game.playerConfigs = room.game.state.playerConfigs;
   syncAllPlayerConfigs(room, nextPlayerConfigs, room.game.state.playerConfigs);
   syncTableSeatOrder(room, nextPlayerConfigs, room.game.state.playerConfigs);

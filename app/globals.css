@@ -497,6 +497,17 @@ button:disabled {
   padding: 4px 7px;
 }
 
+.missed-blind-badge {
+  background: rgba(168, 85, 247, 0.14);
+  border: 1px solid rgba(168, 85, 247, 0.46);
+  border-radius: 999px;
+  color: #d8b4fe;
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 4px 7px;
+}
+
 .seat header span,
 .seat dd,
 .seat dt,
@@ -518,6 +529,10 @@ button:disabled {
 
 .seat header .all-in-badge {
   color: var(--red);
+}
+
+.seat header .missed-blind-badge {
+  color: #d8b4fe;
 }
 
 .seat-cards {
@@ -1280,6 +1295,12 @@ td {
 .room-slot span {
   color: var(--muted);
   font-size: 0.88rem;
+}
+
+.room-slot small {
+  color: #d8b4fe;
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
 .balance-input input,
