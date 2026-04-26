@@ -658,8 +658,8 @@ function Seat({
             player.cards.map((card, index) => {
               const showCard = Boolean(card) && cardsVisible;
               return (
-                <div className={`card${showCard ? cardSuitClass(card) : ""}`} key={`${player.id}-${index}`}>
-                  {showCard ? formatCard(card) : "🂠"}
+                <div className={`card${showCard ? cardSuitClass(card) : " is-back"}`} key={`${player.id}-${index}`}>
+                  {showCard ? formatCard(card) : null}
                 </div>
               );
             })
