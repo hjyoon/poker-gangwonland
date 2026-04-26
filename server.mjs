@@ -482,8 +482,15 @@ function seatWillBeAwayNextHand(seat) {
   return Boolean(seat.away);
 }
 
-function seatWillParticipateNextHand(seat) {
-  if (!seat || seat.pendingStandUp) {
+function seatWillStandUpNextHand(room, currentState, seat) {
+  if (!room?.game || !currentState || !seat?.pendingStandUp || !seat.playerId) {
+    return false;
+  }
+  return nextHandDealerPlayerId(room, currentState) === seat.playerId;
+}
+
+function seatWillParticipateNextHand(room, currentState, seat) {
+  if (!seat || seatWillStandUpNextHand(room, currentState, seat)) {
     return false;
   }
   return !seatWillBeAwayNextHand(seat);
@@ -496,7 +503,7 @@ function nextHandRequiredPlayerIds(room) {
 
   const connectedPlayerIds = new Set(
     room.seats
-      .filter((seat) => seat.playerId && seat.connected && seatWillParticipateNextHand(seat))
+      .filter((seat) => seat.playerId && seat.connected && seatWillParticipateNextHand(room, room.game.state, seat))
       .map((seat) => seat.playerId),
   );
   return room.game.state.players
@@ -641,7 +648,7 @@ function activePlayerConfigsForNextHand(room) {
       return chipBalance >= MIN_PLAYABLE_BALANCE;
     }
     const seat = room.seats.find((entry) => entry.playerId === config.id);
-    return Boolean(seat && seat.connected && seatWillParticipateNextHand(seat));
+    return Boolean(seat && seat.connected && seatWillParticipateNextHand(room, room.game?.state, seat));
   });
 }
 
@@ -722,15 +729,11 @@ function nextHandDealerPlayerId(room, currentState) {
   return nextFullBlindRoleIds(room, currentState).dealerId ?? null;
 }
 
-function isCurrentSmallBlindPlayer(currentState, playerId) {
-  return Boolean(playerId && currentState?.players?.[currentState.smallBlindIndex]?.id === playerId);
-}
-
 function canReserveStandUpFromGame(room, currentState, playerId) {
   if (!room?.game || !currentState || !playerId) {
     return false;
   }
-  return nextHandDealerPlayerId(room, currentState) === playerId || isCurrentSmallBlindPlayer(currentState, playerId);
+  return room.seats.some((seat) => seat.playerId === playerId);
 }
 
 function recordMissedBlindsForAwaySeats(room, currentState) {
@@ -892,17 +895,17 @@ function syncAllPlayerConfigs(room, activeBefore, activeAfter) {
   room.game.allPlayerConfigs = allPlayerConfigs.map((config) => replacements.get(config.id) ?? config);
 }
 
-function applySeatParticipationReservations(room) {
+function applySeatParticipationReservations(room, currentState) {
   const log = [];
   const standUpPlayerIds = new Set();
   room.seats = room.seats.map((seat) => {
     const nextSeat = normalizeSeat(seat);
     const name = nextSeat.name || nextSeat.label || "참가자";
-    if (nextSeat.pendingStandUp) {
+    if (seatWillStandUpNextHand(room, currentState, nextSeat)) {
       if (nextSeat.playerId) {
         standUpPlayerIds.add(nextSeat.playerId);
       }
-      log.push(`${name}: 게임에서 빠짐`);
+      log.push(`${name}: 딜러 차례가 되어 게임에서 빠짐`);
       return emptyHumanGameSeat(nextSeat);
     }
     if (nextSeat.pendingJoin) {
@@ -1342,7 +1345,7 @@ function startNextRoomHand(room) {
 
   const currentState = room.game.state;
   clearEliminatedComputerSeats(room, currentState);
-  const reservationLog = applySeatParticipationReservations(room);
+  const reservationLog = applySeatParticipationReservations(room, currentState);
   const missedBlindLog = recordMissedBlindsForAwaySeats(room, currentState);
   const nextPlayerConfigs = activePlayerConfigsForNextHand(room);
   const nextDealerIndex = nextDealerIndexForPlayerConfigs(room, currentState, nextPlayerConfigs);
@@ -1621,9 +1624,6 @@ function handleStandUpFromGame(socket, payload) {
   }
 
   const state = room.game.state;
-  const handInProgress = Boolean(state && !state.finished && !state.gameOver);
-  const playerInCurrentHand = Boolean(state?.players.some((player) => player.id === socket.playerId && !player.eliminated));
-
   if (Boolean(payload.cancel)) {
     if (!seat.pendingStandUp) {
       sendError(socket, "취소할 게임 퇴장 예약이 없습니다.");
@@ -1634,22 +1634,21 @@ function handleStandUpFromGame(socket, payload) {
     return;
   }
 
-  if (!canReserveStandUpFromGame(room, state, socket.playerId)) {
-    sendError(socket, "게임에서 빠지기는 현재 스몰 블라인드(SB)이거나 다음 핸드 딜러(D) 예정일 때만 예약할 수 있습니다.");
+  if (state?.gameOver) {
+    sendError(socket, "종료된 게임에서는 게임에서 빠지기를 예약할 수 없습니다.");
     return;
   }
 
-  if (handInProgress && playerInCurrentHand) {
-    seat.pendingStandUp = true;
-    seat.pendingAway = false;
-    seat.pendingReturn = false;
-    room.game.cardPeekPlayerIds?.delete(socket.playerId);
-    broadcastRoom(room);
-    return;
-  }
+  seat.pendingStandUp = true;
+  seat.pendingAway = false;
+  seat.pendingReturn = false;
+  seat.pendingJoin = false;
+  room.game.cardPeekPlayerIds?.delete(socket.playerId);
 
-  const cleared = clearHumanSeatFromGame(room, seat);
-  if (cleared && room.game?.state?.finished && !room.game.state.gameOver) {
+  if (state?.finished && !state.gameOver) {
+    if (seatWillStandUpNextHand(room, state, seat)) {
+      room.game.nextHandReadyPlayerIds?.delete(socket.playerId);
+    }
     if (!startNextRoomHandIfReady(room)) {
       scheduleRoomAutomation(room);
     }
