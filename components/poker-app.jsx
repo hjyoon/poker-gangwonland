@@ -1504,7 +1504,9 @@ export default function PokerApp() {
   const ownSeatPendingAway = Boolean(ownMultiplayerSeat?.pendingAway);
   const ownSeatPendingReturn = Boolean(ownMultiplayerSeat?.pendingReturn);
   const ownSeatPendingStandUp = Boolean(ownMultiplayerSeat?.pendingStandUp);
-  const ownSeatCanReserveStandUp = Boolean(multiplayerPlayerId && multiplayerRoom?.nextHandDealerPlayerId === multiplayerPlayerId);
+  const ownSeatCanReserveStandUp = Boolean(
+    multiplayerRoom?.canReserveStandUpFromGame || (multiplayerPlayerId && multiplayerRoom?.nextHandDealerPlayerId === multiplayerPlayerId),
+  );
   const ownSeatMissedBlindText = missedBlindStatusText(ownMultiplayerSeat);
   const ownSeatMissedBlindSuffix = ownSeatMissedBlindText ? ` 복귀 시 ${ownSeatMissedBlindText}를 납부합니다.` : "";
   const ownSeatNextAwayRequest = ownSeatPendingAway ? false : ownSeatPendingReturn ? true : !ownSeatAway;
@@ -1528,8 +1530,8 @@ export default function PokerApp() {
   const ownSeatStandUpHelpText = ownSeatPendingStandUp
     ? "게임 퇴장 예약을 취소할 수 있습니다."
     : ownSeatCanReserveStandUp
-      ? "다음 핸드 딜러(D) 예정이므로 게임에서 빠지기를 예약할 수 있습니다."
-      : "게임에서 빠지기는 다음 핸드 딜러(D) 예정일 때만 예약할 수 있습니다.";
+      ? "현재 스몰 블라인드(SB)이거나 다음 핸드 딜러(D) 예정이므로 게임에서 빠지기를 예약할 수 있습니다."
+      : "게임에서 빠지기는 현재 스몰 블라인드(SB)이거나 다음 핸드 딜러(D) 예정일 때만 예약할 수 있습니다.";
   const multiplayerSettingsPayload = useMemo(
     () => {
       const payload = {

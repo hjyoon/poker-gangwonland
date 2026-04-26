@@ -561,6 +561,8 @@ function publicRoom(room, socket) {
     nextHandRequiredPlayerIds: nextHandRequiredPlayerIds(room),
     nextHandReadyPlayerIds: nextHandReadyPlayerIds(room),
     nextHandDealerPlayerId: room.game?.state && !room.game.state.gameOver ? nextHandDealerPlayerId(room, room.game.state) : null,
+    canReserveStandUpFromGame:
+      socket?.playerId && room.game?.state && !room.game.state.gameOver ? canReserveStandUpFromGame(room, room.game.state, socket.playerId) : false,
     cardPeekPlayerIds: publicCardPeekPlayerIds(room),
     timer: publicRoomTimer(room),
     gameState: publicGameState(room.game?.state, socket?.playerId, settings.showComputerStyles, room),
@@ -720,11 +722,15 @@ function nextHandDealerPlayerId(room, currentState) {
   return nextFullBlindRoleIds(room, currentState).dealerId ?? null;
 }
 
+function isCurrentSmallBlindPlayer(currentState, playerId) {
+  return Boolean(playerId && currentState?.players?.[currentState.smallBlindIndex]?.id === playerId);
+}
+
 function canReserveStandUpFromGame(room, currentState, playerId) {
   if (!room?.game || !currentState || !playerId) {
     return false;
   }
-  return nextHandDealerPlayerId(room, currentState) === playerId;
+  return nextHandDealerPlayerId(room, currentState) === playerId || isCurrentSmallBlindPlayer(currentState, playerId);
 }
 
 function recordMissedBlindsForAwaySeats(room, currentState) {
@@ -1629,7 +1635,7 @@ function handleStandUpFromGame(socket, payload) {
   }
 
   if (!canReserveStandUpFromGame(room, state, socket.playerId)) {
-    sendError(socket, "게임에서 빠지기는 다음 핸드 딜러(D) 예정일 때만 예약할 수 있습니다.");
+    sendError(socket, "게임에서 빠지기는 현재 스몰 블라인드(SB)이거나 다음 핸드 딜러(D) 예정일 때만 예약할 수 있습니다.");
     return;
   }
 
