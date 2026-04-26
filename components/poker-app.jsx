@@ -733,7 +733,9 @@ function Seat({
     ? "비어 있음"
     : player.eliminated
       ? "탈락"
-      : player.isPendingReturn
+      : player.isPendingStandUp
+        ? "퇴장 예약"
+        : player.isPendingReturn
         ? "복귀 예약"
         : player.isAway
           ? "자리 비움"
@@ -1488,6 +1490,7 @@ export default function PokerApp() {
   const ownSeatAway = Boolean(ownMultiplayerSeat?.away);
   const ownSeatPendingAway = Boolean(ownMultiplayerSeat?.pendingAway);
   const ownSeatPendingReturn = Boolean(ownMultiplayerSeat?.pendingReturn);
+  const ownSeatPendingStandUp = Boolean(ownMultiplayerSeat?.pendingStandUp);
   const ownSeatMissedBlindText = missedBlindStatusText(ownMultiplayerSeat);
   const ownSeatMissedBlindSuffix = ownSeatMissedBlindText ? ` 복귀 시 ${ownSeatMissedBlindText}를 납부합니다.` : "";
   const ownSeatNextAwayRequest = ownSeatPendingAway ? false : ownSeatPendingReturn ? true : !ownSeatAway;
@@ -1498,9 +1501,12 @@ export default function PokerApp() {
       : ownSeatAway
         ? "다음 핸드부터 복귀"
         : "다음 핸드부터 자리 비움";
+  const ownSeatStandUpButtonLabel = ownSeatPendingStandUp ? "게임 퇴장 예약 취소" : "게임에서 빠지기";
   const ownSeatParticipationText = ownSeatPendingAway
     ? `이번 핸드가 끝나면 자리 비움으로 전환됩니다.${ownSeatMissedBlindSuffix}`
-    : ownSeatPendingReturn
+    : ownSeatPendingStandUp
+      ? "이번 핸드가 끝나면 게임에서 빠지고 좌석은 빈 자리로 바뀝니다."
+      : ownSeatPendingReturn
       ? `이번 핸드가 끝나면 다시 참가합니다.${ownSeatMissedBlindSuffix}`
       : ownSeatAway
         ? `현재 자리 비움 상태입니다. 복귀를 누르면 다음 핸드부터 참가합니다.${ownSeatMissedBlindSuffix}`
@@ -1877,6 +1883,9 @@ export default function PokerApp() {
     const missedSuffix = missedText ? ` · ${missedText}` : "";
     if (!seat.playerId) {
       return "참가 대기 중입니다.";
+    }
+    if (seat.pendingStandUp) {
+      return "게임 퇴장 예약";
     }
     if (seat.pendingAway) {
       return `자리 비움 예약${missedSuffix}`;
@@ -2326,6 +2335,13 @@ export default function PokerApp() {
       return;
     }
     sendMultiplayerMessage({ type: "setSeatAway", away: ownSeatNextAwayRequest });
+  }
+
+  function standUpFromMultiplayerGame() {
+    if (!multiplayerGameActive || !ownMultiplayerSeat) {
+      return;
+    }
+    sendMultiplayerMessage({ type: "standUpFromGame", cancel: ownSeatPendingStandUp });
   }
 
   function nextHand() {
@@ -2853,7 +2869,9 @@ export default function PokerApp() {
                           <span>
                             {!seat.playerId
                               ? "빈 자리"
-                              : seat.pendingAway
+                              : seat.pendingStandUp
+                                ? "게임 퇴장 예약"
+                                : seat.pendingAway
                                 ? "자리 비움 예약"
                                 : seat.pendingReturn
                                   ? "복귀 예약"
@@ -3267,6 +3285,9 @@ export default function PokerApp() {
               </div>
               <button className="secondary" type="button" onClick={toggleMultiplayerSeatAway}>
                 {ownSeatAwayButtonLabel}
+              </button>
+              <button className="secondary danger-lite" type="button" onClick={standUpFromMultiplayerGame}>
+                {ownSeatStandUpButtonLabel}
               </button>
             </div>
           ) : null}

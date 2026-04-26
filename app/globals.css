@@ -269,6 +269,11 @@ button.secondary {
   color: white;
 }
 
+button.danger-lite {
+  background: linear-gradient(180deg, rgba(226, 82, 73, 0.9), rgba(135, 47, 43, 0.92));
+  color: white;
+}
+
 button:disabled {
   opacity: 0.42;
   cursor: not-allowed;

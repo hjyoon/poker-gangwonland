@@ -292,6 +292,7 @@ function publicInactiveHumanSeat(seat, index, ledger = {}) {
     name: seat.name || seat.label || `플레이어 ${index + 1}`,
     isHuman: true,
     isAway: Boolean(seat.away),
+    isPendingStandUp: Boolean(seat.pendingStandUp),
     isPendingReturn: Boolean(seat.pendingReturn),
     isDisconnected: !seat.connected,
     cards: [],
@@ -302,7 +303,7 @@ function publicInactiveHumanSeat(seat, index, ledger = {}) {
     totalContribution: 0,
     chipBalance: Number(ledger.chipBalance) || 0,
     chipsWon: Number(ledger.chipsWon) || 0,
-    lastAction: seat.pendingReturn ? "복귀 예약" : seat.away ? "자리 비움" : "연결 끊김",
+    lastAction: seat.pendingStandUp ? "게임 퇴장 예약" : seat.pendingReturn ? "복귀 예약" : seat.away ? "자리 비움" : "연결 끊김",
     stateIndex: -1,
     computerStyle: null,
     computerLevel: null,
@@ -342,6 +343,7 @@ function publicTableSeats(room, publicPlayers) {
       return humanSeat
         ? {
             ...activePlayer,
+            isPendingStandUp: Boolean(humanSeat.pendingStandUp),
             missedSmallBlind: Boolean(humanSeat.missedSmallBlind),
             missedBigBlind: Boolean(humanSeat.missedBigBlind),
             missedBlindAmount: missedBlindAmountForSeat(humanSeat),
@@ -409,6 +411,7 @@ function normalizeSeat(seat) {
     away: Boolean(seat.away),
     pendingAway: Boolean(seat.pendingAway),
     pendingReturn: Boolean(seat.pendingReturn),
+    pendingStandUp: Boolean(seat.pendingStandUp),
     missedSmallBlind: Boolean(seat.missedSmallBlind),
     missedBigBlind: Boolean(seat.missedBigBlind),
     missedBlindAmount: missedBlindAmountForSeat(seat),
@@ -428,6 +431,13 @@ function seatWillBeAwayNextHand(seat) {
   return Boolean(seat.away);
 }
 
+function seatWillParticipateNextHand(seat) {
+  if (!seat || seat.pendingStandUp) {
+    return false;
+  }
+  return !seatWillBeAwayNextHand(seat);
+}
+
 function nextHandRequiredPlayerIds(room) {
   if (!room.game?.state?.finished || room.game.state.gameOver) {
     return [];
@@ -435,7 +445,7 @@ function nextHandRequiredPlayerIds(room) {
 
   const connectedPlayerIds = new Set(
     room.seats
-      .filter((seat) => seat.playerId && seat.connected && !seatWillBeAwayNextHand(seat))
+      .filter((seat) => seat.playerId && seat.connected && seatWillParticipateNextHand(seat))
       .map((seat) => seat.playerId),
   );
   return room.game.state.players
@@ -572,7 +582,7 @@ function activePlayerConfigsForNextHand(room) {
       return true;
     }
     const seat = room.seats.find((entry) => entry.playerId === config.id);
-    return Boolean(seat && seat.connected && !seatWillBeAwayNextHand(seat));
+    return Boolean(seat && seat.connected && seatWillParticipateNextHand(seat));
   });
 }
 
@@ -703,6 +713,51 @@ function missedBlindForcedContributions(room, nextPlayerConfigs) {
   return contributions;
 }
 
+function clearTableSeatOrderPlayerIds(room, playerIds) {
+  if (!Array.isArray(room.game?.tableSeatOrder) || playerIds.size === 0) {
+    return;
+  }
+
+  room.game.tableSeatOrder = room.game.tableSeatOrder.map((entry) =>
+    entry?.playerId && playerIds.has(entry.playerId) ? { ...entry, playerId: null, label: "빈 자리" } : entry,
+  );
+}
+
+function emptyHumanGameSeat(seat) {
+  return {
+    ...seat,
+    playerId: null,
+    name: null,
+    connected: false,
+    away: false,
+    pendingAway: false,
+    pendingReturn: false,
+    pendingStandUp: false,
+    missedSmallBlind: false,
+    missedBigBlind: false,
+    missedBlindAmount: 0,
+  };
+}
+
+function clearHumanSeatFromGame(room, seat) {
+  const playerId = seat?.playerId;
+  if (!playerId) {
+    return null;
+  }
+
+  const playerName = seat.name || seat.label || "참가자";
+  clearTableSeatOrderPlayerIds(room, new Set([playerId]));
+  room.game?.nextHandReadyPlayerIds?.delete(playerId);
+  room.game?.cardPeekPlayerIds?.delete(playerId);
+
+  const seatIndex = room.seats.findIndex((entry) => entry === seat || entry.playerId === playerId);
+  if (seatIndex >= 0) {
+    room.seats[seatIndex] = emptyHumanGameSeat(room.seats[seatIndex]);
+  }
+
+  return { playerId, playerName };
+}
+
 function syncAllPlayerConfigs(room, activeBefore, activeAfter) {
   const allPlayerConfigs = room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? [];
   const replacements = new Map();
@@ -716,9 +771,17 @@ function syncAllPlayerConfigs(room, activeBefore, activeAfter) {
 
 function applySeatParticipationReservations(room) {
   const log = [];
+  const standUpPlayerIds = new Set();
   room.seats = room.seats.map((seat) => {
     const nextSeat = normalizeSeat(seat);
     const name = nextSeat.name || nextSeat.label || "참가자";
+    if (nextSeat.pendingStandUp) {
+      if (nextSeat.playerId) {
+        standUpPlayerIds.add(nextSeat.playerId);
+      }
+      log.push(`${name}: 게임에서 빠짐`);
+      return emptyHumanGameSeat(nextSeat);
+    }
     if (nextSeat.pendingAway) {
       log.push(`${name}: 다음 핸드부터 자리 비움`);
       return {
@@ -726,6 +789,7 @@ function applySeatParticipationReservations(room) {
         away: true,
         pendingAway: false,
         pendingReturn: false,
+        pendingStandUp: false,
       };
     }
     if (nextSeat.pendingReturn) {
@@ -735,9 +799,15 @@ function applySeatParticipationReservations(room) {
         away: false,
         pendingAway: false,
         pendingReturn: false,
+        pendingStandUp: false,
       };
     }
     return nextSeat;
+  });
+  clearTableSeatOrderPlayerIds(room, standUpPlayerIds);
+  standUpPlayerIds.forEach((playerId) => {
+    room.game?.nextHandReadyPlayerIds?.delete(playerId);
+    room.game?.cardPeekPlayerIds?.delete(playerId);
   });
   return log;
 }
@@ -778,6 +848,7 @@ function detachSocketFromRoom(socket, { clearSeat = false } = {}) {
       seat.away = false;
       seat.pendingAway = false;
       seat.pendingReturn = false;
+      seat.pendingStandUp = false;
       seat.missedSmallBlind = false;
       seat.missedBigBlind = false;
     }
@@ -839,6 +910,7 @@ function resizeRoomHumanSlots(room, nextHumanSlots, removedHumanSlotIds = []) {
         away: false,
         pendingAway: false,
         pendingReturn: false,
+        pendingStandUp: false,
         missedSmallBlind: false,
         missedBigBlind: false,
       });
@@ -875,6 +947,7 @@ function createRoom(socket, payload) {
       away: false,
       pendingAway: false,
       pendingReturn: false,
+      pendingStandUp: false,
       missedSmallBlind: false,
       missedBigBlind: false,
     })),
@@ -934,12 +1007,14 @@ function joinRoom(socket, targetRoomId, playerName, requestedPlayerId = null) {
     targetSeat.away = false;
     targetSeat.pendingAway = false;
     targetSeat.pendingReturn = false;
+    targetSeat.pendingStandUp = false;
     targetSeat.missedSmallBlind = false;
     targetSeat.missedBigBlind = false;
   } else {
     targetSeat.away = Boolean(targetSeat.away);
     targetSeat.pendingAway = Boolean(targetSeat.pendingAway);
     targetSeat.pendingReturn = Boolean(targetSeat.pendingReturn);
+    targetSeat.pendingStandUp = Boolean(targetSeat.pendingStandUp);
     targetSeat.missedSmallBlind = Boolean(targetSeat.missedSmallBlind);
     targetSeat.missedBigBlind = Boolean(targetSeat.missedBigBlind);
   }
@@ -1370,15 +1445,64 @@ function handleSetSeatAway(socket, payload) {
       seat.pendingAway = wantsAway;
       seat.pendingReturn = !wantsAway;
     }
+    seat.pendingStandUp = false;
   } else {
     seat.away = wantsAway;
     seat.pendingAway = false;
     seat.pendingReturn = false;
+    seat.pendingStandUp = false;
     room.game?.nextHandReadyPlayerIds?.delete(socket.playerId);
   }
 
   room.game?.cardPeekPlayerIds?.delete(socket.playerId);
   if (room.game?.state?.finished && !room.game.state.gameOver) {
+    if (!startNextRoomHandIfReady(room)) {
+      scheduleRoomAutomation(room);
+    }
+    return;
+  }
+
+  broadcastRoom(room);
+}
+
+function handleStandUpFromGame(socket, payload) {
+  const room = rooms.get(socket.roomId);
+  if (!room?.game || !socket.playerId) {
+    sendError(socket, "진행 중인 멀티플레이 게임에 참가해야 합니다.");
+    return;
+  }
+
+  const seat = room.seats.find((entry) => entry.playerId === socket.playerId);
+  if (!seat) {
+    sendError(socket, "현재 게임 좌석에 앉아 있지 않습니다.");
+    return;
+  }
+
+  const state = room.game.state;
+  const handInProgress = Boolean(state && !state.finished && !state.gameOver);
+  const playerInCurrentHand = Boolean(state?.players.some((player) => player.id === socket.playerId && !player.eliminated));
+
+  if (Boolean(payload.cancel)) {
+    if (!seat.pendingStandUp) {
+      sendError(socket, "취소할 게임 퇴장 예약이 없습니다.");
+      return;
+    }
+    seat.pendingStandUp = false;
+    broadcastRoom(room);
+    return;
+  }
+
+  if (handInProgress && playerInCurrentHand) {
+    seat.pendingStandUp = true;
+    seat.pendingAway = false;
+    seat.pendingReturn = false;
+    room.game.cardPeekPlayerIds?.delete(socket.playerId);
+    broadcastRoom(room);
+    return;
+  }
+
+  const cleared = clearHumanSeatFromGame(room, seat);
+  if (cleared && room.game?.state?.finished && !room.game.state.gameOver) {
     if (!startNextRoomHandIfReady(room)) {
       scheduleRoomAutomation(room);
     }
@@ -1549,6 +1673,10 @@ function handleMessage(socket, message) {
   }
   if (message.type === "setSeatAway") {
     handleSetSeatAway(socket, message);
+    return;
+  }
+  if (message.type === "standUpFromGame") {
+    handleStandUpFromGame(socket, message);
     return;
   }
   if (message.type === "cardPeekState") {
