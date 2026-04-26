@@ -10,6 +10,7 @@ import {
   STREETS,
   applyAction,
   calculateFee,
+  computerCardPeekPlan,
   chooseComputerAction,
   describePreflopHand,
   estimateHoldemWinRate,
@@ -931,6 +932,7 @@ export default function PokerApp() {
   const [activeGameMenuOpen, setActiveGameMenuOpen] = useState(false);
   const [gameInfoTab, setGameInfoTab] = useState("log");
   const [privateCardPeekedIds, setPrivateCardPeekedIds] = useState(() => new Set());
+  const [computerCardPeekedIds, setComputerCardPeekedIds] = useState(() => new Set());
   const [cardInfoOverlay, setCardInfoOverlay] = useState(() => ({ playerId: "", position: null }));
   const multiplayerSocketRef = useRef(null);
   const multiplayerReconnectRef = useRef(null);
@@ -957,12 +959,28 @@ export default function PokerApp() {
       return undefined;
     }
 
-    const timer = window.setTimeout(() => {
+    const peekPlan = computerCardPeekPlan(state, state.currentPlayerIndex, computerActionDelayMs);
+    let peekTimer = null;
+    if (peekPlan.shouldPeek) {
+      setComputerCardPeekState(actor.id, true);
+      peekTimer = window.setTimeout(() => {
+        setComputerCardPeekState(actor.id, false);
+      }, peekPlan.durationMs);
+    }
+
+    const actionTimer = window.setTimeout(() => {
+      setComputerCardPeekState(actor.id, false);
       const action = chooseComputerAction(state);
       setState((current) => applyAction(current, action));
     }, computerActionDelayMs);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      if (peekTimer) {
+        window.clearTimeout(peekTimer);
+      }
+      window.clearTimeout(actionTimer);
+      setComputerCardPeekState(actor.id, false);
+    };
   }, [computerActionDelayMs, multiplayerGameActive, state]);
 
   useEffect(() => {
@@ -1098,6 +1116,7 @@ export default function PokerApp() {
 
   useEffect(() => {
     setPrivateCardPeekedIds(new Set());
+    setComputerCardPeekedIds(new Set());
     setCardInfoOverlay({ playerId: "", position: null });
   }, [state?.handId]);
 
@@ -1789,6 +1808,21 @@ export default function PokerApp() {
     if (multiplayerGameActive && playerId === multiplayerPlayerId) {
       sendMultiplayerMessage({ type: "cardPeekState", peeking });
     }
+  }
+
+  function setComputerCardPeekState(playerId, peeking) {
+    setComputerCardPeekedIds((current) => {
+      if (!playerId || current.has(playerId) === peeking) {
+        return current;
+      }
+      const next = new Set(current);
+      if (peeking) {
+        next.add(playerId);
+      } else {
+        next.delete(playerId);
+      }
+      return next;
+    });
   }
 
   function handleCardOverlayPointerChange(playerId, position) {
@@ -2793,7 +2827,7 @@ export default function PokerApp() {
               isDealer={index === state.dealerIndex}
               isTurn={state.currentPlayerIndex === index && !state.finished}
               isMucked={muckedShowdownIds.has(player.id)}
-              isCardPeeking={multiplayerGameActive && multiplayerCardPeekPlayerIds.has(player.id)}
+              isCardPeeking={multiplayerGameActive ? multiplayerCardPeekPlayerIds.has(player.id) : computerCardPeekedIds.has(player.id)}
               key={player.id}
               hasPocketInsight={Boolean(pocketInsightMap[player.id])}
               hasShowdownOverlay={Boolean(showdownMap[player.id] || muckedShowdownIds.has(player.id))}

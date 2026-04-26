@@ -7,6 +7,7 @@ import {
   MIN_PLAYABLE_BALANCE,
   applyAction,
   chooseComputerAction,
+  computerCardPeekPlan,
   getAvailableActions,
   resolveComputerLevelKey,
   resolveComputerStyleKey,
@@ -327,12 +328,12 @@ function publicCardPeekPlayerIds(room) {
     return [];
   }
 
-  const activeHumanIds = new Set(
+  const activePlayerIds = new Set(
     room.game.state.players
-      .filter((player) => player.isHuman && !player.eliminated)
+      .filter((player) => !player.eliminated && !player.folded && Array.isArray(player.cards) && player.cards.length === 2)
       .map((player) => player.id),
   );
-  return [...(room.game.cardPeekPlayerIds ?? new Set())].filter((playerId) => activeHumanIds.has(playerId));
+  return [...(room.game.cardPeekPlayerIds ?? new Set())].filter((playerId) => activePlayerIds.has(playerId));
 }
 
 function publicRoom(room, socket) {
@@ -400,6 +401,10 @@ function clearRoomTimers(room) {
     clearTimeout(room.automationTimer);
     room.automationTimer = null;
   }
+  if (room.computerPeekTimer) {
+    clearTimeout(room.computerPeekTimer);
+    room.computerPeekTimer = null;
+  }
 }
 
 function scheduleEmptyRoomCleanup(room) {
@@ -444,6 +449,10 @@ function detachSocketFromRoom(socket, { clearSeat = false } = {}) {
     if (room.automationTimer) {
       clearTimeout(room.automationTimer);
       room.automationTimer = null;
+    }
+    if (room.computerPeekTimer) {
+      clearTimeout(room.computerPeekTimer);
+      room.computerPeekTimer = null;
     }
     if (room.game) {
       room.game.timer = null;
@@ -517,6 +526,7 @@ function createRoom(socket, payload) {
     game: null,
     cleanupTimer: null,
     automationTimer: null,
+    computerPeekTimer: null,
   };
   room.settings = normalizeRoomSettings(room, payload.settings);
 
@@ -775,6 +785,10 @@ function scheduleRoomAutomation(room) {
     clearTimeout(room.automationTimer);
     room.automationTimer = null;
   }
+  if (room.computerPeekTimer) {
+    clearTimeout(room.computerPeekTimer);
+    room.computerPeekTimer = null;
+  }
   if (room.game) {
     room.game.timer = null;
   }
@@ -803,7 +817,19 @@ function scheduleRoomAutomation(room) {
 
   const actor = state.players[state.currentPlayerIndex];
   if (actor && !actor.isHuman) {
+    const peekPlan = computerCardPeekPlan(state, state.currentPlayerIndex, room.game.computerActionDelayMs);
+    if (peekPlan.shouldPeek) {
+      room.game.cardPeekPlayerIds ??= new Set();
+      room.game.cardPeekPlayerIds.add(actor.id);
+      room.computerPeekTimer = setTimeout(() => {
+        if (room.game?.state?.players?.[room.game.state.currentPlayerIndex]?.id === actor.id) {
+          room.game.cardPeekPlayerIds?.delete(actor.id);
+          broadcastRoom(room);
+        }
+      }, peekPlan.durationMs);
+    }
     room.automationTimer = setTimeout(() => {
+      room.game.cardPeekPlayerIds?.delete(actor.id);
       const action = chooseComputerAction(room.game.state);
       applyRoomAction(room, action);
     }, room.game.computerActionDelayMs);
