@@ -999,6 +999,7 @@ export default function PokerApp() {
   const multiplayerNameInputRef = useRef(null);
   const privateCardPeekedIdsRef = useRef(new Set());
   const computerCardPeekedIdsRef = useRef(new Set());
+  const computerCardCheckedIdsRef = useRef(new Set());
   const pendingJoinRoomIdRef = useRef("");
   const multiplayerGameActiveRef = useRef(false);
   const lastSentRoomSettingsRef = useRef("");
@@ -1019,21 +1020,27 @@ export default function PokerApp() {
       return undefined;
     }
 
-    const peekPlan = computerCardPeekPlan(state, state.currentPlayerIndex, computerActionDelayMs);
+    const planState = {
+      ...state,
+      computerCardCheckedPlayerIds: computerCardCheckedIdsRef.current,
+    };
+    const peekPlan = computerCardPeekPlan(planState, state.currentPlayerIndex, computerActionDelayMs);
     let peekTimer = null;
     if (peekPlan.shouldPeek) {
+      setComputerCardCheckedState(actor.id);
       setComputerCardPeekState(actor.id, true);
       peekTimer = window.setTimeout(() => {
         setComputerCardPeekState(actor.id, false);
       }, peekPlan.durationMs);
     }
 
+    const actionDelayMs = peekPlan.shouldPeek ? Math.max(computerActionDelayMs, peekPlan.durationMs + 80) : computerActionDelayMs;
     const actionTimer = window.setTimeout(() => {
       setComputerCardPeekState(actor.id, false);
       const observedState = stateWithObservedCardPeekIds(state, [privateCardPeekedIdsRef.current, computerCardPeekedIdsRef.current], actor.id);
       const action = chooseComputerAction(observedState);
       setState((current) => applyAction(current, action));
-    }, computerActionDelayMs);
+    }, actionDelayMs);
 
     return () => {
       if (peekTimer) {
@@ -1202,8 +1209,10 @@ export default function PokerApp() {
   useEffect(() => {
     const emptyPrivatePeekIds = new Set();
     const emptyComputerPeekIds = new Set();
+    const emptyComputerCheckedIds = new Set();
     privateCardPeekedIdsRef.current = emptyPrivatePeekIds;
     computerCardPeekedIdsRef.current = emptyComputerPeekIds;
+    computerCardCheckedIdsRef.current = emptyComputerCheckedIds;
     setPrivateCardPeekedIds(emptyPrivatePeekIds);
     setComputerCardPeekedIds(emptyComputerPeekIds);
     setCardInfoOverlay({ playerId: "", position: null });
@@ -1928,6 +1937,15 @@ export default function PokerApp() {
       computerCardPeekedIdsRef.current = next;
       return next;
     });
+  }
+
+  function setComputerCardCheckedState(playerId) {
+    if (!playerId || computerCardCheckedIdsRef.current.has(playerId)) {
+      return;
+    }
+    const next = new Set(computerCardCheckedIdsRef.current);
+    next.add(playerId);
+    computerCardCheckedIdsRef.current = next;
   }
 
   function handleCardOverlayPointerChange(playerId, position) {

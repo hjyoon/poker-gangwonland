@@ -702,6 +702,7 @@ function buildRoomGame(room, payload) {
     humanActionTimeoutMs: settings.humanActionTimeoutMs,
     nextHandReadyPlayerIds: new Set(),
     cardPeekPlayerIds: new Set(),
+    computerCardCheckedPlayerIds: new Set(),
     timer: null,
     timerId: 0,
   };
@@ -739,6 +740,7 @@ function startNextRoomHand(room) {
   const nextDealerIndex = (currentState.dealerIndex + 1) % currentState.players.length;
   room.game.nextHandReadyPlayerIds = new Set();
   room.game.cardPeekPlayerIds = new Set();
+  room.game.computerCardCheckedPlayerIds = new Set();
   room.game.timer = null;
   room.game.state = startNewHand({
     cpuCount: room.game.cpuCount,
@@ -821,9 +823,15 @@ function scheduleRoomAutomation(room) {
 
   const actor = state.players[state.currentPlayerIndex];
   if (actor && !actor.isHuman) {
-    const peekPlan = computerCardPeekPlan(state, state.currentPlayerIndex, room.game.computerActionDelayMs);
+    const planState = {
+      ...state,
+      computerCardCheckedPlayerIds: room.game.computerCardCheckedPlayerIds ?? new Set(),
+    };
+    const peekPlan = computerCardPeekPlan(planState, state.currentPlayerIndex, room.game.computerActionDelayMs);
     if (peekPlan.shouldPeek) {
       room.game.cardPeekPlayerIds ??= new Set();
+      room.game.computerCardCheckedPlayerIds ??= new Set();
+      room.game.computerCardCheckedPlayerIds.add(actor.id);
       room.game.cardPeekPlayerIds.add(actor.id);
       room.computerPeekTimer = setTimeout(() => {
         if (room.game?.state?.players?.[room.game.state.currentPlayerIndex]?.id === actor.id) {
@@ -832,6 +840,7 @@ function scheduleRoomAutomation(room) {
         }
       }, peekPlan.durationMs);
     }
+    const actionDelayMs = peekPlan.shouldPeek ? Math.max(room.game.computerActionDelayMs, peekPlan.durationMs + 80) : room.game.computerActionDelayMs;
     room.automationTimer = setTimeout(() => {
       room.game.cardPeekPlayerIds?.delete(actor.id);
       const decisionState = {
@@ -840,7 +849,7 @@ function scheduleRoomAutomation(room) {
       };
       const action = chooseComputerAction(decisionState);
       applyRoomAction(room, action);
-    }, room.game.computerActionDelayMs);
+    }, actionDelayMs);
   } else if (actor?.isHuman) {
     scheduleRoomTimer(room, {
       phase: "humanAction",
