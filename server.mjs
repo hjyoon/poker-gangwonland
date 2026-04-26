@@ -341,6 +341,43 @@ function syncTableSeatOrder(room, activeBefore, activeAfter) {
   );
 }
 
+function clearEliminatedComputerSeats(room, state = room.game?.state) {
+  if (!room?.game || room.game.endlessMode || !state) {
+    return new Set();
+  }
+
+  const eliminatedComputerIds = new Set(
+    (state.players ?? [])
+      .filter((player) => !player.isHuman && player.eliminated)
+      .map((player) => player.id),
+  );
+  if (eliminatedComputerIds.size === 0) {
+    return eliminatedComputerIds;
+  }
+
+  if (Array.isArray(room.game.tableSeatOrder)) {
+    room.game.tableSeatOrder = room.game.tableSeatOrder.map((entry) =>
+      entry?.playerId && eliminatedComputerIds.has(entry.playerId) ? { ...entry, playerId: null, label: "빈 자리" } : entry,
+    );
+  }
+  if (Array.isArray(room.game.allPlayerConfigs)) {
+    room.game.allPlayerConfigs = room.game.allPlayerConfigs.filter((config) => !eliminatedComputerIds.has(config.id));
+  }
+  if (Array.isArray(room.game.playerConfigs)) {
+    room.game.playerConfigs = room.game.playerConfigs.filter((config) => !eliminatedComputerIds.has(config.id));
+  }
+  room.game.cardPeekPlayerIds = new Set([...(room.game.cardPeekPlayerIds ?? new Set())].filter((playerId) => !eliminatedComputerIds.has(playerId)));
+  room.game.computerCardCheckedPlayerIds = new Set(
+    [...(room.game.computerCardCheckedPlayerIds ?? new Set())].filter((playerId) => !eliminatedComputerIds.has(playerId)),
+  );
+  eliminatedComputerIds.forEach((playerId) => {
+    delete room.game.computerStyles?.[playerId];
+    delete room.game.computerLevels?.[playerId];
+  });
+
+  return eliminatedComputerIds;
+}
+
 function publicTableSeats(room, publicPlayers) {
   const activeById = new Map(publicPlayers.map((player, index) => [player.id, { ...player, stateIndex: index }]));
   const order = Array.isArray(room?.game?.tableSeatOrder) ? room.game.tableSeatOrder : publicPlayers.map((player) => ({ playerId: player.id }));
@@ -594,7 +631,12 @@ function activePlayerConfigsForNextHand(room) {
   const allPlayerConfigs = room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? [];
   return allPlayerConfigs.filter((config) => {
     if (!config.isHuman) {
-      return true;
+      if (room.game?.endlessMode) {
+        return true;
+      }
+      const ledger = room.game?.chipTotals?.[config.id];
+      const chipBalance = Number(ledger?.chipBalance ?? config.startingBalance ?? 0);
+      return chipBalance >= MIN_PLAYABLE_BALANCE;
     }
     const seat = room.seats.find((entry) => entry.playerId === config.id);
     return Boolean(seat && seat.connected && seatWillParticipateNextHand(seat));
@@ -1280,6 +1322,7 @@ function startRoomGame(socket, payload) {
     }
     room.settings = normalizeRoomSettings(room, { ...room.settings, ...payload });
     room.game = buildRoomGame(room, room.settings);
+    clearEliminatedComputerSeats(room);
     scheduleRoomAutomation(room);
   } catch (error) {
     sendError(socket, error.message);
@@ -1292,6 +1335,7 @@ function startNextRoomHand(room) {
   }
 
   const currentState = room.game.state;
+  clearEliminatedComputerSeats(room, currentState);
   const reservationLog = applySeatParticipationReservations(room);
   const missedBlindLog = recordMissedBlindsForAwaySeats(room, currentState);
   const nextPlayerConfigs = activePlayerConfigsForNextHand(room);
@@ -1326,6 +1370,7 @@ function startNextRoomHand(room) {
   room.game.chipTotals = mergeChipTotals(room.game.chipTotals ?? currentState.chipTotals, room.game.state.chipTotals);
   room.game.computerStyles = room.game.state.computerStyles ?? room.game.computerStyles;
   room.game.computerLevels = room.game.state.computerLevels ?? room.game.computerLevels;
+  clearEliminatedComputerSeats(room);
   scheduleRoomAutomation(room);
 }
 
@@ -1348,6 +1393,9 @@ function applyRoomAction(room, actionKey, actorPlayerId = null, { timedOut = fal
   room.game.chipTotals = mergeChipTotals(room.game.chipTotals, nextState.chipTotals);
   room.game.computerStyles = nextState.computerStyles ?? room.game.computerStyles;
   room.game.computerLevels = nextState.computerLevels ?? room.game.computerLevels;
+  if (nextState.finished) {
+    clearEliminatedComputerSeats(room, nextState);
+  }
   scheduleRoomAutomation(room);
   return true;
 }
