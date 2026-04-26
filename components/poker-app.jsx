@@ -671,11 +671,6 @@ function Seat({
               올인
             </span>
           ) : null}
-          {isCardPeeking ? (
-            <span className="peek-badge" title="개인 카드 확인 중">
-              카드 확인 중
-            </span>
-          ) : null}
           {winner ? (
             <span className="winner-badge" title="승리">
               승리
@@ -722,6 +717,13 @@ function Seat({
           )}
           {privateCardsPeekable && !privateCardsPeeked ? (
             <div className="card-peek-overlay" aria-hidden="true">
+              <svg focusable="false" viewBox="0 0 24 24">
+                <path d="M12 5c4.7 0 8.4 3.7 10 7-1.6 3.3-5.3 7-10 7S3.6 15.3 2 12c1.6-3.3 5.3-7 10-7Zm0 2C8.7 7 5.9 9.3 4.3 12 5.9 14.7 8.7 17 12 17s6.1-2.3 7.7-5C18.1 9.3 15.3 7 12 7Zm0 2.2A2.8 2.8 0 1 1 12 14.8a2.8 2.8 0 0 1 0-5.6Z" />
+              </svg>
+            </div>
+          ) : null}
+          {isCardPeeking ? (
+            <div className="card-check-indicator" role="img" aria-label="카드 확인 중" title="카드 확인 중">
               <svg focusable="false" viewBox="0 0 24 24">
                 <path d="M12 5c4.7 0 8.4 3.7 10 7-1.6 3.3-5.3 7-10 7S3.6 15.3 2 12c1.6-3.3 5.3-7 10-7Zm0 2C8.7 7 5.9 9.3 4.3 12 5.9 14.7 8.7 17 12 17s6.1-2.3 7.7-5C18.1 9.3 15.3 7 12 7Zm0 2.2A2.8 2.8 0 1 1 12 14.8a2.8 2.8 0 0 1 0-5.6Z" />
               </svg>

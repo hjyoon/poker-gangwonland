@@ -497,17 +497,6 @@ button:disabled {
   padding: 4px 7px;
 }
 
-.peek-badge {
-  background: rgba(237, 112, 184, 0.14);
-  border: 1px solid rgba(237, 112, 184, 0.5);
-  border-radius: 999px;
-  color: #f08bd8;
-  font-size: 0.76rem;
-  font-weight: 800;
-  line-height: 1;
-  padding: 4px 7px;
-}
-
 .seat header span,
 .seat dd,
 .seat dt,
@@ -529,10 +518,6 @@ button:disabled {
 
 .seat header .all-in-badge {
   color: var(--red);
-}
-
-.seat header .peek-badge {
-  color: #f08bd8;
 }
 
 .seat-cards {
@@ -581,6 +566,31 @@ button:disabled {
   height: 34px;
   padding: 6px;
   width: 34px;
+}
+
+.card-check-indicator {
+  align-items: center;
+  background: rgba(237, 112, 184, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  border-radius: 999px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3);
+  color: #140711;
+  display: flex;
+  height: 26px;
+  justify-content: center;
+  pointer-events: none;
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 26px;
+  z-index: 3;
+}
+
+.card-check-indicator svg {
+  display: block;
+  fill: currentColor;
+  height: 15px;
+  width: 15px;
 }
 
 .card-info-overlay {
