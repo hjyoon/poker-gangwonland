@@ -21,7 +21,7 @@ const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 const MAX_TOTAL_PLAYERS = 8;
-const MIN_HUMAN_SLOTS = 2;
+const MIN_HUMAN_SLOTS = 1;
 const MAX_HUMAN_SLOTS = MAX_TOTAL_PLAYERS;
 const DEFAULT_STARTING_BALANCE = 100000;
 const DEFAULT_COMPUTER_ACTION_DELAY_MS = 700;
@@ -576,7 +576,7 @@ function detachSocketFromRoom(socket, { clearSeat = false } = {}) {
   }
 }
 
-function resizeRoomHumanSlots(room, nextHumanSlots) {
+function resizeRoomHumanSlots(room, nextHumanSlots, removedHumanSlotIds = []) {
   const humanSlots = clamp(nextHumanSlots, MIN_HUMAN_SLOTS, MAX_HUMAN_SLOTS, room.humanSlots);
   if (humanSlots === room.humanSlots) {
     return;
@@ -585,10 +585,18 @@ function resizeRoomHumanSlots(room, nextHumanSlots) {
   if (humanSlots < room.humanSlots) {
     const seats = [...room.seats];
     const removeCount = room.humanSlots - humanSlots;
+    const preferredRemovedIds = Array.isArray(removedHumanSlotIds) ? removedHumanSlotIds.map((id) => String(id)) : [];
     for (let index = 0; index < removeCount; index += 1) {
-      const emptySeatIndex = seats.findIndex((seat) => !seat.playerId);
+      let emptySeatIndex = -1;
+      while (preferredRemovedIds.length > 0 && emptySeatIndex < 0) {
+        const preferredId = preferredRemovedIds.shift();
+        emptySeatIndex = seats.findIndex((seat) => seat.id === preferredId && !seat.playerId);
+      }
       if (emptySeatIndex < 0) {
-        throw new Error("참가자가 있는 인간 플레이어는 컴퓨터로 변경할 수 없습니다.");
+        emptySeatIndex = seats.findIndex((seat) => !seat.playerId);
+      }
+      if (emptySeatIndex < 0) {
+        throw new Error("참가자가 있는 인간 플레이어는 컴퓨터로 변경하거나 삭제할 수 없습니다.");
       }
       seats.splice(emptySeatIndex, 1);
     }
@@ -855,7 +863,7 @@ function startRoomGame(socket, payload) {
 
   try {
     if (Array.isArray(payload.humanPlayers)) {
-      resizeRoomHumanSlots(room, payload.humanPlayers.length);
+      resizeRoomHumanSlots(room, payload.humanPlayers.length, payload.removedHumanSlotIds);
     }
     room.settings = normalizeRoomSettings(room, { ...room.settings, ...payload });
     room.game = buildRoomGame(room, room.settings);
@@ -1164,7 +1172,7 @@ function handleUpdateRoomSettings(socket, payload) {
   const nextSettings = payload.settings ?? payload;
   if (Array.isArray(nextSettings.humanPlayers)) {
     try {
-      resizeRoomHumanSlots(room, nextSettings.humanPlayers.length);
+      resizeRoomHumanSlots(room, nextSettings.humanPlayers.length, nextSettings.removedHumanSlotIds);
     } catch (error) {
       sendError(socket, error.message);
       return;

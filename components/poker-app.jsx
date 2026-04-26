@@ -34,7 +34,7 @@ const MIN_NEXT_HAND_DELAY_MS = 500;
 const MAX_NEXT_HAND_DELAY_MS = 10000;
 const MIN_HUMAN_ACTION_TIMEOUT_MS = 3000;
 const MAX_HUMAN_ACTION_TIMEOUT_MS = 60000;
-const MIN_MULTIPLAYER_HUMAN_SLOTS = 2;
+const MIN_MULTIPLAYER_HUMAN_SLOTS = 1;
 const MAX_MULTIPLAYER_HUMAN_SLOTS = MAX_TOTAL_PLAYERS;
 const MULTIPLAYER_RECONNECT_DELAY_MS = 1500;
 const SETUP_MODE_OPTIONS = [
@@ -1057,6 +1057,7 @@ export default function PokerApp() {
   const pendingJoinRoomIdRef = useRef("");
   const multiplayerGameActiveRef = useRef(false);
   const lastSentRoomSettingsRef = useRef("");
+  const removedMultiplayerHumanSlotIdsRef = useRef([]);
   const setupDragDropCommittedRef = useRef(false);
 
   useEffect(() => {
@@ -1419,31 +1420,38 @@ export default function PokerApp() {
         ? "현재 자리 비움 상태입니다. 복귀를 누르면 다음 핸드부터 참가합니다."
         : "현재 참가 중입니다. 자리 비움은 다음 핸드부터 적용됩니다.";
   const multiplayerSettingsPayload = useMemo(
-    () => ({
-      humanStartingBalance: setupBalances[humanSlotId(0)] ?? DEFAULT_STARTING_BALANCE,
-      humanPlayers: buildMultiplayerHumanSettings(multiplayerHumanSlotCount, setupBalances),
-      humanSeatPlacements: resolvedMultiplayerTableSeats,
-      playerOrder: setupPlayers.map((player) => player.id),
-      randomizePlayerOrder,
-      computerPlayers: setupPlayers
-        .filter((player) => !player.isHuman)
-        .map((player) => ({
-          name: player.name,
-          startingBalance: setupBalances[player.id] ?? 0,
-          computerStyle: getComputerStyleSelection(computerStyles[player.id]).key,
-          computerLevel: getComputerLevelSelection(computerLevels[player.id]).key,
-        })),
-      autoNextHand,
-      endlessMode,
-      endlessReplacementComputerStyle: getComputerStyleSelection(endlessReplacementComputerStyle).key,
-      endlessReplacementComputerLevel: getComputerLevelSelection(endlessReplacementComputerLevel).key,
-      endlessReplacementStartingBalance,
-      showComputerStyles: showComputerStylesInGame,
-      showCumulativeWins: showCumulativeWinsInGame,
-      computerActionDelayMs,
-      nextHandDelayMs,
-      humanActionTimeoutMs,
-    }),
+    () => {
+      const payload = {
+        humanStartingBalance: setupBalances[humanSlotId(0)] ?? DEFAULT_STARTING_BALANCE,
+        humanPlayers: buildMultiplayerHumanSettings(multiplayerHumanSlotCount, setupBalances),
+        humanSeatPlacements: resolvedMultiplayerTableSeats,
+        playerOrder: setupPlayers.map((player) => player.id),
+        randomizePlayerOrder,
+        computerPlayers: setupPlayers
+          .filter((player) => !player.isHuman)
+          .map((player) => ({
+            name: player.name,
+            startingBalance: setupBalances[player.id] ?? 0,
+            computerStyle: getComputerStyleSelection(computerStyles[player.id]).key,
+            computerLevel: getComputerLevelSelection(computerLevels[player.id]).key,
+          })),
+        autoNextHand,
+        endlessMode,
+        endlessReplacementComputerStyle: getComputerStyleSelection(endlessReplacementComputerStyle).key,
+        endlessReplacementComputerLevel: getComputerLevelSelection(endlessReplacementComputerLevel).key,
+        endlessReplacementStartingBalance,
+        showComputerStyles: showComputerStylesInGame,
+        showCumulativeWins: showCumulativeWinsInGame,
+        computerActionDelayMs,
+        nextHandDelayMs,
+        humanActionTimeoutMs,
+      };
+      const removedHumanSlotIds = removedMultiplayerHumanSlotIdsRef.current;
+      if (isMultiplayerSetup && removedHumanSlotIds.length > 0) {
+        payload.removedHumanSlotIds = [...removedHumanSlotIds];
+      }
+      return payload;
+    },
     [
       autoNextHand,
       computerActionDelayMs,
@@ -1454,6 +1462,7 @@ export default function PokerApp() {
       endlessReplacementComputerStyle,
       endlessReplacementStartingBalance,
       humanActionTimeoutMs,
+      isMultiplayerSetup,
       multiplayerHumanSlotCount,
       nextHandDelayMs,
       randomizePlayerOrder,
@@ -1620,6 +1629,7 @@ export default function PokerApp() {
 
     lastSentRoomSettingsRef.current = serializedSettings;
     sendMultiplayerMessage({ type: "updateRoomSettings", settings: multiplayerSettingsPayload });
+    removedMultiplayerHumanSlotIdsRef.current = [];
   }, [isMultiplayerHost, multiplayerGameActive, multiplayerRoom, multiplayerSettingsPayload]);
 
   function updateSetupBalance(playerId, value) {
@@ -1633,7 +1643,7 @@ export default function PokerApp() {
     }));
   }
 
-  function applySetupPlayerTypes(nextTypes) {
+  function applySetupPlayerTypes(nextTypes, sourcePlayers = setupPlayers) {
     const normalizedTypes = normalizeSetupPlayerTypes(nextTypes, isMultiplayerSetup);
     if (!normalizedTypes || normalizedTypes.length < 2) {
       return;
@@ -1651,7 +1661,7 @@ export default function PokerApp() {
       nextHumanSlots,
       nextPlayerOrder,
     );
-    const previousPlayers = setupPlayers;
+    const previousPlayers = sourcePlayers;
 
     setCpuCount(nextCpuCount);
     setIncludeHuman(nextIncludeHuman);
@@ -1709,8 +1719,14 @@ export default function PokerApp() {
     if (!canEditMultiplayerSettings || setupPlayers.length <= 2) {
       return false;
     }
-    if (isMultiplayerSetup && player.isHuman && (multiplayerRoom || multiplayerHumanSlotCount <= MIN_MULTIPLAYER_HUMAN_SLOTS)) {
-      return false;
+    if (isMultiplayerSetup && player.isHuman) {
+      if (multiplayerHumanSlotCount <= MIN_MULTIPLAYER_HUMAN_SLOTS) {
+        return false;
+      }
+      if (multiplayerRoom) {
+        const seat = multiplayerRoom.seats[player.humanSlotIndex];
+        return !seat?.playerId;
+      }
     }
     return true;
   }
@@ -1720,7 +1736,11 @@ export default function PokerApp() {
     if (!player || !canRemoveSetupPlayer(player)) {
       return;
     }
-    applySetupPlayerTypes(setupPlayers.filter((entry) => entry.id !== playerId).map(setupPlayerType));
+    const remainingPlayers = setupPlayers.filter((entry) => entry.id !== playerId);
+    if (isMultiplayerSetup && multiplayerRoom && player.isHuman) {
+      removedMultiplayerHumanSlotIdsRef.current = [...new Set([...removedMultiplayerHumanSlotIdsRef.current, player.id])];
+    }
+    applySetupPlayerTypes(remainingPlayers.map(setupPlayerType), remainingPlayers);
   }
 
   function canChangeSetupPlayerType(player, nextType) {
