@@ -246,12 +246,16 @@ function normalizeRoomSettings(room, settings = {}) {
   };
 }
 
-function emptyTableSeat(index, label = "빈 자리") {
+function emptyTableSeat(index, label = "빈 자리", entry = {}) {
+  const setupPlayerId = entry?.setupPlayerId ?? null;
   return {
     id: `empty-seat-${index + 1}`,
     name: label,
     isHuman: false,
     isEmptySeat: true,
+    isJoinableHumanSeat: typeof setupPlayerId === "string" && setupPlayerId.startsWith("human-slot-"),
+    setupPlayerId,
+    tableSeatIndex: index,
     cards: [],
     folded: false,
     eliminated: false,
@@ -292,6 +296,7 @@ function publicInactiveHumanSeat(seat, index, ledger = {}) {
     name: seat.name || seat.label || `플레이어 ${index + 1}`,
     isHuman: true,
     isAway: Boolean(seat.away),
+    isPendingJoin: Boolean(seat.pendingJoin),
     isPendingStandUp: Boolean(seat.pendingStandUp),
     isPendingReturn: Boolean(seat.pendingReturn),
     isDisconnected: !seat.connected,
@@ -303,7 +308,15 @@ function publicInactiveHumanSeat(seat, index, ledger = {}) {
     totalContribution: 0,
     chipBalance: Number(ledger.chipBalance) || 0,
     chipsWon: Number(ledger.chipsWon) || 0,
-    lastAction: seat.pendingStandUp ? "게임 퇴장 예약" : seat.pendingReturn ? "복귀 예약" : seat.away ? "자리 비움" : "연결 끊김",
+    lastAction: seat.pendingStandUp
+      ? "게임 퇴장 예약"
+      : seat.pendingJoin
+        ? "참가 예약"
+        : seat.pendingReturn
+          ? "복귀 예약"
+          : seat.away
+            ? "자리 비움"
+            : "연결 끊김",
     stateIndex: -1,
     computerStyle: null,
     computerLevel: null,
@@ -335,7 +348,7 @@ function publicTableSeats(room, publicPlayers) {
   return Array.from({ length: MAX_TOTAL_PLAYERS }, (_, index) => {
     const entry = order[index];
     if (!entry?.playerId) {
-      return emptyTableSeat(index, entry?.label || "빈 자리");
+      return emptyTableSeat(index, entry?.label || "빈 자리", entry);
     }
     const activePlayer = activeById.get(entry.playerId);
     if (activePlayer) {
@@ -354,7 +367,7 @@ function publicTableSeats(room, publicPlayers) {
     if (humanSeat) {
       return publicInactiveHumanSeat(humanSeat, index, room.game?.chipTotals?.[entry.playerId]);
     }
-    return emptyTableSeat(index, entry.label || "빈 자리");
+    return emptyTableSeat(index, entry.label || "빈 자리", entry);
   });
 }
 
@@ -409,6 +422,7 @@ function normalizeSeat(seat) {
   return {
     ...seat,
     away: Boolean(seat.away),
+    pendingJoin: Boolean(seat.pendingJoin),
     pendingAway: Boolean(seat.pendingAway),
     pendingReturn: Boolean(seat.pendingReturn),
     pendingStandUp: Boolean(seat.pendingStandUp),
@@ -733,6 +747,7 @@ function emptyHumanGameSeat(seat) {
     pendingAway: false,
     pendingReturn: false,
     pendingStandUp: false,
+    pendingJoin: false,
     missedSmallBlind: false,
     missedBigBlind: false,
     missedBlindAmount: 0,
@@ -758,6 +773,53 @@ function clearHumanSeatFromGame(room, seat) {
   return { playerId, playerName };
 }
 
+function humanSlotIndexFromSetupPlayerId(setupPlayerId) {
+  const match = /^human-slot-(\d+)$/.exec(String(setupPlayerId || ""));
+  return match ? Number(match[1]) - 1 : -1;
+}
+
+function sortPlayerConfigsByTableSeatOrder(room, playerConfigs) {
+  const orderByPlayerId = new Map();
+  (room.game?.tableSeatOrder ?? []).forEach((entry, index) => {
+    if (entry?.playerId && !orderByPlayerId.has(entry.playerId)) {
+      orderByPlayerId.set(entry.playerId, index);
+    }
+  });
+  return playerConfigs
+    .map((config, index) => ({ config, index }))
+    .sort((left, right) => {
+      const leftOrder = orderByPlayerId.has(left.config.id) ? orderByPlayerId.get(left.config.id) : MAX_TOTAL_PLAYERS + left.index;
+      const rightOrder = orderByPlayerId.has(right.config.id) ? orderByPlayerId.get(right.config.id) : MAX_TOTAL_PLAYERS + right.index;
+      return leftOrder - rightOrder;
+    })
+    .map(({ config }) => config);
+}
+
+function upsertHumanPlayerConfigForSeat(room, playerId, name, slotIndex) {
+  const startingBalance =
+    room.settings?.humanPlayers?.[slotIndex]?.startingBalance ?? room.settings?.humanStartingBalance ?? DEFAULT_STARTING_BALANCE;
+  const allPlayerConfigs = room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? [];
+  const nextConfig = {
+    id: playerId,
+    name,
+    isHuman: true,
+    startingBalance,
+  };
+  const hasConfig = allPlayerConfigs.some((config) => config.id === playerId);
+  const nextConfigs = hasConfig
+    ? allPlayerConfigs.map((config) => (config.id === playerId ? { ...config, name, isHuman: true, startingBalance: config.startingBalance ?? startingBalance } : config))
+    : [...allPlayerConfigs, nextConfig];
+
+  room.game.allPlayerConfigs = sortPlayerConfigsByTableSeatOrder(room, nextConfigs);
+  room.game.chipTotals ??= {};
+  if (!room.game.chipTotals[playerId]) {
+    room.game.chipTotals[playerId] = {
+      chipBalance: startingBalance,
+      chipsWon: 0,
+    };
+  }
+}
+
 function syncAllPlayerConfigs(room, activeBefore, activeAfter) {
   const allPlayerConfigs = room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? [];
   const replacements = new Map();
@@ -781,6 +843,13 @@ function applySeatParticipationReservations(room) {
       }
       log.push(`${name}: 게임에서 빠짐`);
       return emptyHumanGameSeat(nextSeat);
+    }
+    if (nextSeat.pendingJoin) {
+      log.push(`${name}: 다음 핸드부터 참가`);
+      return {
+        ...nextSeat,
+        pendingJoin: false,
+      };
     }
     if (nextSeat.pendingAway) {
       log.push(`${name}: 다음 핸드부터 자리 비움`);
@@ -911,6 +980,7 @@ function resizeRoomHumanSlots(room, nextHumanSlots, removedHumanSlotIds = []) {
         pendingAway: false,
         pendingReturn: false,
         pendingStandUp: false,
+        pendingJoin: false,
         missedSmallBlind: false,
         missedBigBlind: false,
       });
@@ -948,6 +1018,7 @@ function createRoom(socket, payload) {
       pendingAway: false,
       pendingReturn: false,
       pendingStandUp: false,
+      pendingJoin: false,
       missedSmallBlind: false,
       missedBigBlind: false,
     })),
@@ -1008,6 +1079,7 @@ function joinRoom(socket, targetRoomId, playerName, requestedPlayerId = null) {
     targetSeat.pendingAway = false;
     targetSeat.pendingReturn = false;
     targetSeat.pendingStandUp = false;
+    targetSeat.pendingJoin = false;
     targetSeat.missedSmallBlind = false;
     targetSeat.missedBigBlind = false;
   } else {
@@ -1015,6 +1087,7 @@ function joinRoom(socket, targetRoomId, playerName, requestedPlayerId = null) {
     targetSeat.pendingAway = Boolean(targetSeat.pendingAway);
     targetSeat.pendingReturn = Boolean(targetSeat.pendingReturn);
     targetSeat.pendingStandUp = Boolean(targetSeat.pendingStandUp);
+    targetSeat.pendingJoin = Boolean(targetSeat.pendingJoin);
     targetSeat.missedSmallBlind = Boolean(targetSeat.missedSmallBlind);
     targetSeat.missedBigBlind = Boolean(targetSeat.missedBigBlind);
   }
@@ -1446,11 +1519,13 @@ function handleSetSeatAway(socket, payload) {
       seat.pendingReturn = !wantsAway;
     }
     seat.pendingStandUp = false;
+    seat.pendingJoin = false;
   } else {
     seat.away = wantsAway;
     seat.pendingAway = false;
     seat.pendingReturn = false;
     seat.pendingStandUp = false;
+    seat.pendingJoin = false;
     room.game?.nextHandReadyPlayerIds?.delete(socket.playerId);
   }
 
@@ -1510,6 +1585,64 @@ function handleStandUpFromGame(socket, payload) {
   }
 
   broadcastRoom(room);
+}
+
+function handleJoinGameSeat(socket, payload) {
+  const room = rooms.get(socket.roomId);
+  if (!room?.game || !socket.playerId) {
+    sendError(socket, "먼저 멀티플레이 룸에 참가해야 합니다.");
+    return;
+  }
+
+  const currentActivePlayer = room.game.state?.players.find((player) => player.id === socket.playerId && !player.eliminated);
+  if (currentActivePlayer) {
+    sendError(socket, "이미 현재 게임에 참여 중입니다.");
+    return;
+  }
+
+  const numericTableSeatIndex = Number(payload.tableSeatIndex);
+  const tableSeatIndex = Number.isInteger(numericTableSeatIndex) ? numericTableSeatIndex : -1;
+  if (tableSeatIndex < 0 || tableSeatIndex >= MAX_TOTAL_PLAYERS) {
+    sendError(socket, "참여할 빈 자리를 찾을 수 없습니다.");
+    return;
+  }
+  const tableSeatEntry = room.game.tableSeatOrder?.[tableSeatIndex];
+  const slotIndex = humanSlotIndexFromSetupPlayerId(tableSeatEntry?.setupPlayerId);
+  if (slotIndex < 0 || slotIndex >= room.seats.length) {
+    sendError(socket, "참여할 수 있는 인간 플레이어 빈 자리가 아닙니다.");
+    return;
+  }
+
+  const targetSeat = room.seats[slotIndex];
+  const currentSeat = room.seats.find((seat) => seat.playerId === socket.playerId);
+  if (currentSeat && currentSeat !== targetSeat) {
+    sendError(socket, "이미 다른 게임 좌석에 연결되어 있습니다.");
+    return;
+  }
+  if (targetSeat.playerId && targetSeat.playerId !== socket.playerId) {
+    sendError(socket, "이미 다른 참가자가 예약한 자리입니다.");
+    return;
+  }
+
+  const playerName = sanitizeName(payload.playerName, "플레이어");
+  targetSeat.playerId = socket.playerId;
+  targetSeat.name = playerName;
+  targetSeat.connected = true;
+  targetSeat.away = false;
+  targetSeat.pendingAway = false;
+  targetSeat.pendingReturn = false;
+  targetSeat.pendingStandUp = false;
+  targetSeat.pendingJoin = true;
+  targetSeat.missedSmallBlind = false;
+  targetSeat.missedBigBlind = false;
+
+  room.game.tableSeatOrder[tableSeatIndex] = {
+    ...tableSeatEntry,
+    playerId: socket.playerId,
+    label: playerName,
+  };
+  upsertHumanPlayerConfigForSeat(room, socket.playerId, playerName, slotIndex);
+  scheduleRoomAutomation(room);
 }
 
 function handleCardPeekState(socket, payload) {
@@ -1677,6 +1810,10 @@ function handleMessage(socket, message) {
   }
   if (message.type === "standUpFromGame") {
     handleStandUpFromGame(socket, message);
+    return;
+  }
+  if (message.type === "joinGameSeat") {
+    handleJoinGameSeat(socket, message);
     return;
   }
   if (message.type === "cardPeekState") {

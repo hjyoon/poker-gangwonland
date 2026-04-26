@@ -676,6 +676,8 @@ function emptyTableSeat(index) {
     id: `empty-seat-${index + 1}`,
     name: "빈 자리",
     isEmptySeat: true,
+    isJoinableHumanSeat: false,
+    tableSeatIndex: index,
     isHuman: false,
     cards: [],
     folded: false,
@@ -725,6 +727,8 @@ function Seat({
   isCardPeeking,
   onPrivateCardsPeekChange,
   onCardOverlayPointerChange,
+  canJoinSeat,
+  onJoinSeat,
 }) {
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
@@ -733,6 +737,8 @@ function Seat({
     ? "비어 있음"
     : player.eliminated
       ? "탈락"
+      : player.isPendingJoin
+        ? "참가 예약"
       : player.isPendingStandUp
         ? "퇴장 예약"
         : player.isPendingReturn
@@ -854,10 +860,17 @@ function Seat({
       </div>
       <dl>
         {player.isEmptySeat ? (
-          <div>
-            <dt>상태</dt>
-            <dd>비어 있음</dd>
-          </div>
+          <>
+            <div>
+              <dt>상태</dt>
+              <dd>비어 있음</dd>
+            </div>
+            {canJoinSeat ? (
+              <button className="secondary seat-join-button" type="button" onClick={() => onJoinSeat?.(player)}>
+                다음 핸드부터 참여
+              </button>
+            ) : null}
+          </>
         ) : (
           <>
             <div>
@@ -1884,6 +1897,9 @@ export default function PokerApp() {
     if (!seat.playerId) {
       return "참가 대기 중입니다.";
     }
+    if (seat.pendingJoin) {
+      return "참가 예약";
+    }
     if (seat.pendingStandUp) {
       return "게임 퇴장 예약";
     }
@@ -2342,6 +2358,17 @@ export default function PokerApp() {
       return;
     }
     sendMultiplayerMessage({ type: "standUpFromGame", cancel: ownSeatPendingStandUp });
+  }
+
+  function joinMultiplayerGameSeat(player) {
+    if (!multiplayerGameActive || ownMultiplayerSeat || !player?.isJoinableHumanSeat) {
+      return;
+    }
+    sendMultiplayerMessage({
+      type: "joinGameSeat",
+      tableSeatIndex: player.tableSeatIndex,
+      playerName: multiplayerName,
+    });
   }
 
   function nextHand() {
@@ -2869,6 +2896,8 @@ export default function PokerApp() {
                           <span>
                             {!seat.playerId
                               ? "빈 자리"
+                              : seat.pendingJoin
+                                ? "참가 예약"
                               : seat.pendingStandUp
                                 ? "게임 퇴장 예약"
                                 : seat.pendingAway
@@ -3258,6 +3287,8 @@ export default function PokerApp() {
               hasShowdownOverlay={Boolean(showdownMap[player.id] || muckedShowdownIds.has(player.id))}
               onPrivateCardsPeekChange={handlePrivateCardsPeekChange}
               onCardOverlayPointerChange={handleCardOverlayPointerChange}
+              canJoinSeat={multiplayerGameActive && !ownMultiplayerSeat && player.isEmptySeat && player.isJoinableHumanSeat && !state.gameOver}
+              onJoinSeat={joinMultiplayerGameSeat}
               player={player}
               privateCardsPeeked={privateCardPeekedIds.has(player.id)}
               revealCards={openedShowdownIds.has(player.id)}
