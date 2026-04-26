@@ -485,6 +485,50 @@ function websocketUrl() {
   return `${protocol}//${window.location.host}/ws`;
 }
 
+function normalizeRoomCode(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 6);
+}
+
+function roomCodeFromLocation() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  const params = new URLSearchParams(window.location.search);
+  return normalizeRoomCode(params.get("room"));
+}
+
+function multiplayerRoomJoinUrl(roomId) {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  const roomCode = normalizeRoomCode(roomId);
+  if (!roomCode) {
+    return "";
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.set("room", roomCode);
+  url.hash = "";
+  return url.toString();
+}
+
+function replaceRoomCodeInUrl(roomId) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const url = new URL(window.location.href);
+  const roomCode = normalizeRoomCode(roomId);
+  if (roomCode) {
+    url.searchParams.set("room", roomCode);
+  } else {
+    url.searchParams.delete("room");
+  }
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 function cardSuitClass(card) {
   if (!card) {
     return "";
@@ -921,6 +965,7 @@ export default function PokerApp() {
   const [multiplayerSlots, setMultiplayerSlots] = useState(2);
   const [randomizePlayerOrder, setRandomizePlayerOrder] = useState(false);
   const [multiplayerJoinCode, setMultiplayerJoinCode] = useState("");
+  const [multiplayerShareStatus, setMultiplayerShareStatus] = useState("");
   const [multiplayerRoom, setMultiplayerRoom] = useState(null);
   const [multiplayerPlayerId, setMultiplayerPlayerId] = useState(null);
   const [multiplayerGameActive, setMultiplayerGameActive] = useState(false);
@@ -944,6 +989,7 @@ export default function PokerApp() {
   const multiplayerPlayerIdRef = useRef(null);
   const multiplayerNameRef = useRef(multiplayerName);
   const multiplayerNameInputRef = useRef(null);
+  const pendingJoinRoomIdRef = useRef("");
   const multiplayerGameActiveRef = useRef(false);
   const lastSentRoomSettingsRef = useRef("");
   const setupDragDropCommittedRef = useRef(false);
@@ -993,6 +1039,14 @@ export default function PokerApp() {
 
   useEffect(() => {
     let disposed = false;
+    const initialRoomCode = roomCodeFromLocation();
+    if (initialRoomCode) {
+      pendingJoinRoomIdRef.current = initialRoomCode;
+      setSetupMode("multiplayer");
+      setSetupTab("multiplayer");
+      setMultiplayerLobbyMode("join");
+      setMultiplayerJoinCode(initialRoomCode);
+    }
 
     function clearReconnectTimer() {
       if (multiplayerReconnectRef.current) {
@@ -1048,8 +1102,10 @@ export default function PokerApp() {
         handleRoomState(message.room);
       }
       if (message.type === "joinedRoom") {
+        pendingJoinRoomIdRef.current = "";
         multiplayerRoomIdRef.current = message.roomId;
         multiplayerPlayerIdRef.current = message.playerId;
+        replaceRoomCodeInUrl(message.roomId);
         setSetupMode("multiplayer");
         setSetupTab("multiplayer");
         setMultiplayerJoinCode(message.roomId);
@@ -1058,7 +1114,9 @@ export default function PokerApp() {
       if (message.type === "leftRoom") {
         multiplayerRoomIdRef.current = "";
         multiplayerPlayerIdRef.current = null;
+        pendingJoinRoomIdRef.current = "";
         multiplayerGameActiveRef.current = false;
+        replaceRoomCodeInUrl("");
         setMultiplayerRoom(null);
         setMultiplayerPlayerId(null);
         setMultiplayerGameActive(false);
@@ -1067,6 +1125,9 @@ export default function PokerApp() {
         setState(null);
       }
       if (message.type === "error") {
+        if (pendingJoinRoomIdRef.current) {
+          pendingJoinRoomIdRef.current = "";
+        }
         setMultiplayerError(message.message);
       }
     }
@@ -1090,6 +1151,14 @@ export default function PokerApp() {
               type: "rejoinRoom",
               roomId: multiplayerRoomIdRef.current,
               playerId: multiplayerPlayerIdRef.current,
+              playerName: multiplayerNameRef.current,
+            }),
+          );
+        } else if (pendingJoinRoomIdRef.current) {
+          socket.send(
+            JSON.stringify({
+              type: "joinRoom",
+              roomId: pendingJoinRoomIdRef.current,
               playerName: multiplayerNameRef.current,
             }),
           );
@@ -1241,6 +1310,7 @@ export default function PokerApp() {
   const canEditActiveGameSettings = !multiplayerGameActive || isMultiplayerHost;
   const showSetupStartAction = !isMultiplayerSetup || (isMultiplayerCreateFlow && (multiplayerRoom || setupTab !== "multiplayer"));
   const multiplayerTimer = multiplayerRoom?.timer ?? null;
+  const multiplayerJoinUrl = useMemo(() => multiplayerRoomJoinUrl(multiplayerRoom?.id), [multiplayerRoom?.id]);
   const multiplayerNextHandRequiredIds = multiplayerRoom?.nextHandRequiredPlayerIds ?? [];
   const multiplayerNextHandReadyIds = multiplayerRoom?.nextHandReadyPlayerIds ?? [];
   const multiplayerNextHandReadyCount = multiplayerNextHandReadyIds.filter((playerId) => multiplayerNextHandRequiredIds.includes(playerId)).length;
@@ -1869,6 +1939,8 @@ export default function PokerApp() {
   }
 
   function createMultiplayerRoom() {
+    pendingJoinRoomIdRef.current = "";
+    setMultiplayerShareStatus("");
     setMultiplayerLobbyMode("create");
     sendMultiplayerMessage({
       type: "createRoom",
@@ -1879,16 +1951,40 @@ export default function PokerApp() {
   }
 
   function joinMultiplayerRoom() {
+    const roomCode = normalizeRoomCode(multiplayerJoinCode);
+    if (!roomCode) {
+      setMultiplayerError("룸 코드를 입력하세요.");
+      return;
+    }
+    pendingJoinRoomIdRef.current = "";
+    setMultiplayerShareStatus("");
+    setMultiplayerJoinCode(roomCode);
     setMultiplayerLobbyMode("join");
     sendMultiplayerMessage({
       type: "joinRoom",
       playerName: multiplayerName,
-      roomId: multiplayerJoinCode,
+      roomId: roomCode,
     });
+  }
+
+  async function copyMultiplayerJoinUrl() {
+    if (!multiplayerJoinUrl) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(multiplayerJoinUrl);
+      setMultiplayerShareStatus("URL을 복사했습니다.");
+      window.setTimeout(() => setMultiplayerShareStatus(""), 1800);
+    } catch {
+      setMultiplayerShareStatus("복사할 수 없습니다. URL을 직접 선택해 복사하세요.");
+    }
   }
 
   function leaveMultiplayerRoom() {
     sendMultiplayerMessage({ type: "leaveRoom" });
+    pendingJoinRoomIdRef.current = "";
+    replaceRoomCodeInUrl("");
+    setMultiplayerShareStatus("");
     setMultiplayerRoom(null);
     setMultiplayerPlayerId(null);
     setMultiplayerGameActive(false);
@@ -2471,7 +2567,7 @@ export default function PokerApp() {
                           maxLength="6"
                           type="text"
                           value={multiplayerJoinCode}
-                          onChange={(event) => setMultiplayerJoinCode(event.target.value.toUpperCase())}
+                          onChange={(event) => setMultiplayerJoinCode(normalizeRoomCode(event.target.value))}
                           disabled={Boolean(multiplayerRoom)}
                         />
                       </label>
@@ -2501,6 +2597,16 @@ export default function PokerApp() {
                 <>
                   <div className="room-state">
                     <strong>룸 코드: {multiplayerRoom.id}</strong>
+                    <div className="room-share">
+                      <label>
+                        룸 참가 URL
+                        <input readOnly type="text" value={multiplayerJoinUrl} onFocus={(event) => event.target.select()} />
+                      </label>
+                      <button className="secondary" type="button" onClick={copyMultiplayerJoinUrl}>
+                        URL 복사
+                      </button>
+                    </div>
+                    {multiplayerShareStatus ? <p className="note">{multiplayerShareStatus}</p> : null}
                     <div className="room-slots">
                       {multiplayerRoom.seats.map((seat) => (
                         <div className={`room-slot${seat.playerId && !seat.connected ? " is-disconnected" : ""}`} key={seat.id}>
