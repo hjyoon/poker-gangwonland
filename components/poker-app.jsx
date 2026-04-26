@@ -632,7 +632,9 @@ function Seat({
   const computerLabel = computerProfileLabel(player, showComputerStyle);
   const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "인간" : computerLabel;
   const actionLabel = seatActionLabel(player);
+  const hasSeatCards = Array.isArray(player.cards) && player.cards.length > 0;
   const cardsReturned = player.folded && !player.eliminated && (!Array.isArray(player.cards) || player.cards.length === 0);
+  const shouldShowEliminatedPlaceholder = player.eliminated && !hasSeatCards;
   const privateCardsPeekable = canPeekSeatCards(player, showPrivateCards, revealCards);
   const cardsVisible = canShowSeatCards(player, showPrivateCards && (!privateCardsPeekable || privateCardsPeeked), revealCards);
   const shouldTrackCardOverlay = privateCardsPeekable || (hasPocketInsight && cardsVisible) || hasShowdownOverlay;
@@ -649,7 +651,7 @@ function Seat({
   };
 
   return (
-    <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
+    <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${player.eliminated && hasSeatCards ? " has-current-hand-cards" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
       <header>
         <strong>{player.name}</strong>
         <span className="seat-meta">
@@ -704,8 +706,8 @@ function Seat({
           onMouseMove={(event) => updateCardOverlay(true, event)}
           tabIndex={privateCardsPeekable || hasShowdownOverlay ? 0 : undefined}
         >
-          {player.eliminated ? (
-          <div className="eliminated-badge">탈락</div>
+          {shouldShowEliminatedPlaceholder ? (
+            <div className="eliminated-badge">탈락</div>
           ) : cardsReturned ? (
             <div className="returned-cards-badge">카드 반납</div>
           ) : (

@@ -425,6 +425,10 @@ button:disabled {
   opacity: 0.42;
 }
 
+.seat.is-eliminated.has-current-hand-cards {
+  opacity: 0.74;
+}
+
 .seat.is-turn {
   border-color: rgba(216, 162, 61, 0.72);
   box-shadow: 0 0 0 1px rgba(216, 162, 61, 0.28);
