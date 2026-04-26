@@ -6,6 +6,7 @@
   "description": "강원랜드 기준 텍사스 홀덤 Next.js 프로젝트",
   "scripts": {
     "dev": "node server.mjs",
+    "dev:local": "scripts/run-dev.sh",
     "build": "next build",
     "start": "NODE_ENV=production node server.mjs",
     "test:preflop-ranking": "node scripts/validate-preflop-ranking.mjs"

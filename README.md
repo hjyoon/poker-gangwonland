@@ -9,6 +9,18 @@ npm install
 npm run dev
 ```
 
+개발용 실행 스크립트를 직접 사용할 수도 있습니다.
+
+```bash
+npm run dev:local
+```
+
+포트를 바꾸려면 아래처럼 실행합니다.
+
+```bash
+PORT=3100 npm run dev:local
+```
+
 ## 구현 범위
 
 - `git init` 완료
