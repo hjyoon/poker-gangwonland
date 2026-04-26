@@ -495,6 +495,10 @@ function canShowSeatCards(player, showPrivateCards, revealCards) {
   return Array.isArray(player.cards) && player.cards.length === 2 && player.cards.every(Boolean) && (showPrivateCards || (revealCards && !player.folded));
 }
 
+function canPeekSeatCards(player, showPrivateCards, revealCards) {
+  return Array.isArray(player.cards) && player.cards.length === 2 && player.cards.every(Boolean) && showPrivateCards && !revealCards && !player.eliminated;
+}
+
 function winRateSampleCount(communityCardCount, opponentCount) {
   const streetSamples = communityCardCount === 0 ? 700 : communityCardCount === 3 ? 620 : communityCardCount === 4 ? 560 : 520;
   return opponentCount >= 6 ? Math.max(520, streetSamples - 80) : streetSamples;
@@ -544,13 +548,17 @@ function Seat({
   isMucked,
   pocketInsight,
   pocketDisplayOptions,
+  privateCardsPeeked,
+  isCardPeeking,
+  onPrivateCardsPeekChange,
 }) {
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
   const computerLabel = computerProfileLabel(player, showComputerStyle);
   const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "인간" : computerLabel;
   const actionLabel = seatActionLabel(player);
-  const cardsVisible = canShowSeatCards(player, showPrivateCards, revealCards);
+  const privateCardsPeekable = canPeekSeatCards(player, showPrivateCards, revealCards);
+  const cardsVisible = canShowSeatCards(player, showPrivateCards && (!privateCardsPeekable || privateCardsPeeked), revealCards);
   const showPocketRank = pocketDisplayOptions?.rank !== false;
   const showPocketWinRate = pocketDisplayOptions?.winRate !== false;
   const showPocketNickname = pocketDisplayOptions?.nickname !== false;
@@ -559,6 +567,11 @@ function Seat({
     : "";
   const showPocketInsight = Boolean(pocketInsight && (showPocketRank || showPocketWinRate || (showPocketNickname && pocketNicknameText)));
   const pocketInsightTitle = showPocketWinRate ? "현재 공개 카드 기준 추정 승률" : "포켓 핸드 정보";
+  const updatePrivateCardsPeek = (nextPeeked) => {
+    if (privateCardsPeekable) {
+      onPrivateCardsPeekChange?.(player.id, nextPeeked);
+    }
+  };
 
   return (
     <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
@@ -581,6 +594,11 @@ function Seat({
               올인
             </span>
           ) : null}
+          {isCardPeeking ? (
+            <span className="peek-badge" title="개인 카드 확인 중">
+              카드 확인 중
+            </span>
+          ) : null}
           {winner ? (
             <span className="winner-badge" title="승리">
               승리
@@ -589,7 +607,15 @@ function Seat({
         </span>
       </header>
       <div className="seat-cards">
-        <div className="seat-card-pair">
+        <div
+          aria-label={privateCardsPeekable ? "개인 카드 확인" : undefined}
+          className={`seat-card-pair${privateCardsPeekable ? " is-peekable" : ""}${privateCardsPeeked ? " is-peeking" : ""}`}
+          onBlur={() => updatePrivateCardsPeek(false)}
+          onFocus={() => updatePrivateCardsPeek(true)}
+          onMouseEnter={() => updatePrivateCardsPeek(true)}
+          onMouseLeave={() => updatePrivateCardsPeek(false)}
+          tabIndex={privateCardsPeekable ? 0 : undefined}
+        >
           {player.eliminated ? (
           <div className="eliminated-badge">탈락</div>
           ) : (
@@ -602,6 +628,13 @@ function Seat({
               );
             })
           )}
+          {privateCardsPeekable && !privateCardsPeeked ? (
+            <div className="card-peek-overlay" aria-hidden="true">
+              <svg focusable="false" viewBox="0 0 24 24">
+                <path d="M12 5c4.7 0 8.4 3.7 10 7-1.6 3.3-5.3 7-10 7S3.6 15.3 2 12c1.6-3.3 5.3-7 10-7Zm0 2C8.7 7 5.9 9.3 4.3 12 5.9 14.7 8.7 17 12 17s6.1-2.3 7.7-5C18.1 9.3 15.3 7 12 7Zm0 2.2A2.8 2.8 0 1 1 12 14.8a2.8 2.8 0 0 1 0-5.6Z" />
+              </svg>
+            </div>
+          ) : null}
         </div>
         {showPocketInsight ? (
           <div className="pocket-insight" title={pocketInsightTitle}>
@@ -838,6 +871,7 @@ export default function PokerApp() {
   const [activeGameTab, setActiveGameTab] = useState("table");
   const [activeGameMenuOpen, setActiveGameMenuOpen] = useState(false);
   const [gameInfoTab, setGameInfoTab] = useState("log");
+  const [privateCardPeekedIds, setPrivateCardPeekedIds] = useState(() => new Set());
   const multiplayerSocketRef = useRef(null);
   const multiplayerReconnectRef = useRef(null);
   const multiplayerRoomIdRef = useRef("");
@@ -1002,6 +1036,10 @@ export default function PokerApp() {
     };
   }, []);
 
+  useEffect(() => {
+    setPrivateCardPeekedIds(new Set());
+  }, [state?.handId]);
+
   const showdownMap = useMemo(
     () => (state ? Object.fromEntries((state.showdownResults ?? []).map((entry) => [entry.id, entry.label])) : {}),
     [state],
@@ -1014,6 +1052,10 @@ export default function PokerApp() {
     () => new Set(state?.muckIds ?? []),
     [state],
   );
+  const multiplayerCardPeekPlayerIds = useMemo(
+    () => new Set(multiplayerRoom?.cardPeekPlayerIds ?? []),
+    [multiplayerRoom?.cardPeekPlayerIds],
+  );
   const pocketInsightMap = useMemo(() => {
     const shouldShowPocketInsight = showPocketRankInGame || showPocketWinRateInGame || showPocketNicknameInGame;
     if (!state || !shouldShowPocketInsight) {
@@ -1023,7 +1065,8 @@ export default function PokerApp() {
     return Object.fromEntries(
       state.players
         .map((player) => {
-          const showPrivateCards = multiplayerGameActive ? player.id === multiplayerPlayerId : player.isHuman;
+          const ownsPrivateCards = multiplayerGameActive ? player.id === multiplayerPlayerId : player.isHuman;
+          const showPrivateCards = ownsPrivateCards && privateCardPeekedIds.has(player.id);
           const revealCards = openedShowdownIds.has(player.id);
           if (player.eliminated || !canShowSeatCards(player, showPrivateCards, revealCards)) {
             return null;
@@ -1056,7 +1099,7 @@ export default function PokerApp() {
         })
         .filter(Boolean),
     );
-  }, [multiplayerGameActive, multiplayerPlayerId, openedShowdownIds, showPocketNicknameInGame, showPocketRankInGame, showPocketWinRateInGame, state]);
+  }, [multiplayerGameActive, multiplayerPlayerId, openedShowdownIds, privateCardPeekedIds, showPocketNicknameInGame, showPocketRankInGame, showPocketWinRateInGame, state]);
   const pocketDisplayOptions = useMemo(
     () => ({
       rank: showPocketRankInGame,
@@ -1668,6 +1711,25 @@ export default function PokerApp() {
     socket.send(JSON.stringify(message));
   }
 
+  function handlePrivateCardsPeekChange(playerId, peeking) {
+    setPrivateCardPeekedIds((current) => {
+      if (current.has(playerId) === peeking) {
+        return current;
+      }
+      const next = new Set(current);
+      if (peeking) {
+        next.add(playerId);
+      } else {
+        next.delete(playerId);
+      }
+      return next;
+    });
+
+    if (multiplayerGameActive && playerId === multiplayerPlayerId) {
+      sendMultiplayerMessage({ type: "cardPeekState", peeking });
+    }
+  }
+
   function applyMultiplayerNameBlur() {
     const nextName = multiplayerName.trim().slice(0, 20) || "플레이어";
     if (nextName !== multiplayerName) {
@@ -1797,6 +1859,12 @@ export default function PokerApp() {
   }
 
   function selectActiveGameTab(tabKey) {
+    if (tabKey !== "table") {
+      setPrivateCardPeekedIds(new Set());
+      if (multiplayerGameActive && multiplayerPlayerId) {
+        sendMultiplayerMessage({ type: "cardPeekState", peeking: false });
+      }
+    }
     setActiveGameTab(tabKey);
     setActiveGameMenuOpen(false);
   }
@@ -2641,10 +2709,13 @@ export default function PokerApp() {
               isDealer={index === state.dealerIndex}
               isTurn={state.currentPlayerIndex === index && !state.finished}
               isMucked={muckedShowdownIds.has(player.id)}
+              isCardPeeking={multiplayerGameActive && multiplayerCardPeekPlayerIds.has(player.id)}
               key={player.id}
+              onPrivateCardsPeekChange={handlePrivateCardsPeekChange}
               player={player}
               pocketDisplayOptions={pocketDisplayOptions}
               pocketInsight={pocketInsightMap[player.id]}
+              privateCardsPeeked={privateCardPeekedIds.has(player.id)}
               revealCards={openedShowdownIds.has(player.id)}
               showdownLabel={showdownMap[player.id] ?? ""}
               showComputerStyle={showComputerStylesInGame}

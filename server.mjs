@@ -322,6 +322,19 @@ function publicRoomTimer(room) {
   return timer;
 }
 
+function publicCardPeekPlayerIds(room) {
+  if (!room.game?.state || room.game.state.finished) {
+    return [];
+  }
+
+  const activeHumanIds = new Set(
+    room.game.state.players
+      .filter((player) => player.isHuman && !player.eliminated)
+      .map((player) => player.id),
+  );
+  return [...(room.game.cardPeekPlayerIds ?? new Set())].filter((playerId) => activeHumanIds.has(playerId));
+}
+
 function publicRoom(room, socket) {
   const settings = publicRoomSettings(room);
   return {
@@ -334,6 +347,7 @@ function publicRoom(room, socket) {
     showComputerStyles: settings.showComputerStyles,
     nextHandRequiredPlayerIds: nextHandRequiredPlayerIds(room),
     nextHandReadyPlayerIds: nextHandReadyPlayerIds(room),
+    cardPeekPlayerIds: publicCardPeekPlayerIds(room),
     timer: publicRoomTimer(room),
     gameState: publicGameState(room.game?.state, socket?.playerId, settings.showComputerStyles),
   };
@@ -424,6 +438,7 @@ function detachSocketFromRoom(socket, { clearSeat = false } = {}) {
     }
     seat.connected = false;
   }
+  room.game?.cardPeekPlayerIds?.delete(playerId);
 
   if (room.clients.size === 0) {
     if (room.automationTimer) {
@@ -672,6 +687,7 @@ function buildRoomGame(room, payload) {
     nextHandDelayMs: settings.nextHandDelayMs,
     humanActionTimeoutMs: settings.humanActionTimeoutMs,
     nextHandReadyPlayerIds: new Set(),
+    cardPeekPlayerIds: new Set(),
     timer: null,
     timerId: 0,
   };
@@ -708,6 +724,7 @@ function startNextRoomHand(room) {
   const currentState = room.game.state;
   const nextDealerIndex = (currentState.dealerIndex + 1) % currentState.players.length;
   room.game.nextHandReadyPlayerIds = new Set();
+  room.game.cardPeekPlayerIds = new Set();
   room.game.timer = null;
   room.game.state = startNewHand({
     cpuCount: room.game.cpuCount,
@@ -879,6 +896,29 @@ function handleRequestNextHand(socket) {
   broadcastRoom(room);
 }
 
+function handleCardPeekState(socket, payload) {
+  const room = rooms.get(socket.roomId);
+  if (!room?.game?.state || !socket.playerId) {
+    return;
+  }
+
+  room.game.cardPeekPlayerIds ??= new Set();
+  const player = room.game.state.players.find((entry) => entry.id === socket.playerId && entry.isHuman && !entry.eliminated);
+  const canPeek = Boolean(player && !room.game.state.finished);
+  const nextPeeking = Boolean(payload.peeking) && canPeek;
+  const wasPeeking = room.game.cardPeekPlayerIds.has(socket.playerId);
+  if (nextPeeking === wasPeeking) {
+    return;
+  }
+
+  if (nextPeeking) {
+    room.game.cardPeekPlayerIds.add(socket.playerId);
+  } else {
+    room.game.cardPeekPlayerIds.delete(socket.playerId);
+  }
+  broadcastRoom(room);
+}
+
 function handleUpdateRoomSettings(socket, payload) {
   const room = rooms.get(socket.roomId);
   if (!room) {
@@ -1009,6 +1049,10 @@ function handleMessage(socket, message) {
   }
   if (message.type === "requestNextHand") {
     handleRequestNextHand(socket);
+    return;
+  }
+  if (message.type === "cardPeekState") {
+    handleCardPeekState(socket, message);
     return;
   }
   if (message.type === "updateGameOptions") {
