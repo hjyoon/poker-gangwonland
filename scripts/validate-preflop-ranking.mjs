@@ -1,4 +1,4 @@
-import { createDeck, describePreflopHand, PREFLOP_RANK_TEST_CASES } from "../lib/poker.js";
+import { createDeck, describePreflopHand, PREFLOP_CONNECTOR_TEST_CASES, PREFLOP_RANK_TEST_CASES } from "../lib/poker.js";
 
 const deck = createDeck();
 const cardById = new Map(deck.map((card) => [card.id, card]));
@@ -26,8 +26,18 @@ const failures = Object.entries(PREFLOP_RANK_TEST_CASES)
   })
   .filter(Boolean);
 
-if (failures.length > 0) {
-  console.error(["프리플랍 랭킹 검증 실패", ...failures].join("\n"));
+const connectorFailures = Object.entries(PREFLOP_CONNECTOR_TEST_CASES)
+  .map(([handKey, expectedConnector]) => {
+    const cards = sampleCardsByHand[handKey]?.map((id) => cardById.get(id));
+    const actual = describePreflopHand(cards);
+    return actual?.connector === expectedConnector
+      ? null
+      : `${handKey}: expected connector ${expectedConnector || "(empty)"}, received ${actual?.connector || "(empty)"}`;
+  })
+  .filter(Boolean);
+
+if (failures.length > 0 || connectorFailures.length > 0) {
+  console.error(["프리플랍 랭킹 검증 실패", ...failures, ...connectorFailures].join("\n"));
   process.exit(1);
 }
 

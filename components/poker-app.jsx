@@ -893,7 +893,7 @@ function CardInfoOverlay({ insight, displayOptions, showdownLabel, isMucked, isW
   const showPocketRank = displayOptions?.rank !== false;
   const showPocketWinRate = displayOptions?.winRate !== false;
   const showPocketNickname = displayOptions?.nickname !== false;
-  const pocketNicknameText = insight ? [insight.category, insight.nickname].filter(Boolean).join(" · ") : "";
+  const pocketNicknameText = insight ? [insight.category, insight.connector, insight.nickname].filter(Boolean).join(" · ") : "";
   const hasPocketContent = Boolean(insight && (showPocketRank || showPocketWinRate || (showPocketNickname && pocketNicknameText)));
   const showdownText = isMucked ? "머크" : showdownLabel;
   const hasShowdownContent = Boolean(showdownText);
