@@ -720,6 +720,11 @@ button:disabled {
   opacity: 0.72;
 }
 
+.seat.is-empty-seat {
+  border-color: rgba(255, 255, 255, 0.1);
+  opacity: 0.58;
+}
+
 .away-badge {
   align-items: center;
   aspect-ratio: 1.6 / 1;
@@ -727,6 +732,20 @@ button:disabled {
   border: 1px solid rgba(157, 167, 255, 0.42);
   border-radius: 8px;
   color: #c6ccff;
+  display: flex;
+  font-weight: 700;
+  justify-content: center;
+  min-width: 76px;
+  padding: 0 10px;
+}
+
+.empty-seat-badge {
+  align-items: center;
+  aspect-ratio: 1.6 / 1;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: var(--muted);
   display: flex;
   font-weight: 700;
   justify-content: center;

@@ -647,6 +647,9 @@ function orderHumanActions(actions, showdownPending) {
 }
 
 function seatActionLabel(player) {
+  if (player.isEmptySeat) {
+    return "비어 있음";
+  }
   const contribution = Math.max(0, player.streetContribution ?? 0);
   const baseAction =
     player.lastAction === "스몰 블라인드" || player.lastAction === "빅 블라인드"
@@ -656,6 +659,41 @@ function seatActionLabel(player) {
         : player.lastAction;
   const shouldShowContribution = contribution > 0 && !["폴드", "탈락"].includes(baseAction);
   return shouldShowContribution ? `${baseAction}(${formatMoney(contribution)})` : baseAction;
+}
+
+function emptyTableSeat(index) {
+  return {
+    id: `empty-seat-${index + 1}`,
+    name: "빈 자리",
+    isEmptySeat: true,
+    isHuman: false,
+    cards: [],
+    folded: false,
+    eliminated: false,
+    actionLocked: false,
+    streetContribution: 0,
+    totalContribution: 0,
+    chipBalance: 0,
+    chipsWon: 0,
+    lastAction: "비어 있음",
+    stateIndex: -1,
+  };
+}
+
+function buildTableSeatPlayers(state) {
+  const stateIndexById = new Map((state?.players ?? []).map((player, index) => [player.id, index]));
+  const sourceSeats = Array.isArray(state?.tableSeats) && state.tableSeats.length > 0
+    ? state.tableSeats
+    : (state?.players ?? []).map((player, index) => ({ ...player, stateIndex: index }));
+
+  return Array.from({ length: MAX_TOTAL_PLAYERS }, (_, index) => {
+    const player = sourceSeats[index];
+    if (!player) {
+      return emptyTableSeat(index);
+    }
+    const stateIndex = Number.isInteger(player.stateIndex) ? player.stateIndex : stateIndexById.get(player.id) ?? -1;
+    return { ...player, stateIndex };
+  });
 }
 
 function Seat({
@@ -680,7 +718,17 @@ function Seat({
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
   const computerLabel = computerProfileLabel(player, showComputerStyle);
-  const seatLabel = player.eliminated ? "탈락" : player.isPendingReturn ? "복귀 예약" : player.isAway ? "자리 비움" : player.isHuman ? "인간" : computerLabel;
+  const seatLabel = player.isEmptySeat
+    ? "비어 있음"
+    : player.eliminated
+      ? "탈락"
+      : player.isPendingReturn
+        ? "복귀 예약"
+        : player.isAway
+          ? "자리 비움"
+          : player.isHuman
+            ? "인간"
+            : computerLabel;
   const actionLabel = seatActionLabel(player);
   const hasSeatCards = Array.isArray(player.cards) && player.cards.length > 0;
   const cardsReturned = player.folded && !player.eliminated && (!Array.isArray(player.cards) || player.cards.length === 0);
@@ -701,7 +749,7 @@ function Seat({
   };
 
   return (
-    <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${player.isAway ? " is-away" : ""}${player.eliminated && hasSeatCards ? " has-current-hand-cards" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
+    <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${player.isAway ? " is-away" : ""}${player.isEmptySeat ? " is-empty-seat" : ""}${player.eliminated && hasSeatCards ? " has-current-hand-cards" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
       <header>
         <strong>{player.name}</strong>
         <span className="seat-meta">
@@ -751,7 +799,9 @@ function Seat({
           onMouseMove={(event) => updateCardOverlay(true, event)}
           tabIndex={privateCardsPeekable || hasShowdownOverlay ? 0 : undefined}
         >
-          {player.isAway ? (
+          {player.isEmptySeat ? (
+            <div className="empty-seat-badge">비어 있음</div>
+          ) : player.isAway ? (
             <div className="away-badge">{player.isPendingReturn ? "복귀 예약" : "자리 비움"}</div>
           ) : shouldShowEliminatedPlaceholder ? (
             <div className="eliminated-badge">탈락</div>
@@ -784,20 +834,29 @@ function Seat({
         </div>
       </div>
       <dl>
-        <div>
-          <dt>행동</dt>
-          <dd>{actionLabel}</dd>
-        </div>
-        <div>
-          <dt>보유 금액</dt>
-          <dd className={balanceClass}>{formatMoney(chipBalance)}</dd>
-        </div>
-        {showCumulativeWins ? (
+        {player.isEmptySeat ? (
           <div>
-            <dt>누적 승리</dt>
-            <dd>{formatMoney(player.chipsWon)}</dd>
+            <dt>상태</dt>
+            <dd>비어 있음</dd>
           </div>
-        ) : null}
+        ) : (
+          <>
+            <div>
+              <dt>행동</dt>
+              <dd>{actionLabel}</dd>
+            </div>
+            <div>
+              <dt>보유 금액</dt>
+              <dd className={balanceClass}>{formatMoney(chipBalance)}</dd>
+            </div>
+            {showCumulativeWins ? (
+              <div>
+                <dt>누적 승리</dt>
+                <dd>{formatMoney(player.chipsWon)}</dd>
+              </div>
+            ) : null}
+          </>
+        )}
       </dl>
     </article>
   );
@@ -2832,6 +2891,7 @@ export default function PokerApp() {
     );
   }
 
+  const tableSeatPlayers = buildTableSeatPlayers(state);
   const activeStreet = STREETS[state.streetIndex];
   const controlledPlayerId = multiplayerGameActive ? multiplayerPlayerId : null;
   const humanIndex = multiplayerGameActive
@@ -3138,11 +3198,13 @@ export default function PokerApp() {
         </div>
 
         <div className="seats">
-          {state.players.map((player, index) => (
+          {tableSeatPlayers.map((player) => {
+            const stateIndex = Number.isInteger(player.stateIndex) ? player.stateIndex : -1;
+            return (
             <Seat
-              blindRole={index === state.smallBlindIndex ? "SB" : index === state.bigBlindIndex ? "BB" : ""}
-              isDealer={index === state.dealerIndex}
-              isTurn={state.currentPlayerIndex === index && !state.finished}
+              blindRole={stateIndex === state.smallBlindIndex ? "SB" : stateIndex === state.bigBlindIndex ? "BB" : ""}
+              isDealer={stateIndex === state.dealerIndex}
+              isTurn={state.currentPlayerIndex === stateIndex && !state.finished}
               isMucked={muckedShowdownIds.has(player.id)}
               isCardPeeking={multiplayerGameActive ? multiplayerCardPeekPlayerIds.has(player.id) : computerCardPeekedIds.has(player.id)}
               key={player.id}
@@ -3156,10 +3218,11 @@ export default function PokerApp() {
               showdownLabel={showdownMap[player.id] ?? ""}
               showCumulativeWins={showCumulativeWinsInGame}
               showComputerStyle={showComputerStylesInGame}
-              showPrivateCards={multiplayerGameActive ? player.id === multiplayerPlayerId : player.isHuman}
+              showPrivateCards={!player.isEmptySeat && (multiplayerGameActive ? player.id === multiplayerPlayerId : player.isHuman)}
               winner={state.winnerIds.includes(player.id)}
             />
-          ))}
+            );
+          })}
         </div>
 
         <section className="controls">

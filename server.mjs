@@ -243,6 +243,86 @@ function normalizeRoomSettings(room, settings = {}) {
   };
 }
 
+function emptyTableSeat(index, label = "빈 자리") {
+  return {
+    id: `empty-seat-${index + 1}`,
+    name: label,
+    isHuman: false,
+    isEmptySeat: true,
+    cards: [],
+    folded: false,
+    eliminated: false,
+    actionLocked: false,
+    streetContribution: 0,
+    totalContribution: 0,
+    chipBalance: 0,
+    chipsWon: 0,
+    lastAction: "비어 있음",
+    stateIndex: -1,
+    computerStyle: null,
+    computerLevel: null,
+  };
+}
+
+function publicInactiveHumanSeat(seat, index, ledger = {}) {
+  return {
+    id: seat.playerId,
+    name: seat.name || seat.label || `플레이어 ${index + 1}`,
+    isHuman: true,
+    isAway: Boolean(seat.away),
+    isPendingReturn: Boolean(seat.pendingReturn),
+    isDisconnected: !seat.connected,
+    cards: [],
+    folded: true,
+    eliminated: false,
+    actionLocked: false,
+    streetContribution: 0,
+    totalContribution: 0,
+    chipBalance: Number(ledger.chipBalance) || 0,
+    chipsWon: Number(ledger.chipsWon) || 0,
+    lastAction: seat.pendingReturn ? "복귀 예약" : seat.away ? "자리 비움" : "연결 끊김",
+    stateIndex: -1,
+    computerStyle: null,
+    computerLevel: null,
+  };
+}
+
+function syncTableSeatOrder(room, activeBefore, activeAfter) {
+  if (!Array.isArray(room.game?.tableSeatOrder)) {
+    return;
+  }
+  const replacements = new Map();
+  activeBefore.forEach((config, index) => {
+    if (activeAfter[index]?.id) {
+      replacements.set(config.id, activeAfter[index].id);
+    }
+  });
+  room.game.tableSeatOrder = room.game.tableSeatOrder.map((entry) =>
+    entry?.playerId && replacements.has(entry.playerId) ? { ...entry, playerId: replacements.get(entry.playerId) } : entry,
+  );
+}
+
+function publicTableSeats(room, publicPlayers) {
+  const activeById = new Map(publicPlayers.map((player, index) => [player.id, { ...player, stateIndex: index }]));
+  const order = Array.isArray(room?.game?.tableSeatOrder) ? room.game.tableSeatOrder : publicPlayers.map((player) => ({ playerId: player.id }));
+
+  return Array.from({ length: MAX_TOTAL_PLAYERS }, (_, index) => {
+    const entry = order[index];
+    if (!entry?.playerId) {
+      return emptyTableSeat(index, entry?.label || "빈 자리");
+    }
+    const activePlayer = activeById.get(entry.playerId);
+    if (activePlayer) {
+      return activePlayer;
+    }
+    const humanSeat = room?.seats.find((seat) => seat.playerId === entry.playerId);
+    if (humanSeat) {
+      return publicInactiveHumanSeat(humanSeat, index, room.game?.chipTotals?.[entry.playerId]);
+    }
+    return emptyTableSeat(index, entry.label || "빈 자리");
+  });
+}
+
 function publicGameState(state, playerId, showComputerStyles = true, room = null) {
   if (!state) {
     return null;
@@ -258,38 +338,14 @@ function publicGameState(state, playerId, showComputerStyles = true, room = null
       cards: revealCards ? player.cards : player.cards.map(() => null),
     };
   });
-  const existingPlayerIds = new Set(publicPlayers.map((player) => player.id));
-  const awayHumanPlayers =
-    room?.seats
-      ?.filter((seat) => seat.playerId && seat.away && !existingPlayerIds.has(seat.playerId))
-      .map((seat, index) => {
-        const ledger = room.game?.chipTotals?.[seat.playerId] ?? {};
-        return {
-          id: seat.playerId,
-          name: seat.name || `플레이어 ${index + 1}`,
-          isHuman: true,
-          isAway: true,
-          isPendingReturn: Boolean(seat.pendingReturn),
-          cards: [],
-          folded: true,
-          eliminated: false,
-          actionLocked: false,
-          streetContribution: 0,
-          totalContribution: 0,
-          chipBalance: Number(ledger.chipBalance) || 0,
-          chipsWon: Number(ledger.chipsWon) || 0,
-          lastAction: seat.pendingReturn ? "복귀 예약" : "자리 비움",
-          computerStyle: null,
-          computerLevel: null,
-        };
-      }) ?? [];
 
   return {
     ...state,
     computerStyles: showComputerStyles ? state.computerStyles : {},
     computerLevels: showComputerStyles ? state.computerLevels : {},
     deck: [],
-    players: [...publicPlayers, ...awayHumanPlayers],
+    players: publicPlayers,
+    tableSeats: room ? publicTableSeats(room, publicPlayers) : publicPlayers.map((player, index) => ({ ...player, stateIndex: index })),
   };
 }
 
@@ -818,6 +874,22 @@ function buildRoomGame(room, payload) {
   const orderedPlayers = normalizedPlayerOrder
     .map((setupPlayerId) => (setupPlayerId.startsWith("human-slot-") ? humansBySetupId.get(setupPlayerId) : computersBySetupId.get(setupPlayerId)))
     .filter(Boolean);
+  const tableSeatOrder = normalizedPlayerOrder.slice(0, MAX_TOTAL_PLAYERS).map((setupPlayerId, index) => {
+    if (setupPlayerId.startsWith("human-slot-")) {
+      const slotIndex = Number(setupPlayerId.replace("human-slot-", "")) - 1;
+      const seat = room.seats[slotIndex];
+      return {
+        setupPlayerId,
+        playerId: seat?.playerId ?? null,
+        label: seat?.name || seat?.label || `빈 자리 ${index + 1}`,
+      };
+    }
+    return {
+      setupPlayerId,
+      playerId: computersBySetupId.get(setupPlayerId)?.id ?? null,
+      label: computersBySetupId.get(setupPlayerId)?.name || `빈 자리 ${index + 1}`,
+    };
+  });
   const playerConfigs = orderedPlayers.map(({ id, name, isHuman, startingBalance }) => ({ id, name, isHuman, startingBalance }));
 
   if (playerConfigs.length < 2) {
@@ -858,6 +930,7 @@ function buildRoomGame(room, payload) {
     computerStyles,
     computerLevels,
     state,
+    tableSeatOrder,
     chipTotals: state.chipTotals,
     autoNextHand: settings.autoNextHand,
     endlessMode: settings.endlessMode,
@@ -932,6 +1005,7 @@ function startNextRoomHand(room) {
   room.game.state = reservationLog.length ? { ...nextState, log: [...reservationLog, ...nextState.log] } : nextState;
   room.game.playerConfigs = room.game.state.playerConfigs;
   syncAllPlayerConfigs(room, nextPlayerConfigs, room.game.state.playerConfigs);
+  syncTableSeatOrder(room, nextPlayerConfigs, room.game.state.playerConfigs);
   room.game.chipTotals = mergeChipTotals(room.game.chipTotals ?? currentState.chipTotals, room.game.state.chipTotals);
   room.game.computerStyles = room.game.state.computerStyles ?? room.game.computerStyles;
   room.game.computerLevels = room.game.state.computerLevels ?? room.game.computerLevels;
