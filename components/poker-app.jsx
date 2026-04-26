@@ -529,6 +529,14 @@ function replaceRoomCodeInUrl(roomId) {
   window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
+function stateWithObservedCardPeekIds(state, peekIdSets, actorId = "") {
+  const cardPeekPlayerIds = [...new Set(peekIdSets.flatMap((ids) => [...ids]))].filter((id) => id && id !== actorId);
+  return {
+    ...state,
+    cardPeekPlayerIds,
+  };
+}
+
 function cardSuitClass(card) {
   if (!card) {
     return "";
@@ -989,6 +997,8 @@ export default function PokerApp() {
   const multiplayerPlayerIdRef = useRef(null);
   const multiplayerNameRef = useRef(multiplayerName);
   const multiplayerNameInputRef = useRef(null);
+  const privateCardPeekedIdsRef = useRef(new Set());
+  const computerCardPeekedIdsRef = useRef(new Set());
   const pendingJoinRoomIdRef = useRef("");
   const multiplayerGameActiveRef = useRef(false);
   const lastSentRoomSettingsRef = useRef("");
@@ -1020,7 +1030,8 @@ export default function PokerApp() {
 
     const actionTimer = window.setTimeout(() => {
       setComputerCardPeekState(actor.id, false);
-      const action = chooseComputerAction(state);
+      const observedState = stateWithObservedCardPeekIds(state, [privateCardPeekedIdsRef.current, computerCardPeekedIdsRef.current], actor.id);
+      const action = chooseComputerAction(observedState);
       setState((current) => applyAction(current, action));
     }, computerActionDelayMs);
 
@@ -1189,8 +1200,12 @@ export default function PokerApp() {
   }, []);
 
   useEffect(() => {
-    setPrivateCardPeekedIds(new Set());
-    setComputerCardPeekedIds(new Set());
+    const emptyPrivatePeekIds = new Set();
+    const emptyComputerPeekIds = new Set();
+    privateCardPeekedIdsRef.current = emptyPrivatePeekIds;
+    computerCardPeekedIdsRef.current = emptyComputerPeekIds;
+    setPrivateCardPeekedIds(emptyPrivatePeekIds);
+    setComputerCardPeekedIds(emptyComputerPeekIds);
     setCardInfoOverlay({ playerId: "", position: null });
   }, [state?.handId]);
 
@@ -1890,6 +1905,7 @@ export default function PokerApp() {
       } else {
         next.delete(playerId);
       }
+      privateCardPeekedIdsRef.current = next;
       return next;
     });
 
@@ -1909,6 +1925,7 @@ export default function PokerApp() {
       } else {
         next.delete(playerId);
       }
+      computerCardPeekedIdsRef.current = next;
       return next;
     });
   }
@@ -2078,7 +2095,9 @@ export default function PokerApp() {
 
   function selectActiveGameTab(tabKey) {
     if (tabKey !== "table") {
-      setPrivateCardPeekedIds(new Set());
+      const emptyPrivatePeekIds = new Set();
+      privateCardPeekedIdsRef.current = emptyPrivatePeekIds;
+      setPrivateCardPeekedIds(emptyPrivatePeekIds);
       setCardInfoOverlay({ playerId: "", position: null });
       if (multiplayerGameActive && multiplayerPlayerId) {
         sendMultiplayerMessage({ type: "cardPeekState", peeking: false });

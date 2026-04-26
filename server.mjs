@@ -834,7 +834,11 @@ function scheduleRoomAutomation(room) {
     }
     room.automationTimer = setTimeout(() => {
       room.game.cardPeekPlayerIds?.delete(actor.id);
-      const action = chooseComputerAction(room.game.state);
+      const decisionState = {
+        ...room.game.state,
+        cardPeekPlayerIds: [...(room.game.cardPeekPlayerIds ?? new Set())].filter((playerId) => playerId !== actor.id),
+      };
+      const action = chooseComputerAction(decisionState);
       applyRoomAction(room, action);
     }, room.game.computerActionDelayMs);
   } else if (actor?.isHuman) {
