@@ -567,10 +567,11 @@ function Seat({
   showdownLabel,
   isMucked,
   hasPocketInsight,
+  hasShowdownOverlay,
   privateCardsPeeked,
   isCardPeeking,
   onPrivateCardsPeekChange,
-  onPocketInsightPointerChange,
+  onCardOverlayPointerChange,
 }) {
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
@@ -579,17 +580,17 @@ function Seat({
   const actionLabel = seatActionLabel(player);
   const privateCardsPeekable = canPeekSeatCards(player, showPrivateCards, revealCards);
   const cardsVisible = canShowSeatCards(player, showPrivateCards && (!privateCardsPeekable || privateCardsPeeked), revealCards);
-  const shouldTrackPocketOverlay = privateCardsPeekable || (hasPocketInsight && cardsVisible);
+  const shouldTrackCardOverlay = privateCardsPeekable || (hasPocketInsight && cardsVisible) || hasShowdownOverlay;
   const updatePrivateCardsPeek = (nextPeeked) => {
     if (privateCardsPeekable) {
       onPrivateCardsPeekChange?.(player.id, nextPeeked);
     }
   };
-  const updatePocketOverlay = (nextVisible, event) => {
-    if (!shouldTrackPocketOverlay) {
+  const updateCardOverlay = (nextVisible, event) => {
+    if (!shouldTrackCardOverlay) {
       return;
     }
-    onPocketInsightPointerChange?.(nextVisible ? player.id : "", nextVisible ? pocketOverlayPositionFromEvent(event) : null);
+    onCardOverlayPointerChange?.(nextVisible ? player.id : "", nextVisible ? pocketOverlayPositionFromEvent(event) : null);
   };
 
   return (
@@ -631,22 +632,22 @@ function Seat({
           className={`seat-card-pair${privateCardsPeekable ? " is-peekable" : ""}${privateCardsPeeked ? " is-peeking" : ""}`}
           onBlur={(event) => {
             updatePrivateCardsPeek(false);
-            updatePocketOverlay(false, event);
+            updateCardOverlay(false, event);
           }}
           onFocus={(event) => {
             updatePrivateCardsPeek(true);
-            updatePocketOverlay(true, event);
+            updateCardOverlay(true, event);
           }}
           onMouseEnter={(event) => {
             updatePrivateCardsPeek(true);
-            updatePocketOverlay(true, event);
+            updateCardOverlay(true, event);
           }}
           onMouseLeave={(event) => {
             updatePrivateCardsPeek(false);
-            updatePocketOverlay(false, event);
+            updateCardOverlay(false, event);
           }}
-          onMouseMove={(event) => updatePocketOverlay(true, event)}
-          tabIndex={privateCardsPeekable ? 0 : undefined}
+          onMouseMove={(event) => updateCardOverlay(true, event)}
+          tabIndex={privateCardsPeekable || hasShowdownOverlay ? 0 : undefined}
         >
           {player.eliminated ? (
           <div className="eliminated-badge">탈락</div>
@@ -669,18 +670,6 @@ function Seat({
           ) : null}
         </div>
       </div>
-      {showdownLabel ? (
-        <div className={`showdown-hand${winner ? " is-winner" : ""}`}>
-          <span>최종 패</span>
-          <strong>{showdownLabel}</strong>
-        </div>
-      ) : null}
-      {isMucked ? (
-        <div className="showdown-hand is-mucked">
-          <span>최종 패</span>
-          <strong>머크</strong>
-        </div>
-      ) : null}
       <dl>
         <div>
           <dt>행동</dt>
@@ -699,39 +688,52 @@ function Seat({
   );
 }
 
-function PocketInsightOverlay({ insight, displayOptions, position }) {
-  if (!insight || !position) {
+function CardInfoOverlay({ insight, displayOptions, showdownLabel, isMucked, isWinner, position }) {
+  if (!position) {
     return null;
   }
 
   const showPocketRank = displayOptions?.rank !== false;
   const showPocketWinRate = displayOptions?.winRate !== false;
   const showPocketNickname = displayOptions?.nickname !== false;
-  const pocketNicknameText = [insight.category, insight.nickname].filter(Boolean).join(" · ");
-  const hasVisibleContent = showPocketRank || showPocketWinRate || (showPocketNickname && pocketNicknameText);
+  const pocketNicknameText = insight ? [insight.category, insight.nickname].filter(Boolean).join(" · ") : "";
+  const hasPocketContent = Boolean(insight && (showPocketRank || showPocketWinRate || (showPocketNickname && pocketNicknameText)));
+  const showdownText = isMucked ? "머크" : showdownLabel;
+  const hasShowdownContent = Boolean(showdownText);
+  const hasVisibleContent = hasPocketContent || hasShowdownContent;
   if (!hasVisibleContent) {
     return null;
   }
 
   return (
     <div
-      className="pocket-insight-overlay"
+      className="card-info-overlay"
       style={{
         left: `${position.x}px`,
         top: `${position.y}px`,
       }}
     >
-      {showPocketRank ? (
-        <div>
-          <span>핸드 랭킹</span>
-          <strong>{insight.rank}/169</strong>
+      {hasShowdownContent ? (
+        <div className={`card-info-overlay-hand${isMucked ? " is-mucked" : ""}${isWinner ? " is-winner" : ""}`}>
+          <span>최종 패</span>
+          <strong>{showdownText}</strong>
         </div>
       ) : null}
-      {showPocketNickname && pocketNicknameText ? <small>{pocketNicknameText}</small> : null}
-      {showPocketWinRate ? (
-        <div>
-          <span>승률</span>
-          <strong>{formatWinRatePercent(insight.winRatePercent)}</strong>
+      {hasPocketContent ? (
+        <div className="card-info-overlay-pocket">
+          {showPocketRank ? (
+            <div>
+              <span>핸드 랭킹</span>
+              <strong>{insight.rank}/169</strong>
+            </div>
+          ) : null}
+          {showPocketNickname && pocketNicknameText ? <small>{pocketNicknameText}</small> : null}
+          {showPocketWinRate ? (
+            <div>
+              <span>승률</span>
+              <strong>{formatWinRatePercent(insight.winRatePercent)}</strong>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -926,7 +928,7 @@ export default function PokerApp() {
   const [activeGameMenuOpen, setActiveGameMenuOpen] = useState(false);
   const [gameInfoTab, setGameInfoTab] = useState("log");
   const [privateCardPeekedIds, setPrivateCardPeekedIds] = useState(() => new Set());
-  const [pocketInsightOverlay, setPocketInsightOverlay] = useState(() => ({ playerId: "", position: null }));
+  const [cardInfoOverlay, setCardInfoOverlay] = useState(() => ({ playerId: "", position: null }));
   const multiplayerSocketRef = useRef(null);
   const multiplayerReconnectRef = useRef(null);
   const multiplayerRoomIdRef = useRef("");
@@ -1093,7 +1095,7 @@ export default function PokerApp() {
 
   useEffect(() => {
     setPrivateCardPeekedIds(new Set());
-    setPocketInsightOverlay({ playerId: "", position: null });
+    setCardInfoOverlay({ playerId: "", position: null });
   }, [state?.handId]);
 
   const showdownMap = useMemo(
@@ -1786,13 +1788,13 @@ export default function PokerApp() {
     }
   }
 
-  function handlePocketInsightPointerChange(playerId, position) {
+  function handleCardOverlayPointerChange(playerId, position) {
     if (!playerId || !position) {
-      setPocketInsightOverlay({ playerId: "", position: null });
+      setCardInfoOverlay({ playerId: "", position: null });
       return;
     }
 
-    setPocketInsightOverlay({ playerId, position });
+    setCardInfoOverlay({ playerId, position });
   }
 
   function applyMultiplayerNameBlur() {
@@ -1926,7 +1928,7 @@ export default function PokerApp() {
   function selectActiveGameTab(tabKey) {
     if (tabKey !== "table") {
       setPrivateCardPeekedIds(new Set());
-      setPocketInsightOverlay({ playerId: "", position: null });
+      setCardInfoOverlay({ playerId: "", position: null });
       if (multiplayerGameActive && multiplayerPlayerId) {
         sendMultiplayerMessage({ type: "cardPeekState", peeking: false });
       }
@@ -2560,7 +2562,11 @@ export default function PokerApp() {
   const isNextHandReadyPhase = state.finished && !state.gameOver;
   const nextHandButtonDisabled = multiplayerGameActive && (!canConfirmMultiplayerNextHand || hasConfirmedMultiplayerNextHand);
   const nextHandButtonLabel = multiplayerGameActive && hasConfirmedMultiplayerNextHand ? "다음 핸드 준비 완료" : "다음 핸드";
-  const activePocketInsight = pocketInsightOverlay.playerId ? pocketInsightMap[pocketInsightOverlay.playerId] : null;
+  const activeCardInfoPlayer = cardInfoOverlay.playerId ? state.players.find((player) => player.id === cardInfoOverlay.playerId) : null;
+  const activePocketInsight = cardInfoOverlay.playerId ? pocketInsightMap[cardInfoOverlay.playerId] : null;
+  const activeShowdownLabel = cardInfoOverlay.playerId ? showdownMap[cardInfoOverlay.playerId] ?? "" : "";
+  const activeCardInfoIsMucked = Boolean(cardInfoOverlay.playerId && muckedShowdownIds.has(cardInfoOverlay.playerId));
+  const activeCardInfoIsWinner = Boolean(activeCardInfoPlayer && state.winnerIds.includes(activeCardInfoPlayer.id));
 
   return (
     <main className="app-shell">
@@ -2605,10 +2611,13 @@ export default function PokerApp() {
           ) : null}
         </div>
       </div>
-      <PocketInsightOverlay
+      <CardInfoOverlay
         displayOptions={pocketDisplayOptions}
         insight={activePocketInsight}
-        position={pocketInsightOverlay.position}
+        isMucked={activeCardInfoIsMucked}
+        isWinner={activeCardInfoIsWinner}
+        position={cardInfoOverlay.position}
+        showdownLabel={activeShowdownLabel}
       />
 
       <section className={`panel active-game-panel${activeGameTab === "table" ? " is-table" : ""}`}>
@@ -2784,8 +2793,9 @@ export default function PokerApp() {
               isCardPeeking={multiplayerGameActive && multiplayerCardPeekPlayerIds.has(player.id)}
               key={player.id}
               hasPocketInsight={Boolean(pocketInsightMap[player.id])}
+              hasShowdownOverlay={Boolean(showdownMap[player.id] || muckedShowdownIds.has(player.id))}
               onPrivateCardsPeekChange={handlePrivateCardsPeekChange}
-              onPocketInsightPointerChange={handlePocketInsightPointerChange}
+              onCardOverlayPointerChange={handleCardOverlayPointerChange}
               player={player}
               privateCardsPeeked={privateCardPeekedIds.has(player.id)}
               revealCards={openedShowdownIds.has(player.id)}

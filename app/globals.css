@@ -540,7 +540,7 @@ button:disabled {
   width: 28px;
 }
 
-.pocket-insight-overlay {
+.card-info-overlay {
   background: rgba(11, 15, 18, 0.96);
   border: 1px solid rgba(216, 162, 61, 0.26);
   border-radius: 8px;
@@ -556,62 +556,54 @@ button:disabled {
   z-index: 70;
 }
 
-.pocket-insight-overlay div {
+.card-info-overlay div {
   display: grid;
   gap: 2px;
 }
 
-.pocket-insight-overlay span {
+.card-info-overlay-hand {
+  background: rgba(216, 162, 61, 0.1);
+  border: 1px solid rgba(216, 162, 61, 0.28);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.card-info-overlay-hand.is-winner {
+  background: rgba(83, 184, 131, 0.13);
+  border-color: rgba(83, 184, 131, 0.5);
+}
+
+.card-info-overlay-hand.is-mucked {
+  background: rgba(255, 255, 255, 0.045);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.card-info-overlay-pocket {
+  border-top: 1px solid rgba(216, 162, 61, 0.16);
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.card-info-overlay span {
   color: var(--muted);
   font-size: 0.68rem;
   font-weight: 800;
   line-height: 1.1;
 }
 
-.pocket-insight-overlay strong {
+.card-info-overlay strong {
   color: var(--text);
   font-size: 0.88rem;
   line-height: 1.15;
   white-space: nowrap;
 }
 
-.pocket-insight-overlay small {
+.card-info-overlay small {
   color: var(--gold);
   font-size: 0.7rem;
   font-weight: 800;
   line-height: 1.2;
-}
-
-.showdown-hand {
-  background: rgba(216, 162, 61, 0.1);
-  border: 1px solid rgba(216, 162, 61, 0.28);
-  border-radius: 8px;
-  display: grid;
-  gap: 4px;
-  margin: 0 0 12px;
-  padding: 10px 12px;
-}
-
-.showdown-hand.is-winner {
-  background: rgba(83, 184, 131, 0.13);
-  border-color: rgba(83, 184, 131, 0.5);
-}
-
-.showdown-hand.is-mucked {
-  background: rgba(255, 255, 255, 0.045);
-  border-color: rgba(255, 255, 255, 0.16);
-}
-
-.showdown-hand span {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
-.showdown-hand strong {
-  color: var(--text);
-  font-size: 0.95rem;
-  overflow-wrap: anywhere;
 }
 
 .eliminated-badge {
