@@ -523,6 +523,7 @@ function publicRoom(room, socket) {
     showCumulativeWins: settings.showCumulativeWins,
     nextHandRequiredPlayerIds: nextHandRequiredPlayerIds(room),
     nextHandReadyPlayerIds: nextHandReadyPlayerIds(room),
+    nextHandDealerPlayerId: room.game?.state && !room.game.state.gameOver ? nextHandDealerPlayerId(room, room.game.state) : null,
     cardPeekPlayerIds: publicCardPeekPlayerIds(room),
     timer: publicRoomTimer(room),
     gameState: publicGameState(room.game?.state, socket?.playerId, settings.showComputerStyles, room),
@@ -654,7 +655,7 @@ function nextFullBlindRoleIds(room, currentState) {
   const allPlayerConfigs = room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? currentState.playerConfigs ?? [];
   const eligibleConfigs = eligibleConfigsForBlindRotation(room, currentState);
   if (eligibleConfigs.length < 2) {
-    return { smallBlindId: null, bigBlindId: null };
+    return { dealerId: null, smallBlindId: null, bigBlindId: null };
   }
 
   const eligibleIds = new Set(eligibleConfigs.map((config) => config.id));
@@ -667,9 +668,21 @@ function nextFullBlindRoleIds(room, currentState) {
   const bigBlindConfig = nextConfigAfter(allPlayerConfigs, smallBlindIndex, eligibleIds);
 
   return {
+    dealerId: dealerConfig?.id ?? null,
     smallBlindId: smallBlindConfig?.id ?? null,
     bigBlindId: bigBlindConfig?.id ?? null,
   };
+}
+
+function nextHandDealerPlayerId(room, currentState) {
+  return nextFullBlindRoleIds(room, currentState).dealerId ?? null;
+}
+
+function canReserveStandUpFromGame(room, currentState, playerId) {
+  if (!room?.game || !currentState || !playerId) {
+    return false;
+  }
+  return nextHandDealerPlayerId(room, currentState) === playerId;
 }
 
 function recordMissedBlindsForAwaySeats(room, currentState) {
@@ -1564,6 +1577,11 @@ function handleStandUpFromGame(socket, payload) {
     }
     seat.pendingStandUp = false;
     broadcastRoom(room);
+    return;
+  }
+
+  if (!canReserveStandUpFromGame(room, state, socket.playerId)) {
+    sendError(socket, "게임에서 빠지기는 다음 핸드 딜러(D) 예정일 때만 예약할 수 있습니다.");
     return;
   }
 
