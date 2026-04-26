@@ -527,13 +527,34 @@ function seatActionLabel(player) {
   return shouldShowContribution ? `${baseAction}(${formatMoney(contribution)})` : baseAction;
 }
 
-function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle, winner, blindRole, isDealer, showdownLabel, isMucked, pocketInsight }) {
+function Seat({
+  player,
+  isTurn,
+  revealCards,
+  showPrivateCards,
+  showComputerStyle,
+  winner,
+  blindRole,
+  isDealer,
+  showdownLabel,
+  isMucked,
+  pocketInsight,
+  pocketDisplayOptions,
+}) {
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
   const computerLabel = computerProfileLabel(player, showComputerStyle);
   const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "인간" : computerLabel;
   const actionLabel = seatActionLabel(player);
   const cardsVisible = canShowSeatCards(player, showPrivateCards, revealCards);
+  const showPocketRank = pocketDisplayOptions?.rank !== false;
+  const showPocketWinRate = pocketDisplayOptions?.winRate !== false;
+  const showPocketNickname = pocketDisplayOptions?.nickname !== false;
+  const pocketNicknameText = pocketInsight
+    ? [pocketInsight.category, pocketInsight.nickname].filter(Boolean).join(" · ")
+    : "";
+  const showPocketInsight = Boolean(pocketInsight && (showPocketRank || showPocketWinRate || (showPocketNickname && pocketNicknameText)));
+  const pocketInsightTitle = showPocketWinRate ? "현재 공개 카드 기준 추정 승률" : "포켓 핸드 정보";
 
   return (
     <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
@@ -578,18 +599,21 @@ function Seat({ player, isTurn, revealCards, showPrivateCards, showComputerStyle
             })
           )}
         </div>
-        {pocketInsight ? (
-          <div className="pocket-insight" title="현재 공개 카드 기준 추정 승률">
-            <span>핸드 랭킹</span>
-            <strong>
-              {pocketInsight.rank}/169
-            </strong>
-            <small>
-              {pocketInsight.category}
-              {pocketInsight.nickname ? ` · ${pocketInsight.nickname}` : ""}
-            </small>
-            <span>승률</span>
-            <strong>{formatWinRatePercent(pocketInsight.winRatePercent)}</strong>
+        {showPocketInsight ? (
+          <div className="pocket-insight" title={pocketInsightTitle}>
+            {showPocketRank ? (
+              <>
+                <span>핸드 랭킹</span>
+                <strong>{pocketInsight.rank}/169</strong>
+              </>
+            ) : null}
+            {showPocketNickname && pocketNicknameText ? <small>{pocketNicknameText}</small> : null}
+            {showPocketWinRate ? (
+              <>
+                <span>승률</span>
+                <strong>{formatWinRatePercent(pocketInsight.winRatePercent)}</strong>
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -742,6 +766,9 @@ export default function PokerApp() {
   const [endlessReplacementComputerLevel, setEndlessReplacementComputerLevel] = useState("random");
   const [endlessReplacementStartingBalance, setEndlessReplacementStartingBalance] = useState(DEFAULT_STARTING_BALANCE);
   const [showComputerStylesInGame, setShowComputerStylesInGame] = useState(true);
+  const [showPocketRankInGame, setShowPocketRankInGame] = useState(true);
+  const [showPocketWinRateInGame, setShowPocketWinRateInGame] = useState(true);
+  const [showPocketNicknameInGame, setShowPocketNicknameInGame] = useState(true);
   const [computerActionDelayMs, setComputerActionDelayMs] = useState(DEFAULT_COMPUTER_ACTION_DELAY_MS);
   const [nextHandDelayMs, setNextHandDelayMs] = useState(DEFAULT_NEXT_HAND_DELAY_MS);
   const [humanActionTimeoutMs, setHumanActionTimeoutMs] = useState(DEFAULT_HUMAN_ACTION_TIMEOUT_MS);
@@ -939,7 +966,8 @@ export default function PokerApp() {
     [state],
   );
   const pocketInsightMap = useMemo(() => {
-    if (!state) {
+    const shouldShowPocketInsight = showPocketRankInGame || showPocketWinRateInGame || showPocketNicknameInGame;
+    if (!state || !shouldShowPocketInsight) {
       return {};
     }
 
@@ -957,25 +985,37 @@ export default function PokerApp() {
             return null;
           }
 
-          const opponentCount = state.players.filter((opponent) => opponent.id !== player.id && !opponent.folded && !opponent.eliminated).length;
-          const winRate = estimateHoldemWinRate({
-            playerCards: player.cards,
-            communityCards: state.communityCards,
-            opponentCount,
-            samples: winRateSampleCount(state.communityCards.length, opponentCount),
-          });
+          let winRatePercent;
+          if (showPocketWinRateInGame) {
+            const opponentCount = state.players.filter((opponent) => opponent.id !== player.id && !opponent.folded && !opponent.eliminated).length;
+            const winRate = estimateHoldemWinRate({
+              playerCards: player.cards,
+              communityCards: state.communityCards,
+              opponentCount,
+              samples: winRateSampleCount(state.communityCards.length, opponentCount),
+            });
+            winRatePercent = winRate?.percent;
+          }
 
           return [
             player.id,
             {
               ...preflopHand,
-              winRatePercent: winRate?.percent,
+              winRatePercent,
             },
           ];
         })
         .filter(Boolean),
     );
-  }, [multiplayerGameActive, multiplayerPlayerId, openedShowdownIds, state]);
+  }, [multiplayerGameActive, multiplayerPlayerId, openedShowdownIds, showPocketNicknameInGame, showPocketRankInGame, showPocketWinRateInGame, state]);
+  const pocketDisplayOptions = useMemo(
+    () => ({
+      rank: showPocketRankInGame,
+      winRate: showPocketWinRateInGame,
+      nickname: showPocketNicknameInGame,
+    }),
+    [showPocketNicknameInGame, showPocketRankInGame, showPocketWinRateInGame],
+  );
   const isMultiplayerSetup = setupMode === "multiplayer" || Boolean(multiplayerRoom);
   const isMultiplayerHost = Boolean(multiplayerRoom && multiplayerPlayerId && multiplayerRoom.hostPlayerId === multiplayerPlayerId);
   const isMultiplayerCreateFlow = isMultiplayerSetup && (multiplayerLobbyMode === "create" || isMultiplayerHost);
@@ -2342,118 +2382,152 @@ export default function PokerApp() {
 
       {activeGameTab === "settings" ? (
       <section className="active-game-section game-settings-panel" role="tabpanel">
-        <div>
-          <h2>게임 진행 설정</h2>
-          <p className="note">진행 중 변경 가능한 앱 옵션입니다. 멀티플레이에서는 방장만 변경할 수 있습니다.</p>
+        <div className="settings-group">
+          <div>
+            <h2>게임 진행 설정</h2>
+            <p className="note">진행 상태에 영향을 주는 앱 옵션입니다. 멀티플레이에서는 방장만 변경할 수 있습니다.</p>
+          </div>
+          <div className="game-settings-controls">
+            <label className="toggle-input">
+              <input
+                type="checkbox"
+                checked={autoNextHand}
+                onChange={(event) => updateAutoNextHand(event.target.checked)}
+                disabled={!canEditActiveGameSettings}
+              />
+              다음 핸드 자동 진행
+            </label>
+            <label className="toggle-input">
+              <input
+                type="checkbox"
+                checked={endlessMode}
+                onChange={(event) => updateEndlessMode(event.target.checked)}
+                disabled={!canEditActiveGameSettings}
+              />
+              엔들리스 게임 모드
+            </label>
+            {endlessMode ? (
+              <>
+                <label>
+                  엔들리스 신규 컴퓨터 성향
+                  <select
+                    value={getComputerStyleSelection(endlessReplacementComputerStyle).key}
+                    onChange={(event) => updateEndlessReplacementStyle(event.target.value)}
+                    disabled={!canEditActiveGameSettings}
+                  >
+                    {COMPUTER_STYLE_OPTIONS.map((style) => (
+                      <option key={style.key} value={style.key}>
+                        {style.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  엔들리스 신규 컴퓨터 수준
+                  <select
+                    value={getComputerLevelSelection(endlessReplacementComputerLevel).key}
+                    onChange={(event) => updateEndlessReplacementLevel(event.target.value)}
+                    disabled={!canEditActiveGameSettings}
+                  >
+                    {COMPUTER_LEVEL_OPTIONS.map((level) => (
+                      <option key={level.key} value={level.key}>
+                        {level.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  엔들리스 신규 시작 금액
+                  <input
+                    min={MIN_PLAYABLE_BALANCE}
+                    step="1000"
+                    type="number"
+                    value={endlessReplacementStartingBalance}
+                    onChange={(event) => updateEndlessReplacementBalance(event.target.value)}
+                    disabled={!canEditActiveGameSettings}
+                  />
+                </label>
+              </>
+            ) : null}
+            <label className="toggle-input">
+              <input
+                type="checkbox"
+                checked={showComputerStylesInGame}
+                onChange={(event) => updateShowComputerStylesInGame(event.target.checked)}
+                disabled={!canEditActiveGameSettings}
+              />
+              인게임 컴퓨터 성향/수준 표시
+            </label>
+            <label>
+              컴퓨터 행동 딜레이(ms)
+              <input
+                min={MIN_COMPUTER_ACTION_DELAY_MS}
+                max={MAX_COMPUTER_ACTION_DELAY_MS}
+                step="100"
+                type="number"
+                value={computerActionDelayMs}
+                onChange={(event) => updateComputerActionDelay(event.target.value)}
+                disabled={!canEditActiveGameSettings}
+              />
+            </label>
+            <label>
+              다음 핸드 딜레이(ms)
+              <input
+                min={MIN_NEXT_HAND_DELAY_MS}
+                max={MAX_NEXT_HAND_DELAY_MS}
+                step="100"
+                type="number"
+                value={nextHandDelayMs}
+                onChange={(event) => updateNextHandDelay(event.target.value)}
+                disabled={!canEditActiveGameSettings || !autoNextHand}
+              />
+            </label>
+            <label>
+              멀티플레이 제한 시간(ms)
+              <input
+                min={MIN_HUMAN_ACTION_TIMEOUT_MS}
+                max={MAX_HUMAN_ACTION_TIMEOUT_MS}
+                step="1000"
+                type="number"
+                value={humanActionTimeoutMs}
+                onChange={(event) => updateHumanActionTimeout(event.target.value)}
+                disabled={!canEditActiveGameSettings}
+              />
+            </label>
+            <button onClick={openSetup}>새 게임 설정</button>
+          </div>
         </div>
-        <div className="game-settings-controls">
-          <label className="toggle-input">
-            <input
-              type="checkbox"
-              checked={autoNextHand}
-              onChange={(event) => updateAutoNextHand(event.target.checked)}
-              disabled={!canEditActiveGameSettings}
-            />
-            다음 핸드 자동 진행
-          </label>
-          <label className="toggle-input">
-            <input
-              type="checkbox"
-              checked={endlessMode}
-              onChange={(event) => updateEndlessMode(event.target.checked)}
-              disabled={!canEditActiveGameSettings}
-            />
-            엔들리스 게임 모드
-          </label>
-          {endlessMode ? (
-            <>
-              <label>
-                엔들리스 신규 컴퓨터 성향
-                <select
-                  value={getComputerStyleSelection(endlessReplacementComputerStyle).key}
-                  onChange={(event) => updateEndlessReplacementStyle(event.target.value)}
-                  disabled={!canEditActiveGameSettings}
-                >
-                  {COMPUTER_STYLE_OPTIONS.map((style) => (
-                    <option key={style.key} value={style.key}>
-                      {style.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                엔들리스 신규 컴퓨터 수준
-                <select
-                  value={getComputerLevelSelection(endlessReplacementComputerLevel).key}
-                  onChange={(event) => updateEndlessReplacementLevel(event.target.value)}
-                  disabled={!canEditActiveGameSettings}
-                >
-                  {COMPUTER_LEVEL_OPTIONS.map((level) => (
-                    <option key={level.key} value={level.key}>
-                      {level.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                엔들리스 신규 시작 금액
-                <input
-                  min={MIN_PLAYABLE_BALANCE}
-                  step="1000"
-                  type="number"
-                  value={endlessReplacementStartingBalance}
-                  onChange={(event) => updateEndlessReplacementBalance(event.target.value)}
-                  disabled={!canEditActiveGameSettings}
-                />
-              </label>
-            </>
-          ) : null}
-          <label className="toggle-input">
-            <input
-              type="checkbox"
-              checked={showComputerStylesInGame}
-              onChange={(event) => updateShowComputerStylesInGame(event.target.checked)}
-              disabled={!canEditActiveGameSettings}
-            />
-            인게임 컴퓨터 성향/수준 표시
-          </label>
-          <label>
-            컴퓨터 행동 딜레이(ms)
-            <input
-              min={MIN_COMPUTER_ACTION_DELAY_MS}
-              max={MAX_COMPUTER_ACTION_DELAY_MS}
-              step="100"
-              type="number"
-              value={computerActionDelayMs}
-              onChange={(event) => updateComputerActionDelay(event.target.value)}
-              disabled={!canEditActiveGameSettings}
-            />
-          </label>
-          <label>
-            다음 핸드 딜레이(ms)
-            <input
-              min={MIN_NEXT_HAND_DELAY_MS}
-              max={MAX_NEXT_HAND_DELAY_MS}
-              step="100"
-              type="number"
-              value={nextHandDelayMs}
-              onChange={(event) => updateNextHandDelay(event.target.value)}
-              disabled={!canEditActiveGameSettings || !autoNextHand}
-            />
-          </label>
-          <label>
-            멀티플레이 제한 시간(ms)
-            <input
-              min={MIN_HUMAN_ACTION_TIMEOUT_MS}
-              max={MAX_HUMAN_ACTION_TIMEOUT_MS}
-              step="1000"
-              type="number"
-              value={humanActionTimeoutMs}
-              onChange={(event) => updateHumanActionTimeout(event.target.value)}
-              disabled={!canEditActiveGameSettings}
-            />
-          </label>
-          <button onClick={openSetup}>새 게임 설정</button>
+        <div className="settings-group personal-settings-group">
+          <div>
+            <h3>개인 설정</h3>
+            <p className="note">내 화면의 포켓 정보 표시만 바꾸며, 멀티플레이 룸 설정으로 동기화되지 않습니다.</p>
+          </div>
+          <div className="game-settings-controls personal-settings-controls">
+            <label className="toggle-input">
+              <input
+                type="checkbox"
+                checked={showPocketRankInGame}
+                onChange={(event) => setShowPocketRankInGame(event.target.checked)}
+              />
+              핸드 랭킹 표시
+            </label>
+            <label className="toggle-input">
+              <input
+                type="checkbox"
+                checked={showPocketWinRateInGame}
+                onChange={(event) => setShowPocketWinRateInGame(event.target.checked)}
+              />
+              승률 표시
+            </label>
+            <label className="toggle-input">
+              <input
+                type="checkbox"
+                checked={showPocketNicknameInGame}
+                onChange={(event) => setShowPocketNicknameInGame(event.target.checked)}
+              />
+              핸드 별칭 표시
+            </label>
+          </div>
         </div>
       </section>
       ) : null}
@@ -2496,6 +2570,7 @@ export default function PokerApp() {
               isMucked={muckedShowdownIds.has(player.id)}
               key={player.id}
               player={player}
+              pocketDisplayOptions={pocketDisplayOptions}
               pocketInsight={pocketInsightMap[player.id]}
               revealCards={openedShowdownIds.has(player.id)}
               showdownLabel={showdownMap[player.id] ?? ""}
