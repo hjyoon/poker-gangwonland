@@ -680,7 +680,7 @@ function Seat({
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
   const computerLabel = computerProfileLabel(player, showComputerStyle);
-  const seatLabel = player.eliminated ? "탈락" : player.isHuman ? "인간" : computerLabel;
+  const seatLabel = player.eliminated ? "탈락" : player.isPendingReturn ? "복귀 예약" : player.isAway ? "자리 비움" : player.isHuman ? "인간" : computerLabel;
   const actionLabel = seatActionLabel(player);
   const hasSeatCards = Array.isArray(player.cards) && player.cards.length > 0;
   const cardsReturned = player.folded && !player.eliminated && (!Array.isArray(player.cards) || player.cards.length === 0);
@@ -701,7 +701,7 @@ function Seat({
   };
 
   return (
-    <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${player.eliminated && hasSeatCards ? " has-current-hand-cards" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
+    <article className={`seat${player.folded ? " is-folded" : ""}${player.eliminated ? " is-eliminated" : ""}${player.isAway ? " is-away" : ""}${player.eliminated && hasSeatCards ? " has-current-hand-cards" : ""}${isTurn ? " is-turn" : ""}${winner ? " is-winner" : ""}`}>
       <header>
         <strong>{player.name}</strong>
         <span className="seat-meta">
@@ -751,7 +751,9 @@ function Seat({
           onMouseMove={(event) => updateCardOverlay(true, event)}
           tabIndex={privateCardsPeekable || hasShowdownOverlay ? 0 : undefined}
         >
-          {shouldShowEliminatedPlaceholder ? (
+          {player.isAway ? (
+            <div className="away-badge">{player.isPendingReturn ? "복귀 예약" : "자리 비움"}</div>
+          ) : shouldShowEliminatedPlaceholder ? (
             <div className="eliminated-badge">탈락</div>
           ) : cardsReturned ? (
             <div className="returned-cards-badge">카드 반납</div>

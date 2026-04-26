@@ -715,6 +715,25 @@ button:disabled {
   color: var(--red);
 }
 
+.seat.is-away {
+  border-color: rgba(157, 167, 255, 0.34);
+  opacity: 0.72;
+}
+
+.away-badge {
+  align-items: center;
+  aspect-ratio: 1.6 / 1;
+  background: rgba(157, 167, 255, 0.14);
+  border: 1px solid rgba(157, 167, 255, 0.42);
+  border-radius: 8px;
+  color: #c6ccff;
+  display: flex;
+  font-weight: 700;
+  justify-content: center;
+  min-width: 76px;
+  padding: 0 10px;
+}
+
 .controls {
   margin-top: 20px;
   padding-top: 20px;

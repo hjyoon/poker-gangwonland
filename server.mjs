@@ -243,26 +243,53 @@ function normalizeRoomSettings(room, settings = {}) {
   };
 }
 
-function publicGameState(state, playerId, showComputerStyles = true) {
+function publicGameState(state, playerId, showComputerStyles = true, room = null) {
   if (!state) {
     return null;
   }
 
   const showdownOpenIds = new Set((state.showdownResults ?? []).map((result) => result.id));
+  const publicPlayers = state.players.map((player) => {
+    const revealCards = player.id === playerId || showdownOpenIds.has(player.id);
+    return {
+      ...player,
+      computerStyle: showComputerStyles || player.isHuman ? player.computerStyle : null,
+      computerLevel: showComputerStyles || player.isHuman ? player.computerLevel : null,
+      cards: revealCards ? player.cards : player.cards.map(() => null),
+    };
+  });
+  const existingPlayerIds = new Set(publicPlayers.map((player) => player.id));
+  const awayHumanPlayers =
+    room?.seats
+      ?.filter((seat) => seat.playerId && seat.away && !existingPlayerIds.has(seat.playerId))
+      .map((seat, index) => {
+        const ledger = room.game?.chipTotals?.[seat.playerId] ?? {};
+        return {
+          id: seat.playerId,
+          name: seat.name || `플레이어 ${index + 1}`,
+          isHuman: true,
+          isAway: true,
+          isPendingReturn: Boolean(seat.pendingReturn),
+          cards: [],
+          folded: true,
+          eliminated: false,
+          actionLocked: false,
+          streetContribution: 0,
+          totalContribution: 0,
+          chipBalance: Number(ledger.chipBalance) || 0,
+          chipsWon: Number(ledger.chipsWon) || 0,
+          lastAction: seat.pendingReturn ? "복귀 예약" : "자리 비움",
+          computerStyle: null,
+          computerLevel: null,
+        };
+      }) ?? [];
+
   return {
     ...state,
     computerStyles: showComputerStyles ? state.computerStyles : {},
     computerLevels: showComputerStyles ? state.computerLevels : {},
     deck: [],
-    players: state.players.map((player) => {
-      const revealCards = player.id === playerId || showdownOpenIds.has(player.id);
-      return {
-        ...player,
-        computerStyle: showComputerStyles || player.isHuman ? player.computerStyle : null,
-        computerLevel: showComputerStyles || player.isHuman ? player.computerLevel : null,
-        cards: revealCards ? player.cards : player.cards.map(() => null),
-      };
-    }),
+    players: [...publicPlayers, ...awayHumanPlayers],
   };
 }
 
@@ -382,7 +409,7 @@ function publicRoom(room, socket) {
     nextHandReadyPlayerIds: nextHandReadyPlayerIds(room),
     cardPeekPlayerIds: publicCardPeekPlayerIds(room),
     timer: publicRoomTimer(room),
-    gameState: publicGameState(room.game?.state, socket?.playerId, settings.showComputerStyles),
+    gameState: publicGameState(room.game?.state, socket?.playerId, settings.showComputerStyles, room),
   };
 }
 
