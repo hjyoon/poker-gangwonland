@@ -459,10 +459,10 @@ button:disabled {
 }
 
 .peek-badge {
-  background: rgba(84, 212, 230, 0.13);
-  border: 1px solid rgba(84, 212, 230, 0.42);
+  background: rgba(237, 112, 184, 0.14);
+  border: 1px solid rgba(237, 112, 184, 0.5);
   border-radius: 999px;
-  color: #54d4e6;
+  color: #f08bd8;
   font-size: 0.76rem;
   font-weight: 800;
   line-height: 1;
@@ -493,7 +493,7 @@ button:disabled {
 }
 
 .seat header .peek-badge {
-  color: #54d4e6;
+  color: #f08bd8;
 }
 
 .seat-cards {
@@ -540,38 +540,46 @@ button:disabled {
   width: 28px;
 }
 
-.pocket-insight {
-  align-content: center;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+.pocket-insight-overlay {
+  background: rgba(11, 15, 18, 0.96);
+  border: 1px solid rgba(216, 162, 61, 0.26);
   border-radius: 8px;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.38);
+  color: var(--text);
   display: grid;
-  gap: 2px;
-  margin-left: auto;
-  min-width: 108px;
-  padding: 7px 9px;
+  gap: 6px;
+  max-width: min(220px, calc(100vw - 24px));
+  min-width: 150px;
+  padding: 10px 12px;
+  pointer-events: none;
+  position: fixed;
+  z-index: 70;
 }
 
-.pocket-insight span {
+.pocket-insight-overlay div {
+  display: grid;
+  gap: 2px;
+}
+
+.pocket-insight-overlay span {
   color: var(--muted);
   font-size: 0.68rem;
   font-weight: 800;
   line-height: 1.1;
 }
 
-.pocket-insight strong {
+.pocket-insight-overlay strong {
   color: var(--text);
-  font-size: 0.84rem;
+  font-size: 0.88rem;
   line-height: 1.15;
   white-space: nowrap;
 }
 
-.pocket-insight small {
+.pocket-insight-overlay small {
   color: var(--gold);
   font-size: 0.7rem;
   font-weight: 800;
   line-height: 1.2;
-  margin-bottom: 3px;
 }
 
 .showdown-hand {
@@ -1185,9 +1193,5 @@ td {
 
   .seat-cards {
     flex-wrap: wrap;
-  }
-
-  .pocket-insight {
-    flex: 1 1 128px;
   }
 }

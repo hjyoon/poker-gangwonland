@@ -511,6 +511,26 @@ function formatWinRatePercent(percent) {
   return `${percent % 1 === 0 ? percent.toFixed(0) : percent.toFixed(1)}%`;
 }
 
+function pocketOverlayPositionFromEvent(event) {
+  const viewportWidth = typeof window === "undefined" ? 1024 : window.innerWidth;
+  const viewportHeight = typeof window === "undefined" ? 768 : window.innerHeight;
+  const overlayWidth = 220;
+  const overlayHeight = 132;
+  let x = Number.isFinite(event?.clientX) ? event.clientX + 14 : 16;
+  let y = Number.isFinite(event?.clientY) ? event.clientY + 14 : 16;
+
+  if (!Number.isFinite(event?.clientX) && event?.currentTarget?.getBoundingClientRect) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    x = rect.right + 14;
+    y = rect.top;
+  }
+
+  return {
+    x: Math.min(Math.max(12, x), Math.max(12, viewportWidth - overlayWidth - 12)),
+    y: Math.min(Math.max(12, y), Math.max(12, viewportHeight - overlayHeight - 12)),
+  };
+}
+
 function orderHumanActions(actions, showdownPending) {
   if (!showdownPending) {
     return actions;
@@ -546,11 +566,11 @@ function Seat({
   isDealer,
   showdownLabel,
   isMucked,
-  pocketInsight,
-  pocketDisplayOptions,
+  hasPocketInsight,
   privateCardsPeeked,
   isCardPeeking,
   onPrivateCardsPeekChange,
+  onPocketInsightPointerChange,
 }) {
   const chipBalance = player.chipBalance ?? 0;
   const balanceClass = chipBalance > 0 ? "money-positive" : chipBalance < 0 ? "money-negative" : "";
@@ -559,18 +579,17 @@ function Seat({
   const actionLabel = seatActionLabel(player);
   const privateCardsPeekable = canPeekSeatCards(player, showPrivateCards, revealCards);
   const cardsVisible = canShowSeatCards(player, showPrivateCards && (!privateCardsPeekable || privateCardsPeeked), revealCards);
-  const showPocketRank = pocketDisplayOptions?.rank !== false;
-  const showPocketWinRate = pocketDisplayOptions?.winRate !== false;
-  const showPocketNickname = pocketDisplayOptions?.nickname !== false;
-  const pocketNicknameText = pocketInsight
-    ? [pocketInsight.category, pocketInsight.nickname].filter(Boolean).join(" · ")
-    : "";
-  const showPocketInsight = Boolean(pocketInsight && (showPocketRank || showPocketWinRate || (showPocketNickname && pocketNicknameText)));
-  const pocketInsightTitle = showPocketWinRate ? "현재 공개 카드 기준 추정 승률" : "포켓 핸드 정보";
+  const shouldTrackPocketOverlay = privateCardsPeekable || (hasPocketInsight && cardsVisible);
   const updatePrivateCardsPeek = (nextPeeked) => {
     if (privateCardsPeekable) {
       onPrivateCardsPeekChange?.(player.id, nextPeeked);
     }
+  };
+  const updatePocketOverlay = (nextVisible, event) => {
+    if (!shouldTrackPocketOverlay) {
+      return;
+    }
+    onPocketInsightPointerChange?.(nextVisible ? player.id : "", nextVisible ? pocketOverlayPositionFromEvent(event) : null);
   };
 
   return (
@@ -610,10 +629,23 @@ function Seat({
         <div
           aria-label={privateCardsPeekable ? "개인 카드 확인" : undefined}
           className={`seat-card-pair${privateCardsPeekable ? " is-peekable" : ""}${privateCardsPeeked ? " is-peeking" : ""}`}
-          onBlur={() => updatePrivateCardsPeek(false)}
-          onFocus={() => updatePrivateCardsPeek(true)}
-          onMouseEnter={() => updatePrivateCardsPeek(true)}
-          onMouseLeave={() => updatePrivateCardsPeek(false)}
+          onBlur={(event) => {
+            updatePrivateCardsPeek(false);
+            updatePocketOverlay(false, event);
+          }}
+          onFocus={(event) => {
+            updatePrivateCardsPeek(true);
+            updatePocketOverlay(true, event);
+          }}
+          onMouseEnter={(event) => {
+            updatePrivateCardsPeek(true);
+            updatePocketOverlay(true, event);
+          }}
+          onMouseLeave={(event) => {
+            updatePrivateCardsPeek(false);
+            updatePocketOverlay(false, event);
+          }}
+          onMouseMove={(event) => updatePocketOverlay(true, event)}
           tabIndex={privateCardsPeekable ? 0 : undefined}
         >
           {player.eliminated ? (
@@ -636,23 +668,6 @@ function Seat({
             </div>
           ) : null}
         </div>
-        {showPocketInsight ? (
-          <div className="pocket-insight" title={pocketInsightTitle}>
-            {showPocketRank ? (
-              <>
-                <span>핸드 랭킹</span>
-                <strong>{pocketInsight.rank}/169</strong>
-              </>
-            ) : null}
-            {showPocketNickname && pocketNicknameText ? <small>{pocketNicknameText}</small> : null}
-            {showPocketWinRate ? (
-              <>
-                <span>승률</span>
-                <strong>{formatWinRatePercent(pocketInsight.winRatePercent)}</strong>
-              </>
-            ) : null}
-          </div>
-        ) : null}
       </div>
       {showdownLabel ? (
         <div className={`showdown-hand${winner ? " is-winner" : ""}`}>
@@ -681,6 +696,45 @@ function Seat({
         </div>
       </dl>
     </article>
+  );
+}
+
+function PocketInsightOverlay({ insight, displayOptions, position }) {
+  if (!insight || !position) {
+    return null;
+  }
+
+  const showPocketRank = displayOptions?.rank !== false;
+  const showPocketWinRate = displayOptions?.winRate !== false;
+  const showPocketNickname = displayOptions?.nickname !== false;
+  const pocketNicknameText = [insight.category, insight.nickname].filter(Boolean).join(" · ");
+  const hasVisibleContent = showPocketRank || showPocketWinRate || (showPocketNickname && pocketNicknameText);
+  if (!hasVisibleContent) {
+    return null;
+  }
+
+  return (
+    <div
+      className="pocket-insight-overlay"
+      style={{
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+      }}
+    >
+      {showPocketRank ? (
+        <div>
+          <span>핸드 랭킹</span>
+          <strong>{insight.rank}/169</strong>
+        </div>
+      ) : null}
+      {showPocketNickname && pocketNicknameText ? <small>{pocketNicknameText}</small> : null}
+      {showPocketWinRate ? (
+        <div>
+          <span>승률</span>
+          <strong>{formatWinRatePercent(insight.winRatePercent)}</strong>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -872,6 +926,7 @@ export default function PokerApp() {
   const [activeGameMenuOpen, setActiveGameMenuOpen] = useState(false);
   const [gameInfoTab, setGameInfoTab] = useState("log");
   const [privateCardPeekedIds, setPrivateCardPeekedIds] = useState(() => new Set());
+  const [pocketInsightOverlay, setPocketInsightOverlay] = useState(() => ({ playerId: "", position: null }));
   const multiplayerSocketRef = useRef(null);
   const multiplayerReconnectRef = useRef(null);
   const multiplayerRoomIdRef = useRef("");
@@ -1038,6 +1093,7 @@ export default function PokerApp() {
 
   useEffect(() => {
     setPrivateCardPeekedIds(new Set());
+    setPocketInsightOverlay({ playerId: "", position: null });
   }, [state?.handId]);
 
   const showdownMap = useMemo(
@@ -1730,6 +1786,15 @@ export default function PokerApp() {
     }
   }
 
+  function handlePocketInsightPointerChange(playerId, position) {
+    if (!playerId || !position) {
+      setPocketInsightOverlay({ playerId: "", position: null });
+      return;
+    }
+
+    setPocketInsightOverlay({ playerId, position });
+  }
+
   function applyMultiplayerNameBlur() {
     const nextName = multiplayerName.trim().slice(0, 20) || "플레이어";
     if (nextName !== multiplayerName) {
@@ -1861,6 +1926,7 @@ export default function PokerApp() {
   function selectActiveGameTab(tabKey) {
     if (tabKey !== "table") {
       setPrivateCardPeekedIds(new Set());
+      setPocketInsightOverlay({ playerId: "", position: null });
       if (multiplayerGameActive && multiplayerPlayerId) {
         sendMultiplayerMessage({ type: "cardPeekState", peeking: false });
       }
@@ -2494,6 +2560,7 @@ export default function PokerApp() {
   const isNextHandReadyPhase = state.finished && !state.gameOver;
   const nextHandButtonDisabled = multiplayerGameActive && (!canConfirmMultiplayerNextHand || hasConfirmedMultiplayerNextHand);
   const nextHandButtonLabel = multiplayerGameActive && hasConfirmedMultiplayerNextHand ? "다음 핸드 준비 완료" : "다음 핸드";
+  const activePocketInsight = pocketInsightOverlay.playerId ? pocketInsightMap[pocketInsightOverlay.playerId] : null;
 
   return (
     <main className="app-shell">
@@ -2538,6 +2605,11 @@ export default function PokerApp() {
           ) : null}
         </div>
       </div>
+      <PocketInsightOverlay
+        displayOptions={pocketDisplayOptions}
+        insight={activePocketInsight}
+        position={pocketInsightOverlay.position}
+      />
 
       <section className={`panel active-game-panel${activeGameTab === "table" ? " is-table" : ""}`}>
       {activeGameTab === "settings" ? (
@@ -2711,10 +2783,10 @@ export default function PokerApp() {
               isMucked={muckedShowdownIds.has(player.id)}
               isCardPeeking={multiplayerGameActive && multiplayerCardPeekPlayerIds.has(player.id)}
               key={player.id}
+              hasPocketInsight={Boolean(pocketInsightMap[player.id])}
               onPrivateCardsPeekChange={handlePrivateCardsPeekChange}
+              onPocketInsightPointerChange={handlePocketInsightPointerChange}
               player={player}
-              pocketDisplayOptions={pocketDisplayOptions}
-              pocketInsight={pocketInsightMap[player.id]}
               privateCardsPeeked={privateCardPeekedIds.has(player.id)}
               revealCards={openedShowdownIds.has(player.id)}
               showdownLabel={showdownMap[player.id] ?? ""}
