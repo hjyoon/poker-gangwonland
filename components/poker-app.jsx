@@ -2429,8 +2429,6 @@ export default function PokerApp() {
 
   return (
     <main className="app-shell">
-      <HeroPanel />
-
       <div
         className="active-game-navigation"
         onBlur={(event) => {
@@ -2455,6 +2453,7 @@ export default function PokerApp() {
           </button>
           {activeGameMenuOpen ? (
             <div className="active-game-menu-list" role="menu">
+              <div className="active-game-menu-brand">Gangwon Land Hold&apos;em</div>
               {ACTIVE_GAME_TABS.map((tab) => (
                 <button
                   aria-current={activeGameTab === tab.key ? "page" : undefined}

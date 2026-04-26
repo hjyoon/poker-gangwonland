@@ -158,6 +158,18 @@ a {
   top: calc(100% + 8px);
 }
 
+.active-game-menu-brand {
+  border-bottom: 1px solid rgba(216, 162, 61, 0.18);
+  color: var(--gold);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  margin-bottom: 4px;
+  padding: 4px 8px 10px;
+  text-transform: uppercase;
+}
+
 .active-game-menu-item {
   align-items: center;
   background: transparent;
