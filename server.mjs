@@ -333,7 +333,7 @@ function allRequiredPlayersReadyForNextHand(room) {
   const requiredPlayerIds = nextHandRequiredPlayerIds(room);
   const readyPlayerIds = room.game?.nextHandReadyPlayerIds ?? new Set();
   if (requiredPlayerIds.length === 0) {
-    return activePlayerConfigsForNextHand(room).length >= 2;
+    return true;
   }
   return requiredPlayerIds.every((playerId) => readyPlayerIds.has(playerId));
 }
@@ -380,7 +380,6 @@ function publicRoom(room, socket) {
     showCumulativeWins: settings.showCumulativeWins,
     nextHandRequiredPlayerIds: nextHandRequiredPlayerIds(room),
     nextHandReadyPlayerIds: nextHandReadyPlayerIds(room),
-    nextHandBlockedReason: room.game?.nextHandBlockedReason ?? "",
     cardPeekPlayerIds: publicCardPeekPlayerIds(room),
     timer: publicRoomTimer(room),
     gameState: publicGameState(room.game?.state, socket?.playerId, settings.showComputerStyles),
@@ -454,7 +453,7 @@ function activePlayerConfigsForNextHand(room) {
       return true;
     }
     const seat = room.seats.find((entry) => entry.playerId === config.id);
-    return Boolean(seat && !seatWillBeAwayNextHand(seat));
+    return Boolean(seat && seat.connected && !seatWillBeAwayNextHand(seat));
   });
 }
 
@@ -840,7 +839,6 @@ function buildRoomGame(room, payload) {
     computerCardCheckedPlayerIds: new Set(),
     timer: null,
     timerId: 0,
-    nextHandBlockedReason: "",
   };
 }
 
@@ -875,22 +873,11 @@ function startNextRoomHand(room) {
   const currentState = room.game.state;
   const reservationLog = applySeatParticipationReservations(room);
   const nextPlayerConfigs = activePlayerConfigsForNextHand(room);
-  if (nextPlayerConfigs.length < 2) {
-    room.game.nextHandReadyPlayerIds = new Set();
-    room.game.cardPeekPlayerIds = new Set();
-    room.game.computerCardCheckedPlayerIds = new Set();
-    room.game.timer = null;
-    room.game.nextHandBlockedReason = "다음 핸드에 참가할 플레이어가 2명 미만입니다. 자리 비움 플레이어가 복귀해야 합니다.";
-    broadcastRoom(room);
-    return;
-  }
-
   const nextDealerIndex = nextDealerIndexForPlayerConfigs(room, currentState, nextPlayerConfigs);
   room.game.nextHandReadyPlayerIds = new Set();
   room.game.cardPeekPlayerIds = new Set();
   room.game.computerCardCheckedPlayerIds = new Set();
   room.game.timer = null;
-  room.game.nextHandBlockedReason = "";
   const nextState = startNewHand({
     cpuCount: room.game.cpuCount,
     includeHuman: false,
@@ -933,7 +920,6 @@ function applyRoomAction(room, actionKey, actorPlayerId = null, { timedOut = fal
 
   room.game.state = nextState;
   room.game.chipTotals = mergeChipTotals(room.game.chipTotals, nextState.chipTotals);
-  room.game.nextHandBlockedReason = "";
   room.game.computerStyles = nextState.computerStyles ?? room.game.computerStyles;
   room.game.computerLevels = nextState.computerLevels ?? room.game.computerLevels;
   scheduleRoomAutomation(room);
@@ -958,7 +944,8 @@ function scheduleRoomAutomation(room) {
 
   const state = room.game.state;
   if (state.finished) {
-    if (room.game.autoNextHand && !state.gameOver) {
+    const hasRequiredHumanNextHandConfirmation = nextHandRequiredPlayerIds(room).length > 0;
+    if (!state.gameOver && (room.game.autoNextHand || !hasRequiredHumanNextHandConfirmation)) {
       scheduleRoomTimer(room, {
         phase: "autoNextHand",
         durationMs: room.game.nextHandDelayMs,

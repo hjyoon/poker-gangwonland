@@ -1396,6 +1396,7 @@ export default function PokerApp() {
   const multiplayerNextHandRequiredIds = multiplayerRoom?.nextHandRequiredPlayerIds ?? [];
   const multiplayerNextHandReadyIds = multiplayerRoom?.nextHandReadyPlayerIds ?? [];
   const multiplayerNextHandReadyCount = multiplayerNextHandReadyIds.filter((playerId) => multiplayerNextHandRequiredIds.includes(playerId)).length;
+  const hasRequiredMultiplayerNextHandConfirmation = multiplayerNextHandRequiredIds.length > 0;
   const canConfirmMultiplayerNextHand = Boolean(multiplayerPlayerId && multiplayerNextHandRequiredIds.includes(multiplayerPlayerId));
   const hasConfirmedMultiplayerNextHand = Boolean(multiplayerPlayerId && multiplayerNextHandReadyIds.includes(multiplayerPlayerId));
   const ownMultiplayerSeat = multiplayerRoom?.seats.find((seat) => seat.playerId === multiplayerPlayerId) ?? null;
@@ -2834,6 +2835,8 @@ export default function PokerApp() {
   let statusText = "컴퓨터 진행 중입니다.";
   if (state.gameOver) {
     statusText = "게임이 종료되었습니다.";
+  } else if (state.finished && multiplayerGameActive && !hasRequiredMultiplayerNextHandConfirmation) {
+    statusText = "핸드가 종료되었습니다. 참가 중인 인간 플레이어가 없어 자동 진행을 대기 중입니다.";
   } else if (state.finished && multiplayerGameActive && autoNextHand) {
     statusText = "핸드가 종료되었습니다. 자동 진행 옵션에 따라 다음 핸드를 대기 중입니다.";
   } else if (state.finished && multiplayerGameActive && hasConfirmedMultiplayerNextHand) {
@@ -2876,7 +2879,12 @@ export default function PokerApp() {
   const cumulativeFee = state.feeTotal ?? 0;
   const isNextHandReadyPhase = state.finished && !state.gameOver;
   const nextHandButtonDisabled = multiplayerGameActive && (!canConfirmMultiplayerNextHand || hasConfirmedMultiplayerNextHand);
-  const nextHandButtonLabel = multiplayerGameActive && hasConfirmedMultiplayerNextHand ? "다음 핸드 준비 완료" : "다음 핸드";
+  const nextHandButtonLabel =
+    multiplayerGameActive && !hasRequiredMultiplayerNextHandConfirmation
+      ? "다음 핸드 자동 진행 대기"
+      : multiplayerGameActive && hasConfirmedMultiplayerNextHand
+        ? "다음 핸드 준비 완료"
+        : "다음 핸드";
   const activeCardInfoPlayer = cardInfoOverlay.playerId ? state.players.find((player) => player.id === cardInfoOverlay.playerId) : null;
   const activePocketInsight = cardInfoOverlay.playerId ? pocketInsightMap[cardInfoOverlay.playerId] : null;
   const activeShowdownLabel = cardInfoOverlay.playerId ? showdownMap[cardInfoOverlay.playerId] ?? "" : "";
@@ -3149,9 +3157,6 @@ export default function PokerApp() {
               </button>
             </div>
           ) : null}
-          {multiplayerGameActive && multiplayerRoom?.nextHandBlockedReason ? (
-            <p className="note money-negative">{multiplayerRoom.nextHandBlockedReason}</p>
-          ) : null}
           {isNextHandReadyPhase ? (
             <div className="action-row">
               <button onClick={nextHand} disabled={nextHandButtonDisabled}>
@@ -3174,7 +3179,9 @@ export default function PokerApp() {
           {humanActionHint ? <p className="note">{humanActionHint}</p> : null}
           {isNextHandReadyPhase && multiplayerGameActive ? (
             <p className="note">
-              {autoNextHand
+              {!hasRequiredMultiplayerNextHandConfirmation
+                ? "다음 핸드 확인 대상 인간 플레이어가 없어 자동으로 진행됩니다."
+                : autoNextHand
                 ? `자동 진행 옵션이 켜져 있습니다. 직접 진행하려면 인간 플레이어 전원이 다음 핸드를 눌러야 합니다. 준비 ${multiplayerNextHandReadyCount}/${multiplayerNextHandRequiredIds.length}명`
                 : `인간 플레이어 전원이 다음 핸드를 눌러야 진행됩니다. 준비 ${multiplayerNextHandReadyCount}/${multiplayerNextHandRequiredIds.length}명`}
             </p>
