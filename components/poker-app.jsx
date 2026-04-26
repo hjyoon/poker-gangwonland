@@ -559,8 +559,8 @@ function formatWinRatePercent(percent) {
 function pocketOverlayPositionFromEvent(event) {
   const viewportWidth = typeof window === "undefined" ? 1024 : window.innerWidth;
   const viewportHeight = typeof window === "undefined" ? 768 : window.innerHeight;
-  const overlayWidth = 220;
-  const overlayHeight = 132;
+  const overlayWidth = 240;
+  const overlayHeight = 172;
   let x = Number.isFinite(event?.clientX) ? event.clientX + 14 : 16;
   let y = Number.isFinite(event?.clientY) ? event.clientY + 14 : 16;
 
