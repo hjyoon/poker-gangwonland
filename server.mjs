@@ -1347,7 +1347,7 @@ function parseFrames(buffer) {
   return { frames, remaining: buffer.subarray(offset) };
 }
 
-function upgradeWebSocket(req, socket) {
+function upgradeWebSocket(req, socket, head = Buffer.alloc(0)) {
   const key = req.headers["sec-websocket-key"];
   if (!key) {
     socket.destroy();
@@ -1367,6 +1367,9 @@ function upgradeWebSocket(req, socket) {
   );
 
   socket.frameBuffer = Buffer.alloc(0);
+  if (head.length > 0) {
+    socket.frameBuffer = Buffer.from(head);
+  }
   sockets.add(socket);
   socket.on("data", (buffer) => {
     socket.frameBuffer = Buffer.concat([socket.frameBuffer, buffer]);
@@ -1406,13 +1409,14 @@ function upgradeWebSocket(req, socket) {
 
 await app.prepare();
 
+const handleUpgrade = app.getUpgradeHandler();
 const server = http.createServer((req, res) => handle(req, res));
-server.on("upgrade", (req, socket) => {
+server.on("upgrade", (req, socket, head) => {
   if (req.url === "/ws") {
-    upgradeWebSocket(req, socket);
-  } else {
-    socket.destroy();
+    upgradeWebSocket(req, socket, head);
+    return;
   }
+  handleUpgrade(req, socket, head);
 });
 
 server.listen(port, hostname, () => {
