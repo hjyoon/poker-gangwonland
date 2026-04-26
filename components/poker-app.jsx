@@ -42,16 +42,19 @@ const SETUP_MODE_OPTIONS = [
 ];
 const SINGLEPLAY_SETUP_TABS = [
   { key: "game", label: "게임 설정" },
+  { key: "personal", label: "개인 설정" },
   { key: "rules", label: "규칙 요약" },
 ];
 const MULTIPLAYER_SETUP_TABS = [
   { key: "multiplayer", label: "멀티플레이" },
   { key: "game", label: "게임 설정" },
+  { key: "personal", label: "개인 설정" },
   { key: "rules", label: "규칙 요약" },
 ];
 const MULTIPLAYER_LOBBY_TABS = [{ key: "multiplayer", label: "멀티플레이" }];
 const MULTIPLAYER_JOIN_SETUP_TABS = [
   { key: "multiplayer", label: "멀티플레이" },
+  { key: "personal", label: "개인 설정" },
   { key: "rules", label: "규칙 요약" },
 ];
 const MULTIPLAYER_LOBBY_MODES = [
@@ -66,6 +69,7 @@ const GAME_INFO_TABS = [
 const ACTIVE_GAME_TABS = [
   { key: "table", label: "게임 테이블" },
   { key: "settings", label: "게임 설정" },
+  { key: "personal", label: "개인 설정" },
   { key: "info", label: "보조 정보" },
 ];
 
@@ -644,6 +648,50 @@ function Seat({
         </div>
       </dl>
     </article>
+  );
+}
+
+function PersonalSettingsPanel({
+  showPocketRank,
+  showPocketWinRate,
+  showPocketNickname,
+  onShowPocketRankChange,
+  onShowPocketWinRateChange,
+  onShowPocketNicknameChange,
+}) {
+  return (
+    <div className="settings-group personal-settings-group">
+      <div>
+        <h2>개인 설정</h2>
+        <p className="note">내 화면의 포켓 정보 표시만 바꾸며, 멀티플레이 룸 설정으로 동기화되지 않습니다.</p>
+      </div>
+      <div className="game-settings-controls personal-settings-controls">
+        <label className="toggle-input">
+          <input
+            type="checkbox"
+            checked={showPocketRank}
+            onChange={(event) => onShowPocketRankChange(event.target.checked)}
+          />
+          핸드 랭킹 표시
+        </label>
+        <label className="toggle-input">
+          <input
+            type="checkbox"
+            checked={showPocketWinRate}
+            onChange={(event) => onShowPocketWinRateChange(event.target.checked)}
+          />
+          승률 표시
+        </label>
+        <label className="toggle-input">
+          <input
+            type="checkbox"
+            checked={showPocketNickname}
+            onChange={(event) => onShowPocketNicknameChange(event.target.checked)}
+          />
+          핸드 별칭 표시
+        </label>
+      </div>
+    </div>
   );
 }
 
@@ -2266,6 +2314,19 @@ export default function PokerApp() {
             </section>
           ) : null}
 
+          {setupTab === "personal" ? (
+            <section className="setup-section personal-settings-panel" role="tabpanel">
+              <PersonalSettingsPanel
+                showPocketRank={showPocketRankInGame}
+                showPocketWinRate={showPocketWinRateInGame}
+                showPocketNickname={showPocketNicknameInGame}
+                onShowPocketRankChange={setShowPocketRankInGame}
+                onShowPocketWinRateChange={setShowPocketWinRateInGame}
+                onShowPocketNicknameChange={setShowPocketNicknameInGame}
+              />
+            </section>
+          ) : null}
+
           {setupTab === "rules" ? (
             <div className="setup-section" role="tabpanel">
               <RulesPanel embedded />
@@ -2497,38 +2558,19 @@ export default function PokerApp() {
             <button onClick={openSetup}>새 게임 설정</button>
           </div>
         </div>
-        <div className="settings-group personal-settings-group">
-          <div>
-            <h3>개인 설정</h3>
-            <p className="note">내 화면의 포켓 정보 표시만 바꾸며, 멀티플레이 룸 설정으로 동기화되지 않습니다.</p>
-          </div>
-          <div className="game-settings-controls personal-settings-controls">
-            <label className="toggle-input">
-              <input
-                type="checkbox"
-                checked={showPocketRankInGame}
-                onChange={(event) => setShowPocketRankInGame(event.target.checked)}
-              />
-              핸드 랭킹 표시
-            </label>
-            <label className="toggle-input">
-              <input
-                type="checkbox"
-                checked={showPocketWinRateInGame}
-                onChange={(event) => setShowPocketWinRateInGame(event.target.checked)}
-              />
-              승률 표시
-            </label>
-            <label className="toggle-input">
-              <input
-                type="checkbox"
-                checked={showPocketNicknameInGame}
-                onChange={(event) => setShowPocketNicknameInGame(event.target.checked)}
-              />
-              핸드 별칭 표시
-            </label>
-          </div>
-        </div>
+      </section>
+      ) : null}
+
+      {activeGameTab === "personal" ? (
+      <section className="active-game-section personal-settings-panel" role="tabpanel">
+        <PersonalSettingsPanel
+          showPocketRank={showPocketRankInGame}
+          showPocketWinRate={showPocketWinRateInGame}
+          showPocketNickname={showPocketNicknameInGame}
+          onShowPocketRankChange={setShowPocketRankInGame}
+          onShowPocketWinRateChange={setShowPocketWinRateInGame}
+          onShowPocketNicknameChange={setShowPocketNicknameInGame}
+        />
       </section>
       ) : null}
 
