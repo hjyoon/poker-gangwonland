@@ -739,15 +739,17 @@ function Seat({
       ? "탈락"
       : player.isPendingJoin
         ? "참가 예약"
-      : player.isPendingStandUp
-        ? "퇴장 예약"
-        : player.isPendingReturn
-        ? "복귀 예약"
-        : player.isAway
-          ? "자리 비움"
-          : player.isHuman
-            ? "인간"
-            : computerLabel;
+        : player.isPendingEndlessJoin
+          ? "엔들리스 대기"
+          : player.isPendingStandUp
+            ? "퇴장 예약"
+            : player.isPendingReturn
+              ? "복귀 예약"
+              : player.isAway
+                ? "자리 비움"
+                : player.isHuman
+                  ? "인간"
+                  : computerLabel;
   const actionLabel = seatActionLabel(player);
   const hasSeatCards = Array.isArray(player.cards) && player.cards.length > 0;
   const cardsReturned = player.folded && !player.eliminated && (!Array.isArray(player.cards) || player.cards.length === 0);
@@ -1245,8 +1247,11 @@ export default function PokerApp() {
       setMultiplayerRoom(room);
       setMultiplayerError("");
       const ownSeat = room.seats.find((seat) => seat.playerId === multiplayerPlayerIdRef.current);
+      const ownWaitingParticipant = room.waitingParticipants?.find((participant) => participant.playerId === multiplayerPlayerIdRef.current);
       if (ownSeat?.name && document.activeElement !== multiplayerNameInputRef.current) {
         setMultiplayerName(ownSeat.name);
+      } else if (ownWaitingParticipant?.name && document.activeElement !== multiplayerNameInputRef.current) {
+        setMultiplayerName(ownWaitingParticipant.name);
       }
       if (room.gameState) {
         multiplayerGameActiveRef.current = true;
@@ -1500,6 +1505,8 @@ export default function PokerApp() {
   const canConfirmMultiplayerNextHand = Boolean(multiplayerPlayerId && multiplayerNextHandRequiredIds.includes(multiplayerPlayerId));
   const hasConfirmedMultiplayerNextHand = Boolean(multiplayerPlayerId && multiplayerNextHandReadyIds.includes(multiplayerPlayerId));
   const ownMultiplayerSeat = multiplayerRoom?.seats.find((seat) => seat.playerId === multiplayerPlayerId) ?? null;
+  const ownEndlessWaitingParticipant =
+    multiplayerRoom?.waitingParticipants?.find((participant) => participant.playerId === multiplayerPlayerId && participant.pendingEndlessJoin) ?? null;
   const ownMultiplayerGamePlayer = state?.players.find((player) => player.id === multiplayerPlayerId && !player.eliminated) ?? null;
   const ownMultiplayerCanJoinSeat = Boolean(multiplayerGameActive && multiplayerPlayerId && !ownMultiplayerGamePlayer && !state?.gameOver);
   const ownSeatAway = Boolean(ownMultiplayerSeat?.away);
@@ -1905,6 +1912,9 @@ export default function PokerApp() {
     }
     if (seat.pendingJoin) {
       return "참가 예약";
+    }
+    if (seat.pendingEndlessJoin) {
+      return "엔들리스 참가 대기";
     }
     if (seat.pendingStandUp) {
       return "게임 퇴장 예약";
@@ -2904,22 +2914,34 @@ export default function PokerApp() {
                               ? "빈 자리"
                               : seat.pendingJoin
                                 ? "참가 예약"
-                              : seat.pendingStandUp
-                                ? "게임 퇴장 예약"
-                                : seat.pendingAway
-                                ? "자리 비움 예약"
-                                : seat.pendingReturn
-                                  ? "복귀 예약"
-                                  : seat.away
-                                    ? seat.connected
-                                      ? "자리 비움"
-                                      : "자리 비움 · 연결 끊김"
-                                    : seat.connected
-                                      ? "참가 중"
-                                      : "연결 끊김"}
+                                : seat.pendingEndlessJoin
+                                  ? "엔들리스 참가 대기"
+                                  : seat.pendingStandUp
+                                    ? "게임 퇴장 예약"
+                                    : seat.pendingAway
+                                      ? "자리 비움 예약"
+                                      : seat.pendingReturn
+                                        ? "복귀 예약"
+                                        : seat.away
+                                          ? seat.connected
+                                            ? "자리 비움"
+                                            : "자리 비움 · 연결 끊김"
+                                          : seat.connected
+                                            ? "참가 중"
+                                            : "연결 끊김"}
                           </span>
                           <strong>{seat.name || "참가 대기 중"}</strong>
                           {missedBlindStatusText(seat) ? <small>{missedBlindStatusText(seat)}</small> : null}
+                        </div>
+                      ))}
+                      {(multiplayerRoom.waitingParticipants ?? []).map((participant) => (
+                        <div
+                          className={`room-slot is-waiting${participant.connected ? "" : " is-disconnected"}`}
+                          key={participant.playerId}
+                        >
+                          <span>{participant.connected ? "엔들리스 참가 대기" : "엔들리스 대기 · 연결 끊김"}</span>
+                          <strong>{participant.name || "참가자"}</strong>
+                          <small>컴퓨터 탈락 시 해당 좌석으로 참가</small>
                         </div>
                       ))}
                     </div>
@@ -3333,6 +3355,14 @@ export default function PokerApp() {
                 {ownSeatStandUpButtonLabel}
               </button>
               <p className="note">{ownSeatStandUpHelpText}</p>
+            </div>
+          ) : null}
+          {multiplayerGameActive && !ownMultiplayerSeat && ownEndlessWaitingParticipant ? (
+            <div className="seat-participation-control is-waiting">
+              <div>
+                <strong>내 참가 상태</strong>
+                <p className="note">엔들리스 참가 대기 중입니다. 컴퓨터 플레이어가 탈락하면 그 좌석으로 다음 핸드부터 참가합니다.</p>
+              </div>
             </div>
           ) : null}
           {isNextHandReadyPhase ? (

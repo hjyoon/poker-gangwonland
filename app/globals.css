@@ -825,6 +825,11 @@ button:disabled {
   margin: 0;
 }
 
+.seat-participation-control.is-waiting {
+  background: rgba(196, 181, 253, 0.08);
+  border-color: rgba(196, 181, 253, 0.28);
+}
+
 .seat-join-button {
   min-height: 38px;
   width: 100%;
@@ -1300,6 +1305,10 @@ td {
 
 .room-slot.is-disconnected {
   opacity: 0.58;
+}
+
+.room-slot.is-waiting {
+  border-color: rgba(196, 181, 253, 0.28);
 }
 
 .room-slot span {
