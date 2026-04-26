@@ -113,6 +113,71 @@ a {
   gap: 18px;
 }
 
+.active-game-navigation {
+  align-items: center;
+  display: flex;
+  left: max(16px, calc((100vw - 1440px) / 2 + 16px));
+  position: fixed;
+  top: 16px;
+  z-index: 50;
+}
+
+.active-game-menu {
+  position: relative;
+}
+
+.hamburger-button {
+  align-items: center;
+  border-radius: 8px;
+  display: inline-flex;
+  height: 42px;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0;
+  width: 42px;
+}
+
+.hamburger-button svg {
+  display: block;
+  fill: currentColor;
+  height: 22px;
+  width: 22px;
+}
+
+.active-game-menu-list {
+  background: rgba(11, 15, 18, 0.98);
+  border: 1px solid rgba(216, 162, 61, 0.24);
+  border-radius: 8px;
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.42);
+  display: grid;
+  gap: 4px;
+  left: 0;
+  min-width: 180px;
+  padding: 8px;
+  position: absolute;
+  top: calc(100% + 8px);
+}
+
+.active-game-menu-item {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text);
+  display: flex;
+  justify-content: flex-start;
+  min-height: 40px;
+  padding: 0 12px;
+  text-align: left;
+}
+
+.active-game-menu-item:hover,
+.active-game-menu-item.is-active {
+  background: rgba(216, 162, 61, 0.14);
+  border-color: rgba(216, 162, 61, 0.32);
+  color: var(--gold);
+}
+
 .active-game-panel.is-table {
   background:
     radial-gradient(circle at center, rgba(18, 89, 56, 0.48), rgba(7, 20, 16, 0.95) 72%),

@@ -836,6 +836,7 @@ export default function PokerApp() {
   const [multiplayerLobbyMode, setMultiplayerLobbyMode] = useState("");
   const [setupTab, setSetupTab] = useState("game");
   const [activeGameTab, setActiveGameTab] = useState("table");
+  const [activeGameMenuOpen, setActiveGameMenuOpen] = useState(false);
   const [gameInfoTab, setGameInfoTab] = useState("log");
   const multiplayerSocketRef = useRef(null);
   const multiplayerReconnectRef = useRef(null);
@@ -1795,6 +1796,11 @@ export default function PokerApp() {
     setState(null);
   }
 
+  function selectActiveGameTab(tabKey) {
+    setActiveGameTab(tabKey);
+    setActiveGameMenuOpen(false);
+  }
+
   function nextHand() {
     if (multiplayerGameActive) {
       if (!state?.finished || state.gameOver) {
@@ -2425,22 +2431,48 @@ export default function PokerApp() {
     <main className="app-shell">
       <HeroPanel />
 
-      <section className={`panel active-game-panel${activeGameTab === "table" ? " is-table" : ""}`}>
-        <div className="section-tabs active-game-tabs" role="tablist" aria-label="게임 진행 섹션">
-          {ACTIVE_GAME_TABS.map((tab) => (
-            <button
-              aria-selected={activeGameTab === tab.key}
-              className={`section-tab active-game-tab${activeGameTab === tab.key ? " is-active" : ""}`}
-              key={tab.key}
-              onClick={() => setActiveGameTab(tab.key)}
-              role="tab"
-              type="button"
-            >
-              {tab.label}
-            </button>
-          ))}
+      <div
+        className="active-game-navigation"
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            setActiveGameMenuOpen(false);
+          }
+        }}
+      >
+        <div className="active-game-menu">
+          <button
+            aria-expanded={activeGameMenuOpen}
+            aria-haspopup="menu"
+            aria-label="게임 진행 메뉴 열기"
+            className="hamburger-button"
+            onClick={() => setActiveGameMenuOpen((open) => !open)}
+            title="게임 진행 메뉴"
+            type="button"
+          >
+            <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
+              <path d="M4 7h16v2H4V7Zm0 4h16v2H4v-2Zm0 4h16v2H4v-2Z" />
+            </svg>
+          </button>
+          {activeGameMenuOpen ? (
+            <div className="active-game-menu-list" role="menu">
+              {ACTIVE_GAME_TABS.map((tab) => (
+                <button
+                  aria-current={activeGameTab === tab.key ? "page" : undefined}
+                  className={`active-game-menu-item${activeGameTab === tab.key ? " is-active" : ""}`}
+                  key={tab.key}
+                  onClick={() => selectActiveGameTab(tab.key)}
+                  role="menuitem"
+                  type="button"
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
+      </div>
 
+      <section className={`panel active-game-panel${activeGameTab === "table" ? " is-table" : ""}`}>
       {activeGameTab === "settings" ? (
       <section className="active-game-section game-settings-panel" role="tabpanel">
         <div className="settings-group">
