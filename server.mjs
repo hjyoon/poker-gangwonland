@@ -287,12 +287,38 @@ function publicRoomSettings(room) {
   };
 }
 
+function normalizeSeat(seat) {
+  return {
+    ...seat,
+    away: Boolean(seat.away),
+    pendingAway: Boolean(seat.pendingAway),
+    pendingReturn: Boolean(seat.pendingReturn),
+  };
+}
+
+function seatWillBeAwayNextHand(seat) {
+  if (!seat) {
+    return false;
+  }
+  if (seat.pendingReturn) {
+    return false;
+  }
+  if (seat.pendingAway) {
+    return true;
+  }
+  return Boolean(seat.away);
+}
+
 function nextHandRequiredPlayerIds(room) {
   if (!room.game?.state?.finished || room.game.state.gameOver) {
     return [];
   }
 
-  const connectedPlayerIds = new Set(room.seats.filter((seat) => seat.playerId && seat.connected).map((seat) => seat.playerId));
+  const connectedPlayerIds = new Set(
+    room.seats
+      .filter((seat) => seat.playerId && seat.connected && !seatWillBeAwayNextHand(seat))
+      .map((seat) => seat.playerId),
+  );
   return room.game.state.players
     .filter((player) => player.isHuman && !player.eliminated && connectedPlayerIds.has(player.id))
     .map((player) => player.id);
@@ -306,7 +332,10 @@ function nextHandReadyPlayerIds(room) {
 function allRequiredPlayersReadyForNextHand(room) {
   const requiredPlayerIds = nextHandRequiredPlayerIds(room);
   const readyPlayerIds = room.game?.nextHandReadyPlayerIds ?? new Set();
-  return requiredPlayerIds.length > 0 && requiredPlayerIds.every((playerId) => readyPlayerIds.has(playerId));
+  if (requiredPlayerIds.length === 0) {
+    return activePlayerConfigsForNextHand(room).length >= 2;
+  }
+  return requiredPlayerIds.every((playerId) => readyPlayerIds.has(playerId));
 }
 
 function startNextRoomHandIfReady(room) {
@@ -344,13 +373,14 @@ function publicRoom(room, socket) {
     id: room.id,
     humanSlots: room.humanSlots,
     hostPlayerId: room.hostPlayerId,
-    seats: room.seats.map((seat) => ({ ...seat })),
+    seats: room.seats.map((seat) => normalizeSeat(seat)),
     createdAt: room.createdAt,
     settings,
     showComputerStyles: settings.showComputerStyles,
     showCumulativeWins: settings.showCumulativeWins,
     nextHandRequiredPlayerIds: nextHandRequiredPlayerIds(room),
     nextHandReadyPlayerIds: nextHandReadyPlayerIds(room),
+    nextHandBlockedReason: room.game?.nextHandBlockedReason ?? "",
     cardPeekPlayerIds: publicCardPeekPlayerIds(room),
     timer: publicRoomTimer(room),
     gameState: publicGameState(room.game?.state, socket?.playerId, settings.showComputerStyles),
@@ -410,6 +440,84 @@ function clearRoomTimers(room) {
   }
 }
 
+function mergeChipTotals(previousTotals = {}, nextTotals = {}) {
+  return {
+    ...(previousTotals ?? {}),
+    ...(nextTotals ?? {}),
+  };
+}
+
+function activePlayerConfigsForNextHand(room) {
+  const allPlayerConfigs = room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? [];
+  return allPlayerConfigs.filter((config) => {
+    if (!config.isHuman) {
+      return true;
+    }
+    const seat = room.seats.find((entry) => entry.playerId === config.id);
+    return Boolean(seat && !seatWillBeAwayNextHand(seat));
+  });
+}
+
+function nextDealerIndexForPlayerConfigs(room, currentState, nextPlayerConfigs) {
+  if (!nextPlayerConfigs.length) {
+    return 0;
+  }
+
+  const allPlayerConfigs = room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? nextPlayerConfigs;
+  const activeIds = new Set(nextPlayerConfigs.map((config) => config.id));
+  const previousDealerId = currentState.players[currentState.dealerIndex]?.id;
+  const previousDealerOrderIndex = allPlayerConfigs.findIndex((config) => config.id === previousDealerId);
+  const startIndex = previousDealerOrderIndex >= 0 ? previousDealerOrderIndex : -1;
+
+  for (let offset = 1; offset <= allPlayerConfigs.length; offset += 1) {
+    const config = allPlayerConfigs[(startIndex + offset + allPlayerConfigs.length) % allPlayerConfigs.length];
+    if (activeIds.has(config.id)) {
+      return Math.max(0, nextPlayerConfigs.findIndex((nextConfig) => nextConfig.id === config.id));
+    }
+  }
+
+  return 0;
+}
+
+function syncAllPlayerConfigs(room, activeBefore, activeAfter) {
+  const allPlayerConfigs = room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? [];
+  const replacements = new Map();
+  activeBefore.forEach((config, index) => {
+    if (activeAfter[index]) {
+      replacements.set(config.id, activeAfter[index]);
+    }
+  });
+  room.game.allPlayerConfigs = allPlayerConfigs.map((config) => replacements.get(config.id) ?? config);
+}
+
+function applySeatParticipationReservations(room) {
+  const log = [];
+  room.seats = room.seats.map((seat) => {
+    const nextSeat = normalizeSeat(seat);
+    const name = nextSeat.name || nextSeat.label || "참가자";
+    if (nextSeat.pendingAway) {
+      log.push(`${name}: 다음 핸드부터 자리 비움`);
+      return {
+        ...nextSeat,
+        away: true,
+        pendingAway: false,
+        pendingReturn: false,
+      };
+    }
+    if (nextSeat.pendingReturn) {
+      log.push(`${name}: 다음 핸드부터 복귀`);
+      return {
+        ...nextSeat,
+        away: false,
+        pendingAway: false,
+        pendingReturn: false,
+      };
+    }
+    return nextSeat;
+  });
+  return log;
+}
+
 function scheduleEmptyRoomCleanup(room) {
   if (room.clients.size > 0 || room.cleanupTimer) {
     return;
@@ -443,6 +551,9 @@ function detachSocketFromRoom(socket, { clearSeat = false } = {}) {
     if (shouldClearSeat) {
       seat.playerId = null;
       seat.name = null;
+      seat.away = false;
+      seat.pendingAway = false;
+      seat.pendingReturn = false;
     }
     seat.connected = false;
   }
@@ -491,13 +602,16 @@ function resizeRoomHumanSlots(room, nextHumanSlots) {
         playerId: null,
         name: null,
         connected: false,
+        away: false,
+        pendingAway: false,
+        pendingReturn: false,
       });
     }
   }
 
   room.humanSlots = humanSlots;
   room.seats = room.seats.map((seat, index) => ({
-    ...seat,
+    ...normalizeSeat(seat),
     id: `human-slot-${index + 1}`,
     label: `빈 자리 ${index + 1}`,
   }));
@@ -522,6 +636,9 @@ function createRoom(socket, payload) {
       playerId: index === 0 ? playerId : null,
       name: index === 0 ? sanitizeName(payload.playerName, "방장") : null,
       connected: index === 0,
+      away: false,
+      pendingAway: false,
+      pendingReturn: false,
     })),
     clients: new Set([socket]),
     createdAt: Date.now(),
@@ -570,10 +687,20 @@ function joinRoom(socket, targetRoomId, playerName, requestedPlayerId = null) {
     detachSocketFromRoom(socket, { clearSeat: true });
   }
 
+  const isNewSeatOccupant = !targetSeat.playerId;
   const playerId = targetSeat.playerId || crypto.randomUUID();
   targetSeat.playerId = playerId;
   targetSeat.name = sanitizeName(playerName);
   targetSeat.connected = true;
+  if (isNewSeatOccupant) {
+    targetSeat.away = false;
+    targetSeat.pendingAway = false;
+    targetSeat.pendingReturn = false;
+  } else {
+    targetSeat.away = Boolean(targetSeat.away);
+    targetSeat.pendingAway = Boolean(targetSeat.pendingAway);
+    targetSeat.pendingReturn = Boolean(targetSeat.pendingReturn);
+  }
   socket.roomId = room.id;
   socket.playerId = playerId;
   room.clients.add(socket);
@@ -597,6 +724,11 @@ function updatePlayerName(socket, playerName) {
 
   if (room.game?.playerConfigs) {
     room.game.playerConfigs = room.game.playerConfigs.map((config) =>
+      config.id === socket.playerId ? { ...config, name: nextName } : config,
+    );
+  }
+  if (room.game?.allPlayerConfigs) {
+    room.game.allPlayerConfigs = room.game.allPlayerConfigs.map((config) =>
       config.id === socket.playerId ? { ...config, name: nextName } : config,
     );
   }
@@ -641,8 +773,9 @@ function buildRoomGame(room, payload) {
       startingBalance: settings.humanPlayers[index]?.startingBalance ?? settings.humanStartingBalance,
       setupPlayerId: humanSlotId(index),
       connected: seat.connected,
+      away: seatWillBeAwayNextHand(seat),
     }))
-    .filter((seat) => seat.id && seat.connected);
+    .filter((seat) => seat.id && seat.connected && !seat.away);
   const normalizedPlayerOrder = settings.randomizePlayerOrder
     ? shuffledPlayerOrder(room.humanSlots, computerPlayers.length)
     : normalizePlayerOrder(settings.playerOrder, room.humanSlots, computerPlayers.length);
@@ -685,11 +818,13 @@ function buildRoomGame(room, payload) {
   });
 
   return {
-    playerConfigs,
+    playerConfigs: state.playerConfigs,
+    allPlayerConfigs: state.playerConfigs,
     cpuCount: computerPlayers.length,
     computerStyles,
     computerLevels,
     state,
+    chipTotals: state.chipTotals,
     autoNextHand: settings.autoNextHand,
     endlessMode: settings.endlessMode,
     endlessReplacementComputerStyle: settings.endlessReplacementComputerStyle,
@@ -705,6 +840,7 @@ function buildRoomGame(room, payload) {
     computerCardCheckedPlayerIds: new Set(),
     timer: null,
     timerId: 0,
+    nextHandBlockedReason: "",
   };
 }
 
@@ -737,16 +873,29 @@ function startNextRoomHand(room) {
   }
 
   const currentState = room.game.state;
-  const nextDealerIndex = (currentState.dealerIndex + 1) % currentState.players.length;
+  const reservationLog = applySeatParticipationReservations(room);
+  const nextPlayerConfigs = activePlayerConfigsForNextHand(room);
+  if (nextPlayerConfigs.length < 2) {
+    room.game.nextHandReadyPlayerIds = new Set();
+    room.game.cardPeekPlayerIds = new Set();
+    room.game.computerCardCheckedPlayerIds = new Set();
+    room.game.timer = null;
+    room.game.nextHandBlockedReason = "다음 핸드에 참가할 플레이어가 2명 미만입니다. 자리 비움 플레이어가 복귀해야 합니다.";
+    broadcastRoom(room);
+    return;
+  }
+
+  const nextDealerIndex = nextDealerIndexForPlayerConfigs(room, currentState, nextPlayerConfigs);
   room.game.nextHandReadyPlayerIds = new Set();
   room.game.cardPeekPlayerIds = new Set();
   room.game.computerCardCheckedPlayerIds = new Set();
   room.game.timer = null;
-  room.game.state = startNewHand({
+  room.game.nextHandBlockedReason = "";
+  const nextState = startNewHand({
     cpuCount: room.game.cpuCount,
     includeHuman: false,
     dealerIndex: nextDealerIndex,
-    chipTotals: currentState.chipTotals,
+    chipTotals: room.game.chipTotals ?? currentState.chipTotals,
     feeTotal: currentState.feeTotal,
     handNumber: (currentState.handNumber ?? 0) + 1,
     computerStyles: room.game.computerStyles,
@@ -756,9 +905,12 @@ function startNextRoomHand(room) {
     endlessReplacementComputerLevel: room.game.endlessReplacementComputerLevel,
     endlessReplacementStartingBalance: room.game.endlessReplacementStartingBalance,
     playerStats: currentState.playerStats ?? {},
-    playerConfigs: room.game.playerConfigs,
+    playerConfigs: nextPlayerConfigs,
   });
+  room.game.state = reservationLog.length ? { ...nextState, log: [...reservationLog, ...nextState.log] } : nextState;
   room.game.playerConfigs = room.game.state.playerConfigs;
+  syncAllPlayerConfigs(room, nextPlayerConfigs, room.game.state.playerConfigs);
+  room.game.chipTotals = mergeChipTotals(room.game.chipTotals ?? currentState.chipTotals, room.game.state.chipTotals);
   room.game.computerStyles = room.game.state.computerStyles ?? room.game.computerStyles;
   room.game.computerLevels = room.game.state.computerLevels ?? room.game.computerLevels;
   scheduleRoomAutomation(room);
@@ -780,6 +932,8 @@ function applyRoomAction(room, actionKey, actorPlayerId = null, { timedOut = fal
   }
 
   room.game.state = nextState;
+  room.game.chipTotals = mergeChipTotals(room.game.chipTotals, nextState.chipTotals);
+  room.game.nextHandBlockedReason = "";
   room.game.computerStyles = nextState.computerStyles ?? room.game.computerStyles;
   room.game.computerLevels = nextState.computerLevels ?? room.game.computerLevels;
   scheduleRoomAutomation(room);
@@ -936,6 +1090,49 @@ function handleRequestNextHand(socket) {
     startNextRoomHand(room);
     return;
   }
+  broadcastRoom(room);
+}
+
+function handleSetSeatAway(socket, payload) {
+  const room = rooms.get(socket.roomId);
+  if (!room || !socket.playerId) {
+    sendError(socket, "먼저 멀티플레이 룸에 참가해야 합니다.");
+    return;
+  }
+
+  const seat = room.seats.find((entry) => entry.playerId === socket.playerId);
+  if (!seat) {
+    sendError(socket, "참가자 자리를 찾을 수 없습니다.");
+    return;
+  }
+
+  const wantsAway = Boolean(payload.away);
+  const state = room.game?.state;
+  const handInProgress = Boolean(state && !state.finished && !state.gameOver);
+
+  if (handInProgress) {
+    if (Boolean(seat.away) === wantsAway) {
+      seat.pendingAway = false;
+      seat.pendingReturn = false;
+    } else {
+      seat.pendingAway = wantsAway;
+      seat.pendingReturn = !wantsAway;
+    }
+  } else {
+    seat.away = wantsAway;
+    seat.pendingAway = false;
+    seat.pendingReturn = false;
+    room.game?.nextHandReadyPlayerIds?.delete(socket.playerId);
+  }
+
+  room.game?.cardPeekPlayerIds?.delete(socket.playerId);
+  if (room.game?.state?.finished && !room.game.state.gameOver) {
+    if (!startNextRoomHandIfReady(room)) {
+      scheduleRoomAutomation(room);
+    }
+    return;
+  }
+
   broadcastRoom(room);
 }
 
@@ -1096,6 +1293,10 @@ function handleMessage(socket, message) {
   }
   if (message.type === "requestNextHand") {
     handleRequestNextHand(socket);
+    return;
+  }
+  if (message.type === "setSeatAway") {
+    handleSetSeatAway(socket, message);
     return;
   }
   if (message.type === "cardPeekState") {

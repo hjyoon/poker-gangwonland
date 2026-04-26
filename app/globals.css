@@ -745,6 +745,28 @@ button:disabled {
   margin: 12px 0;
 }
 
+.seat-participation-control {
+  align-items: center;
+  background: rgba(84, 212, 230, 0.07);
+  border: 1px solid rgba(84, 212, 230, 0.22);
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  margin: 12px 0;
+  padding: 12px;
+}
+
+.seat-participation-control strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.seat-participation-control .note {
+  margin: 0;
+}
+
 .timer-progress {
   display: grid;
   gap: 8px;

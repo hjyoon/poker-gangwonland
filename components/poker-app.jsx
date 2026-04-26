@@ -529,6 +529,56 @@ function replaceRoomCodeInUrl(roomId) {
   window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
+function multiplayerStorageKey(roomId) {
+  const roomCode = normalizeRoomCode(roomId);
+  return roomCode ? `poker-gangwonland:multiplayer:${roomCode}:player-id` : "";
+}
+
+function readStoredMultiplayerPlayerId(roomId) {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  const key = multiplayerStorageKey(roomId);
+  if (!key) {
+    return "";
+  }
+  try {
+    return window.localStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function storeMultiplayerPlayerId(roomId, playerId) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const key = multiplayerStorageKey(roomId);
+  if (!key || !playerId) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(key, playerId);
+  } catch {
+    // 저장 실패는 재접속 편의 기능만 비활성화한다.
+  }
+}
+
+function removeStoredMultiplayerPlayerId(roomId) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const key = multiplayerStorageKey(roomId);
+  if (!key) {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // 저장소 접근 실패는 무시한다.
+  }
+}
+
 function stateWithObservedCardPeekIds(state, peekIdSets, actorId = "") {
   const cardPeekPlayerIds = [...new Set(peekIdSets.flatMap((ids) => [...ids]))].filter((id) => id && id !== actorId);
   return {
@@ -1127,6 +1177,7 @@ export default function PokerApp() {
         pendingJoinRoomIdRef.current = "";
         multiplayerRoomIdRef.current = message.roomId;
         multiplayerPlayerIdRef.current = message.playerId;
+        storeMultiplayerPlayerId(message.roomId, message.playerId);
         replaceRoomCodeInUrl(message.roomId);
         setSetupMode("multiplayer");
         setSetupTab("multiplayer");
@@ -1134,6 +1185,7 @@ export default function PokerApp() {
         setMultiplayerPlayerId(message.playerId);
       }
       if (message.type === "leftRoom") {
+        removeStoredMultiplayerPlayerId(multiplayerRoomIdRef.current);
         multiplayerRoomIdRef.current = "";
         multiplayerPlayerIdRef.current = null;
         pendingJoinRoomIdRef.current = "";
@@ -1177,11 +1229,13 @@ export default function PokerApp() {
             }),
           );
         } else if (pendingJoinRoomIdRef.current) {
+          const storedPlayerId = readStoredMultiplayerPlayerId(pendingJoinRoomIdRef.current);
           socket.send(
             JSON.stringify({
               type: "joinRoom",
               roomId: pendingJoinRoomIdRef.current,
               playerName: multiplayerNameRef.current,
+              playerId: storedPlayerId || undefined,
             }),
           );
         }
@@ -1344,6 +1398,25 @@ export default function PokerApp() {
   const multiplayerNextHandReadyCount = multiplayerNextHandReadyIds.filter((playerId) => multiplayerNextHandRequiredIds.includes(playerId)).length;
   const canConfirmMultiplayerNextHand = Boolean(multiplayerPlayerId && multiplayerNextHandRequiredIds.includes(multiplayerPlayerId));
   const hasConfirmedMultiplayerNextHand = Boolean(multiplayerPlayerId && multiplayerNextHandReadyIds.includes(multiplayerPlayerId));
+  const ownMultiplayerSeat = multiplayerRoom?.seats.find((seat) => seat.playerId === multiplayerPlayerId) ?? null;
+  const ownSeatAway = Boolean(ownMultiplayerSeat?.away);
+  const ownSeatPendingAway = Boolean(ownMultiplayerSeat?.pendingAway);
+  const ownSeatPendingReturn = Boolean(ownMultiplayerSeat?.pendingReturn);
+  const ownSeatNextAwayRequest = ownSeatPendingAway ? false : ownSeatPendingReturn ? true : !ownSeatAway;
+  const ownSeatAwayButtonLabel = ownSeatPendingAway
+    ? "자리 비움 예약 취소"
+    : ownSeatPendingReturn
+      ? "복귀 예약 취소"
+      : ownSeatAway
+        ? "다음 핸드부터 복귀"
+        : "다음 핸드부터 자리 비움";
+  const ownSeatParticipationText = ownSeatPendingAway
+    ? "이번 핸드가 끝나면 자리 비움으로 전환됩니다."
+    : ownSeatPendingReturn
+      ? "이번 핸드가 끝나면 다시 참가합니다."
+      : ownSeatAway
+        ? "현재 자리 비움 상태입니다. 복귀를 누르면 다음 핸드부터 참가합니다."
+        : "현재 참가 중입니다. 자리 비움은 다음 핸드부터 적용됩니다.";
   const multiplayerSettingsPayload = useMemo(
     () => ({
       humanStartingBalance: setupBalances[humanSlotId(0)] ?? DEFAULT_STARTING_BALANCE,
@@ -1696,6 +1769,15 @@ export default function PokerApp() {
     if (!seat.playerId) {
       return "참가 대기 중입니다.";
     }
+    if (seat.pendingAway) {
+      return "자리 비움 예약";
+    }
+    if (seat.pendingReturn) {
+      return "복귀 예약";
+    }
+    if (seat.away) {
+      return seat.connected ? "자리 비움" : "자리 비움 · 연결 끊김";
+    }
     return seat.connected ? "참가 중" : "연결 끊김";
   }
 
@@ -2020,6 +2102,7 @@ export default function PokerApp() {
   }
 
   function leaveMultiplayerRoom() {
+    removeStoredMultiplayerPlayerId(multiplayerRoomIdRef.current || multiplayerRoom?.id);
     sendMultiplayerMessage({ type: "leaveRoom" });
     pendingJoinRoomIdRef.current = "";
     replaceRoomCodeInUrl("");
@@ -2127,6 +2210,13 @@ export default function PokerApp() {
     }
     setActiveGameTab(tabKey);
     setActiveGameMenuOpen(false);
+  }
+
+  function toggleMultiplayerSeatAway() {
+    if (!multiplayerGameActive || !ownMultiplayerSeat) {
+      return;
+    }
+    sendMultiplayerMessage({ type: "setSeatAway", away: ownSeatNextAwayRequest });
   }
 
   function nextHand() {
@@ -2651,7 +2741,21 @@ export default function PokerApp() {
                     <div className="room-slots">
                       {multiplayerRoom.seats.map((seat) => (
                         <div className={`room-slot${seat.playerId && !seat.connected ? " is-disconnected" : ""}`} key={seat.id}>
-                          <span>{seat.playerId ? (seat.connected ? "참가 중" : "연결 끊김") : "빈 자리"}</span>
+                          <span>
+                            {!seat.playerId
+                              ? "빈 자리"
+                              : seat.pendingAway
+                                ? "자리 비움 예약"
+                                : seat.pendingReturn
+                                  ? "복귀 예약"
+                                  : seat.away
+                                    ? seat.connected
+                                      ? "자리 비움"
+                                      : "자리 비움 · 연결 끊김"
+                                    : seat.connected
+                                      ? "참가 중"
+                                      : "연결 끊김"}
+                          </span>
                           <strong>{seat.name || "참가 대기 중"}</strong>
                         </div>
                       ))}
@@ -3034,6 +3138,20 @@ export default function PokerApp() {
             <p>{statusText}</p>
           </div>
           {multiplayerGameActive && multiplayerTimer ? <TimerProgress timer={multiplayerTimer} nowMs={timerNowMs} /> : null}
+          {multiplayerGameActive && ownMultiplayerSeat ? (
+            <div className="seat-participation-control">
+              <div>
+                <strong>내 참가 상태</strong>
+                <p className="note">{ownSeatParticipationText}</p>
+              </div>
+              <button className="secondary" type="button" onClick={toggleMultiplayerSeatAway}>
+                {ownSeatAwayButtonLabel}
+              </button>
+            </div>
+          ) : null}
+          {multiplayerGameActive && multiplayerRoom?.nextHandBlockedReason ? (
+            <p className="note money-negative">{multiplayerRoom.nextHandBlockedReason}</p>
+          ) : null}
           {isNextHandReadyPhase ? (
             <div className="action-row">
               <button onClick={nextHand} disabled={nextHandButtonDisabled}>
