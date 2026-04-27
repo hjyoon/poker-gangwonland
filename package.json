@@ -9,7 +9,8 @@
     "dev:local": "scripts/run-dev.sh",
     "build": "next build",
     "start": "NODE_ENV=production node server.mjs",
-    "test:preflop-ranking": "node scripts/validate-preflop-ranking.mjs"
+    "test:preflop-ranking": "node scripts/validate-preflop-ranking.mjs",
+    "test:showdown-settlement": "node scripts/validate-showdown-settlement.mjs"
   },
   "keywords": [],
   "author": "",
