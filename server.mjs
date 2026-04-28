@@ -522,6 +522,9 @@ function seatWillParticipateNextHand(room, currentState, seat) {
   if (!seat || seatWillStandUpNextHand(room, currentState, seat)) {
     return false;
   }
+  if (seatIsEliminatedFromGame(room, currentState, seat)) {
+    return false;
+  }
   return !seatWillBeAwayNextHand(seat);
 }
 
@@ -666,16 +669,41 @@ function mergeChipTotals(previousTotals = {}, nextTotals = {}) {
   };
 }
 
+function playerChipBalance(room, currentState, playerId, fallback = 0) {
+  const statePlayer = currentState?.players?.find((player) => player.id === playerId);
+  const ledger = room.game?.chipTotals?.[playerId] ?? currentState?.chipTotals?.[playerId];
+  const chipBalance = Number(ledger?.chipBalance ?? statePlayer?.chipBalance ?? fallback);
+  return Number.isFinite(chipBalance) ? chipBalance : fallback;
+}
+
+function seatIsEliminatedFromGame(room, currentState, seat) {
+  if (!seat?.playerId) {
+    return false;
+  }
+
+  const statePlayer = currentState?.players?.find((player) => player.id === seat.playerId);
+  if (statePlayer?.eliminated) {
+    return true;
+  }
+  if (statePlayer && !currentState?.finished) {
+    return false;
+  }
+
+  return playerChipBalance(room, currentState, seat.playerId) < MIN_PLAYABLE_BALANCE;
+}
+
 function activePlayerConfigsForNextHand(room) {
   const allPlayerConfigs = room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? [];
   return allPlayerConfigs.filter((config) => {
+    const chipBalance = playerChipBalance(room, room.game?.state, config.id, config.startingBalance ?? 0);
     if (!config.isHuman) {
       if (room.game?.endlessMode) {
         return true;
       }
-      const ledger = room.game?.chipTotals?.[config.id];
-      const chipBalance = Number(ledger?.chipBalance ?? config.startingBalance ?? 0);
       return chipBalance >= MIN_PLAYABLE_BALANCE;
+    }
+    if (chipBalance < MIN_PLAYABLE_BALANCE) {
+      return false;
     }
     const seat = room.seats.find((entry) => entry.playerId === config.id);
     return Boolean(seat && (seat.connected || seat.pendingStandUp) && seatWillParticipateNextHand(room, room.game?.state, seat));
@@ -1093,6 +1121,13 @@ function applySeatParticipationReservations(room, currentState) {
   room.seats = room.seats.map((seat) => {
     const nextSeat = normalizeSeat(seat);
     const name = nextSeat.name || nextSeat.label || "참가자";
+    if (seatIsEliminatedFromGame(room, currentState, nextSeat)) {
+      if (nextSeat.playerId) {
+        standUpPlayerIds.add(nextSeat.playerId);
+      }
+      log.push(`${name}: 탈락으로 게임에서 빠짐`);
+      return emptyHumanGameSeat(nextSeat);
+    }
     if (seatWillStandUpNextHand(room, currentState, nextSeat)) {
       if (nextSeat.playerId) {
         standUpPlayerIds.add(nextSeat.playerId);
@@ -1875,6 +1910,10 @@ function handleSetSeatAway(socket, payload) {
 
   const wantsAway = Boolean(payload.away);
   const state = room.game?.state;
+  if (seatIsEliminatedFromGame(room, state, seat)) {
+    sendError(socket, "탈락한 플레이어는 자리 비움을 예약할 수 없습니다.");
+    return;
+  }
   const handInProgress = Boolean(state && !state.finished && !state.gameOver);
 
   if (handInProgress) {
@@ -1923,6 +1962,21 @@ function handleStandUpFromGame(socket, payload) {
   }
 
   const state = room.game.state;
+  if (seatIsEliminatedFromGame(room, state, seat)) {
+    const cleared = clearHumanSeatFromGame(room, seat);
+    if (cleared && state.finished && !state.gameOver) {
+      room.game.state = {
+        ...state,
+        log: [...state.log, `${cleared.playerName}: 탈락 후 게임에서 빠짐`],
+      };
+      if (!startNextRoomHandIfReady(room)) {
+        scheduleRoomAutomation(room);
+      }
+      return;
+    }
+    broadcastRoom(room);
+    return;
+  }
   if (Boolean(payload.cancel)) {
     if (!seat.pendingStandUp) {
       sendError(socket, "취소할 게임 퇴장 예약이 없습니다.");

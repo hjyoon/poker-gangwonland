@@ -1507,8 +1507,10 @@ export default function PokerApp() {
   const ownMultiplayerSeat = multiplayerRoom?.seats.find((seat) => seat.playerId === multiplayerPlayerId) ?? null;
   const ownEndlessWaitingParticipant =
     multiplayerRoom?.waitingParticipants?.find((participant) => participant.playerId === multiplayerPlayerId && participant.pendingEndlessJoin) ?? null;
+  const ownMultiplayerTableSeat = state?.tableSeats?.find((player) => player.id === multiplayerPlayerId) ?? null;
   const ownMultiplayerGamePlayer = state?.players.find((player) => player.id === multiplayerPlayerId && !player.eliminated) ?? null;
   const ownMultiplayerCanJoinSeat = Boolean(multiplayerGameActive && multiplayerPlayerId && !ownMultiplayerGamePlayer && !state?.gameOver);
+  const ownSeatEliminated = Boolean(ownMultiplayerTableSeat?.eliminated);
   const ownSeatAway = Boolean(ownMultiplayerSeat?.away);
   const ownSeatPendingAway = Boolean(ownMultiplayerSeat?.pendingAway);
   const ownSeatPendingReturn = Boolean(ownMultiplayerSeat?.pendingReturn);
@@ -1524,8 +1526,10 @@ export default function PokerApp() {
       : ownSeatAway
         ? "다음 핸드부터 복귀"
         : "다음 핸드부터 자리 비움";
-  const ownSeatStandUpButtonLabel = ownSeatPendingStandUp ? "게임 퇴장 예약 취소" : "게임에서 빠지기";
-  const ownSeatParticipationText = ownSeatPendingAway
+  const ownSeatStandUpButtonLabel = ownSeatEliminated ? "게임에서 빠지기" : ownSeatPendingStandUp ? "게임 퇴장 예약 취소" : "게임에서 빠지기";
+  const ownSeatParticipationText = ownSeatEliminated
+    ? "탈락 상태입니다. 게임에서 빠지면 좌석이 빈 자리로 바뀝니다."
+    : ownSeatPendingAway
     ? `이번 핸드가 끝나면 자리 비움으로 전환됩니다.${ownSeatMissedBlindSuffix}`
     : ownSeatPendingStandUp
       ? "딜러(D) 차례가 되면 게임에서 빠지고 좌석은 빈 자리로 바뀝니다."
@@ -1534,7 +1538,9 @@ export default function PokerApp() {
       : ownSeatAway
         ? `현재 자리 비움 상태입니다. 복귀를 누르면 다음 핸드부터 참가합니다.${ownSeatMissedBlindSuffix}`
         : `현재 참가 중입니다. 자리 비움은 다음 핸드부터 적용됩니다.${ownSeatMissedBlindSuffix}`;
-  const ownSeatStandUpHelpText = ownSeatPendingStandUp
+  const ownSeatStandUpHelpText = ownSeatEliminated
+    ? "탈락한 좌석은 게임에서 빠지기를 누르면 즉시 빈 자리로 전환됩니다."
+    : ownSeatPendingStandUp
     ? "게임 퇴장 예약을 취소할 수 있습니다."
     : "게임에서 빠지기는 언제든 예약할 수 있으며, 내 딜러(D) 차례가 되면 자동으로 게임에서 빠집니다.";
   const multiplayerSettingsPayload = useMemo(
@@ -2363,7 +2369,7 @@ export default function PokerApp() {
   }
 
   function toggleMultiplayerSeatAway() {
-    if (!multiplayerGameActive || !ownMultiplayerSeat) {
+    if (!multiplayerGameActive || !ownMultiplayerSeat || ownSeatEliminated) {
       return;
     }
     sendMultiplayerMessage({ type: "setSeatAway", away: ownSeatNextAwayRequest });
@@ -2373,7 +2379,7 @@ export default function PokerApp() {
     if (!multiplayerGameActive || !ownMultiplayerSeat) {
       return;
     }
-    sendMultiplayerMessage({ type: "standUpFromGame", cancel: ownSeatPendingStandUp });
+    sendMultiplayerMessage({ type: "standUpFromGame", cancel: ownSeatPendingStandUp && !ownSeatEliminated });
   }
 
   function joinMultiplayerGameSeat(player) {
@@ -3342,7 +3348,7 @@ export default function PokerApp() {
                 <strong>내 참가 상태</strong>
                 <p className="note">{ownSeatParticipationText}</p>
               </div>
-              <button className="secondary" type="button" onClick={toggleMultiplayerSeatAway}>
+              <button className="secondary" type="button" onClick={toggleMultiplayerSeatAway} disabled={ownSeatEliminated}>
                 {ownSeatAwayButtonLabel}
               </button>
               <button
