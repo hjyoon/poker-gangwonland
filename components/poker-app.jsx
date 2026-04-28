@@ -1515,7 +1515,17 @@ export default function PokerApp() {
   const ownSeatPendingAway = Boolean(ownMultiplayerSeat?.pendingAway);
   const ownSeatPendingReturn = Boolean(ownMultiplayerSeat?.pendingReturn);
   const ownSeatPendingStandUp = Boolean(ownMultiplayerSeat?.pendingStandUp);
+  const ownSeatPendingEndlessJoin = Boolean(ownMultiplayerSeat?.pendingEndlessJoin);
   const ownSeatCanReserveStandUp = Boolean(ownMultiplayerSeat && !state?.gameOver);
+  const canReserveEndlessSeat = Boolean(
+    multiplayerGameActive &&
+      multiplayerPlayerId &&
+      multiplayerRoom?.settings?.endlessMode &&
+      !ownMultiplayerGamePlayer &&
+      !ownSeatPendingEndlessJoin &&
+      !ownEndlessWaitingParticipant &&
+      !state?.gameOver,
+  );
   const ownSeatMissedBlindText = missedBlindStatusText(ownMultiplayerSeat);
   const ownSeatMissedBlindSuffix = ownSeatMissedBlindText ? ` 복귀 시 ${ownSeatMissedBlindText}를 납부합니다.` : "";
   const ownSeatNextAwayRequest = ownSeatPendingAway ? false : ownSeatPendingReturn ? true : !ownSeatAway;
@@ -1527,7 +1537,9 @@ export default function PokerApp() {
         ? "다음 핸드부터 복귀"
         : "다음 핸드부터 자리 비움";
   const ownSeatStandUpButtonLabel = ownSeatEliminated ? "게임에서 빠지기" : ownSeatPendingStandUp ? "게임 퇴장 예약 취소" : "게임에서 빠지기";
-  const ownSeatParticipationText = ownSeatEliminated
+  const ownSeatParticipationText = ownSeatPendingEndlessJoin
+    ? "다음 자리를 예약했습니다. 컴퓨터 플레이어가 탈락하면 그 좌석으로 다음 핸드부터 참가합니다."
+    : ownSeatEliminated
     ? "탈락 상태입니다. 게임에서 빠지면 좌석이 빈 자리로 바뀝니다."
     : ownSeatPendingAway
     ? `이번 핸드가 끝나면 자리 비움으로 전환됩니다.${ownSeatMissedBlindSuffix}`
@@ -1537,7 +1549,9 @@ export default function PokerApp() {
       ? `이번 핸드가 끝나면 다시 참가합니다.${ownSeatMissedBlindSuffix}`
       : ownSeatAway
         ? `현재 자리 비움 상태입니다. 복귀를 누르면 다음 핸드부터 참가합니다.${ownSeatMissedBlindSuffix}`
-        : `현재 참가 중입니다. 자리 비움은 다음 핸드부터 적용됩니다.${ownSeatMissedBlindSuffix}`;
+        : ownMultiplayerGamePlayer
+          ? `현재 참가 중입니다. 자리 비움은 다음 핸드부터 적용됩니다.${ownSeatMissedBlindSuffix}`
+          : "현재 게임에는 앉아 있지 않습니다. 다음 자리 예약을 누르면 컴퓨터 플레이어가 탈락한 좌석을 기다립니다.";
   const ownSeatStandUpHelpText = ownSeatEliminated
     ? "탈락한 좌석은 게임에서 빠지기를 누르면 즉시 빈 자리로 전환됩니다."
     : ownSeatPendingStandUp
@@ -2380,6 +2394,17 @@ export default function PokerApp() {
       return;
     }
     sendMultiplayerMessage({ type: "standUpFromGame", cancel: ownSeatPendingStandUp && !ownSeatEliminated });
+  }
+
+  function reserveNextEndlessSeat(cancel = false) {
+    if (!multiplayerGameActive) {
+      return;
+    }
+    sendMultiplayerMessage({
+      type: "reserveEndlessSeat",
+      cancel,
+      playerName: multiplayerName,
+    });
   }
 
   function joinMultiplayerGameSeat(player) {
@@ -3353,7 +3378,12 @@ export default function PokerApp() {
                 <strong>내 참가 상태</strong>
                 <p className="note">{ownSeatParticipationText}</p>
               </div>
-              <button className="secondary" type="button" onClick={toggleMultiplayerSeatAway} disabled={ownSeatEliminated}>
+              {canReserveEndlessSeat || ownSeatPendingEndlessJoin ? (
+                <button className="secondary" type="button" onClick={() => reserveNextEndlessSeat(ownSeatPendingEndlessJoin)}>
+                  {ownSeatPendingEndlessJoin ? "자리 예약 취소" : "다음 자리 예약"}
+                </button>
+              ) : null}
+              <button className="secondary" type="button" onClick={toggleMultiplayerSeatAway} disabled={ownSeatEliminated || ownSeatPendingEndlessJoin || !ownMultiplayerGamePlayer}>
                 {ownSeatAwayButtonLabel}
               </button>
               <button className="secondary danger-lite" type="button" onClick={leaveMultiplayerRoom}>
@@ -3363,7 +3393,7 @@ export default function PokerApp() {
                 className="secondary danger-lite"
                 type="button"
                 onClick={standUpFromMultiplayerGame}
-                disabled={!ownSeatPendingStandUp && !ownSeatCanReserveStandUp}
+                disabled={ownSeatPendingEndlessJoin || (!ownMultiplayerGamePlayer && !ownSeatEliminated) || (!ownSeatPendingStandUp && !ownSeatCanReserveStandUp)}
                 title={ownSeatStandUpHelpText}
               >
                 {ownSeatStandUpButtonLabel}
@@ -3377,6 +3407,23 @@ export default function PokerApp() {
                 <strong>내 참가 상태</strong>
                 <p className="note">엔들리스 참가 대기 중입니다. 컴퓨터 플레이어가 탈락하면 그 좌석으로 다음 핸드부터 참가합니다.</p>
               </div>
+              <button className="secondary" type="button" onClick={() => reserveNextEndlessSeat(true)}>
+                자리 예약 취소
+              </button>
+              <button className="secondary danger-lite" type="button" onClick={leaveMultiplayerRoom}>
+                룸 나가기
+              </button>
+            </div>
+          ) : null}
+          {multiplayerGameActive && !ownMultiplayerSeat && !ownEndlessWaitingParticipant && canReserveEndlessSeat ? (
+            <div className="seat-participation-control is-waiting">
+              <div>
+                <strong>내 참가 상태</strong>
+                <p className="note">현재 게임에는 앉아 있지 않습니다. 다음 자리를 예약하면 컴퓨터 플레이어가 탈락한 좌석을 기다립니다.</p>
+              </div>
+              <button className="secondary" type="button" onClick={() => reserveNextEndlessSeat(false)}>
+                다음 자리 예약
+              </button>
               <button className="secondary danger-lite" type="button" onClick={leaveMultiplayerRoom}>
                 룸 나가기
               </button>
