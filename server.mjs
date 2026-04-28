@@ -954,6 +954,23 @@ function endlessWaitingCandidates(room, currentState) {
     .sort((left, right) => left.createdAt - right.createdAt);
 }
 
+function connectedUnseatedParticipantIds(room, currentState) {
+  const activeIds = new Set((currentState?.players ?? []).filter((player) => !player.eliminated).map((player) => player.id));
+  const seatedIds = new Set((room.seats ?? []).map((seat) => seat.playerId).filter(Boolean));
+  const waitingIds = new Set(roomWaitingParticipants(room).map((participant) => participant.playerId).filter(Boolean));
+  const participantIds = [];
+
+  room.clients.forEach((client) => {
+    const playerId = client.playerId;
+    if (!playerId || activeIds.has(playerId) || seatedIds.has(playerId) || waitingIds.has(playerId) || participantIds.includes(playerId)) {
+      return;
+    }
+    participantIds.push(playerId);
+  });
+
+  return participantIds;
+}
+
 function eliminatedComputerPlayers(currentState, chipTotals = {}) {
   return (currentState?.players ?? []).filter((player) => {
     if (player.isHuman) {
@@ -965,15 +982,26 @@ function eliminatedComputerPlayers(currentState, chipTotals = {}) {
   });
 }
 
+function replaceableEliminatedComputerPlayers(room, currentState) {
+  const configuredComputerIds = new Set(
+    (room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? [])
+      .filter((config) => !config.isHuman)
+      .map((config) => config.id),
+  );
+  const tableComputerIds = new Set(
+    (room.game?.tableSeatOrder ?? [])
+      .filter((entry) => entry?.playerId && configuredComputerIds.has(entry.playerId))
+      .map((entry) => entry.playerId),
+  );
+
+  return eliminatedComputerPlayers(currentState, room.game?.chipTotals ?? {}).filter(
+    (computer) => configuredComputerIds.has(computer.id) && tableComputerIds.has(computer.id),
+  );
+}
+
 function ensureHumanSeatForEndlessParticipant(room, participant) {
   let seat = room.seats.find((entry) => entry.playerId === participant.playerId);
-  if (!seat) {
-    seat = room.seats.find((entry) => !entry.playerId);
-  }
-  if (!seat) {
-    if (room.seats.length >= MAX_HUMAN_SLOTS) {
-      return null;
-    }
+  if (!seat && room.seats.length < MAX_HUMAN_SLOTS) {
     seat = {
       id: humanSlotId(room.seats.length),
       label: `빈 자리 ${room.seats.length + 1}`,
@@ -990,6 +1018,12 @@ function ensureHumanSeatForEndlessParticipant(room, participant) {
       missedBigBlind: false,
     };
     room.seats.push(seat);
+  }
+  if (!seat) {
+    seat = room.seats.find((entry) => !entry.playerId);
+  }
+  if (!seat) {
+    return null;
   }
 
   room.humanSlots = room.seats.length;
@@ -1040,13 +1074,85 @@ function ensureHumanSeatForEndlessParticipant(room, participant) {
   };
 }
 
+function ensureEmptyHumanSeatForEndlessPriority(room) {
+  let seat = null;
+  if (room.seats.length < MAX_HUMAN_SLOTS) {
+    seat = {
+      id: humanSlotId(room.seats.length),
+      label: `빈 자리 ${room.seats.length + 1}`,
+      playerId: null,
+      name: null,
+      connected: false,
+      away: false,
+      pendingAway: false,
+      pendingReturn: false,
+      pendingStandUp: false,
+      pendingJoin: false,
+      pendingEndlessJoin: false,
+      missedSmallBlind: false,
+      missedBigBlind: false,
+    };
+    room.seats.push(seat);
+  } else {
+    seat = room.seats.find((entry) => !entry.playerId);
+    if (!seat) {
+      return null;
+    }
+  }
+
+  room.humanSlots = room.seats.length;
+  const slotIndex = room.seats.findIndex((entry) => entry === seat);
+  const normalizedHumanPlayers = normalizeHumanSettings(room.settings ?? {}, room.humanSlots);
+  const label = `빈 자리 ${slotIndex + 1}`;
+  const startingBalance =
+    normalizedHumanPlayers[slotIndex]?.startingBalance ?? room.settings?.humanStartingBalance ?? DEFAULT_STARTING_BALANCE;
+
+  room.seats[slotIndex] = {
+    ...normalizeSeat(seat),
+    id: humanSlotId(slotIndex),
+    label,
+    playerId: null,
+    name: null,
+    connected: false,
+    away: false,
+    pendingAway: false,
+    pendingReturn: false,
+    pendingStandUp: false,
+    pendingJoin: false,
+    pendingEndlessJoin: false,
+    missedSmallBlind: false,
+    missedBigBlind: false,
+  };
+  room.seats = room.seats.map((entry, index) => ({
+    ...normalizeSeat(entry),
+    id: humanSlotId(index),
+    label: `빈 자리 ${index + 1}`,
+  }));
+
+  normalizedHumanPlayers[slotIndex] = {
+    id: humanSlotId(slotIndex),
+    name: label,
+    startingBalance,
+  };
+  room.settings = normalizeRoomSettings(room, {
+    ...room.settings,
+    humanPlayers: normalizedHumanPlayers,
+    humanStartingBalance: room.settings?.humanStartingBalance ?? startingBalance,
+  });
+
+  return {
+    slotIndex,
+    label,
+  };
+}
+
 function applyEndlessHumanJoinReservations(room, currentState) {
   if (!room.game?.endlessMode || !currentState) {
     return [];
   }
 
   const candidates = endlessWaitingCandidates(room, currentState);
-  const eliminatedComputers = eliminatedComputerPlayers(currentState, room.game.chipTotals ?? {});
+  const eliminatedComputers = replaceableEliminatedComputerPlayers(room, currentState);
   if (candidates.length === 0 || eliminatedComputers.length === 0) {
     return [];
   }
@@ -1071,14 +1177,21 @@ function applyEndlessHumanJoinReservations(room, currentState) {
       startingBalance: seatInfo.startingBalance,
     };
 
+    const participantSetupPlayerId = humanSlotId(seatInfo.slotIndex);
     room.game.tableSeatOrder = (room.game.tableSeatOrder ?? []).map((entry) =>
       entry?.playerId === computer.id
         ? {
             ...entry,
-            setupPlayerId: humanSlotId(seatInfo.slotIndex),
+            setupPlayerId: participantSetupPlayerId,
             playerId: candidate.playerId,
             label: seatInfo.playerName,
           }
+        : entry?.setupPlayerId === participantSetupPlayerId && !entry.playerId
+          ? {
+              ...entry,
+              setupPlayerId: null,
+              label: "빈 자리",
+            }
         : entry,
     );
     nextAllPlayerConfigs = nextAllPlayerConfigs.map((config) => (config.id === computer.id ? humanConfig : config));
@@ -1102,6 +1215,68 @@ function applyEndlessHumanJoinReservations(room, currentState) {
   room.game.playerConfigs = sortPlayerConfigsByTableSeatOrder(room, nextPlayerConfigs);
   room.game.cpuCount = Math.max(0, room.game.allPlayerConfigs.filter((config) => !config.isHuman).length);
   return log;
+}
+
+function applyEndlessHumanPriorityOpenSeats(room, currentState) {
+  if (!room.game?.endlessMode || !currentState?.finished || currentState.gameOver) {
+    return [];
+  }
+
+  const claimableParticipantIds = connectedUnseatedParticipantIds(room, currentState);
+  if (claimableParticipantIds.length === 0) {
+    return [];
+  }
+
+  const eliminatedComputers = replaceableEliminatedComputerPlayers(room, currentState);
+  if (eliminatedComputers.length === 0) {
+    return [];
+  }
+
+  const log = [];
+  const openSeatCount = Math.min(claimableParticipantIds.length, eliminatedComputers.length);
+  let nextAllPlayerConfigs = room.game.allPlayerConfigs ?? room.game.playerConfigs ?? [];
+  let nextPlayerConfigs = room.game.playerConfigs ?? nextAllPlayerConfigs;
+
+  eliminatedComputers.slice(0, openSeatCount).forEach((computer) => {
+    const seatInfo = ensureEmptyHumanSeatForEndlessPriority(room);
+    if (!seatInfo) {
+      return;
+    }
+
+    const prioritySetupPlayerId = humanSlotId(seatInfo.slotIndex);
+    room.game.tableSeatOrder = (room.game.tableSeatOrder ?? []).map((entry) =>
+      entry?.playerId === computer.id
+        ? {
+            ...entry,
+            setupPlayerId: prioritySetupPlayerId,
+            playerId: null,
+            label: "인간 우선 빈 자리",
+          }
+        : entry?.setupPlayerId === prioritySetupPlayerId && !entry.playerId
+          ? {
+              ...entry,
+              setupPlayerId: null,
+              label: "빈 자리",
+            }
+        : entry,
+    );
+    nextAllPlayerConfigs = nextAllPlayerConfigs.filter((config) => config.id !== computer.id);
+    nextPlayerConfigs = nextPlayerConfigs.filter((config) => config.id !== computer.id);
+    delete room.game.computerStyles?.[computer.id];
+    delete room.game.computerLevels?.[computer.id];
+    room.game.cardPeekPlayerIds?.delete(computer.id);
+    room.game.computerCardCheckedPlayerIds?.delete(computer.id);
+    log.push(`${computer.name}: 탈락으로 인간 우선 빈 자리 개방`);
+  });
+
+  room.game.allPlayerConfigs = sortPlayerConfigsByTableSeatOrder(room, nextAllPlayerConfigs);
+  room.game.playerConfigs = sortPlayerConfigsByTableSeatOrder(room, nextPlayerConfigs);
+  room.game.cpuCount = Math.max(0, room.game.allPlayerConfigs.filter((config) => !config.isHuman).length);
+  return log;
+}
+
+function applyEndlessHumanPrioritySeats(room, currentState) {
+  return [...applyEndlessHumanJoinReservations(room, currentState), ...applyEndlessHumanPriorityOpenSeats(room, currentState)];
 }
 
 function syncAllPlayerConfigs(room, activeBefore, activeAfter) {
@@ -1660,7 +1835,7 @@ function startNextRoomHand(room) {
   const currentState = room.game.state;
   clearEliminatedComputerSeats(room, currentState);
   const reservationLog = applySeatParticipationReservations(room, currentState);
-  const endlessJoinLog = applyEndlessHumanJoinReservations(room, currentState);
+  const endlessJoinLog = applyEndlessHumanPrioritySeats(room, currentState);
   const missedBlindLog = recordMissedBlindsForAwaySeats(room, currentState);
   const nextPlayerConfigs = activePlayerConfigsForNextHand(room);
   const nextDealerIndex = nextDealerIndexForPlayerConfigs(room, currentState, nextPlayerConfigs);
@@ -1724,6 +1899,13 @@ function applyRoomAction(room, actionKey, actorPlayerId = null, { timedOut = fal
   room.game.computerLevels = nextState.computerLevels ?? room.game.computerLevels;
   if (nextState.finished) {
     clearEliminatedComputerSeats(room, nextState);
+    const prioritySeatLog = applyEndlessHumanPrioritySeats(room, nextState);
+    if (prioritySeatLog.length > 0) {
+      room.game.state = {
+        ...room.game.state,
+        log: [...room.game.state.log, ...prioritySeatLog],
+      };
+    }
   }
   scheduleRoomAutomation(room);
   return true;
