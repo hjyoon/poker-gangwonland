@@ -118,6 +118,11 @@ function computerPlayerId(index) {
   return `cpu-${index + 1}`;
 }
 
+function computerNameNumber(name) {
+  const match = /^컴퓨터\s+(\d+)$/.exec(String(name ?? "").trim());
+  return match ? Number(match[1]) : 0;
+}
+
 function defaultHumanSettings(humanSlots, startingBalance = DEFAULT_STARTING_BALANCE) {
   return Array.from({ length: humanSlots }, (_, index) => ({
     id: humanSlotId(index),
@@ -1160,6 +1165,175 @@ function applyEndlessHumanJoinReservations(room, currentState) {
   return log;
 }
 
+function ensureFullEndlessTableSeatOrder(room) {
+  if (!room.game?.endlessMode) {
+    return [];
+  }
+
+  const sourceOrder = Array.isArray(room.game.tableSeatOrder) ? room.game.tableSeatOrder : [];
+  room.game.tableSeatOrder = Array.from({ length: MAX_TOTAL_PLAYERS }, (_, index) => {
+    const entry = sourceOrder[index];
+    return entry
+      ? {
+          ...entry,
+          label: entry.label || "빈 자리",
+        }
+      : {
+          setupPlayerId: null,
+          playerId: null,
+          label: "빈 자리",
+        };
+  });
+  return room.game.tableSeatOrder;
+}
+
+function emptyEndlessTableSeatIndices(room) {
+  return ensureFullEndlessTableSeatOrder(room)
+    .map((entry, index) => (!entry?.playerId ? index : -1))
+    .filter((index) => index >= 0);
+}
+
+function applyEndlessHumanReservationsToEmptySeats(room, currentState) {
+  if (!room.game?.endlessMode || !currentState) {
+    return [];
+  }
+
+  const candidates = endlessWaitingCandidates(room, currentState);
+  const emptySeatIndices = emptyEndlessTableSeatIndices(room);
+  if (candidates.length === 0 || emptySeatIndices.length === 0) {
+    return [];
+  }
+
+  const log = [];
+  let nextAllPlayerConfigs = room.game.allPlayerConfigs ?? room.game.playerConfigs ?? [];
+  let nextPlayerConfigs = room.game.playerConfigs ?? nextAllPlayerConfigs;
+
+  emptySeatIndices.slice(0, candidates.length).forEach((tableSeatIndex, index) => {
+    const candidate = candidates[index].participant;
+    const seatInfo = ensureHumanSeatForEndlessParticipant(room, candidate);
+    if (!seatInfo) {
+      return;
+    }
+
+    const humanConfig = {
+      id: candidate.playerId,
+      name: seatInfo.playerName,
+      isHuman: true,
+      startingBalance: seatInfo.startingBalance,
+    };
+    const participantSetupPlayerId = humanSlotId(seatInfo.slotIndex);
+    room.game.tableSeatOrder = room.game.tableSeatOrder.map((entry, seatIndex) =>
+      seatIndex === tableSeatIndex
+        ? {
+            ...entry,
+            setupPlayerId: participantSetupPlayerId,
+            playerId: candidate.playerId,
+            label: seatInfo.playerName,
+          }
+        : entry?.setupPlayerId === participantSetupPlayerId && !entry.playerId
+          ? {
+              ...entry,
+              setupPlayerId: null,
+              label: "빈 자리",
+            }
+        : entry,
+    );
+    nextAllPlayerConfigs = [...nextAllPlayerConfigs.filter((config) => config.id !== candidate.playerId), humanConfig];
+    nextPlayerConfigs = [...nextPlayerConfigs.filter((config) => config.id !== candidate.playerId), humanConfig];
+    room.game.chipTotals ??= {};
+    room.game.chipTotals[candidate.playerId] = {
+      chipBalance: seatInfo.startingBalance,
+      chipsWon: 0,
+    };
+    delete room.game.computerStyles?.[candidate.playerId];
+    delete room.game.computerLevels?.[candidate.playerId];
+    room.waitingParticipants = roomWaitingParticipants(room).filter((participant) => participant.playerId !== candidate.playerId);
+    room.game.nextHandReadyPlayerIds?.delete(candidate.playerId);
+    room.game.cardPeekPlayerIds?.delete(candidate.playerId);
+    log.push(`${seatInfo.playerName}: 다음 자리 예약으로 빈 좌석에 참가`);
+  });
+
+  room.game.allPlayerConfigs = sortPlayerConfigsByTableSeatOrder(room, nextAllPlayerConfigs);
+  room.game.playerConfigs = sortPlayerConfigsByTableSeatOrder(room, nextPlayerConfigs);
+  return log;
+}
+
+function nextEndlessComputerNumber(room) {
+  const configs = room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? [];
+  const statePlayers = room.game?.state?.players ?? [];
+  return [...configs, ...statePlayers].reduce((max, entry) => Math.max(max, computerNameNumber(entry.name)), 0) + 1;
+}
+
+function uniqueEndlessComputerId(room, handNumber, tableSeatIndex) {
+  const existingIds = new Set([
+    ...(room.game?.allPlayerConfigs ?? []).map((config) => config.id),
+    ...(room.game?.playerConfigs ?? []).map((config) => config.id),
+    ...(room.game?.state?.players ?? []).map((player) => player.id),
+  ]);
+  const baseId = `cpu-endless-seat-${handNumber}-${tableSeatIndex + 1}`;
+  let candidateId = baseId;
+  let suffix = 2;
+  while (existingIds.has(candidateId)) {
+    candidateId = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+  return candidateId;
+}
+
+function fillEndlessEmptySeatsWithComputers(room, nextHandNumber) {
+  if (!room.game?.endlessMode) {
+    return [];
+  }
+
+  const emptySeatIndices = emptyEndlessTableSeatIndices(room);
+  if (emptySeatIndices.length === 0) {
+    return [];
+  }
+
+  const log = [];
+  const startingBalance = Math.max(
+    MIN_PLAYABLE_BALANCE,
+    Number(room.game.endlessReplacementStartingBalance) || DEFAULT_STARTING_BALANCE,
+  );
+  let computerNumber = nextEndlessComputerNumber(room);
+  let nextAllPlayerConfigs = room.game.allPlayerConfigs ?? room.game.playerConfigs ?? [];
+  let nextPlayerConfigs = room.game.playerConfigs ?? nextAllPlayerConfigs;
+
+  emptySeatIndices.forEach((tableSeatIndex) => {
+    const computerId = uniqueEndlessComputerId(room, nextHandNumber, tableSeatIndex);
+    const computerName = `컴퓨터 ${computerNumber}`;
+    computerNumber += 1;
+    const computerConfig = {
+      id: computerId,
+      name: computerName,
+      isHuman: false,
+      startingBalance,
+    };
+    room.game.tableSeatOrder[tableSeatIndex] = {
+      setupPlayerId: computerId,
+      playerId: computerId,
+      label: computerName,
+    };
+    nextAllPlayerConfigs = [...nextAllPlayerConfigs, computerConfig];
+    nextPlayerConfigs = [...nextPlayerConfigs, computerConfig];
+    room.game.chipTotals ??= {};
+    room.game.chipTotals[computerId] = {
+      chipBalance: startingBalance,
+      chipsWon: 0,
+    };
+    room.game.computerStyles ??= {};
+    room.game.computerLevels ??= {};
+    room.game.computerStyles[computerId] = resolveComputerStyleKey(room.game.endlessReplacementComputerStyle ?? "random");
+    room.game.computerLevels[computerId] = resolveComputerLevelKey(room.game.endlessReplacementComputerLevel ?? "random");
+    log.push(`빈 자리: 엔들리스 모드로 ${computerName} 입장 (${formatMoney(startingBalance)})`);
+  });
+
+  room.game.allPlayerConfigs = sortPlayerConfigsByTableSeatOrder(room, nextAllPlayerConfigs);
+  room.game.playerConfigs = sortPlayerConfigsByTableSeatOrder(room, nextPlayerConfigs);
+  room.game.cpuCount = Math.max(0, room.game.allPlayerConfigs.filter((config) => !config.isHuman).length);
+  return log;
+}
+
 function syncAllPlayerConfigs(room, activeBefore, activeAfter) {
   const allPlayerConfigs = room.game?.allPlayerConfigs ?? room.game?.playerConfigs ?? [];
   const replacements = new Map();
@@ -1719,8 +1893,11 @@ function startNextRoomHand(room) {
 
   const currentState = room.game.state;
   clearEliminatedComputerSeats(room, currentState);
+  const nextHandNumber = (currentState.handNumber ?? 0) + 1;
   const reservationLog = applySeatParticipationReservations(room, currentState);
   const endlessJoinLog = applyEndlessHumanJoinReservations(room, currentState);
+  const emptySeatJoinLog = applyEndlessHumanReservationsToEmptySeats(room, currentState);
+  const computerBackfillLog = fillEndlessEmptySeatsWithComputers(room, nextHandNumber);
   const missedBlindLog = recordMissedBlindsForAwaySeats(room, currentState);
   const nextPlayerConfigs = activePlayerConfigsForNextHand(room);
   const nextDealerIndex = nextDealerIndexForPlayerConfigs(room, currentState, nextPlayerConfigs);
@@ -1735,7 +1912,7 @@ function startNextRoomHand(room) {
     dealerIndex: nextDealerIndex,
     chipTotals: room.game.chipTotals ?? currentState.chipTotals,
     feeTotal: currentState.feeTotal,
-    handNumber: (currentState.handNumber ?? 0) + 1,
+    handNumber: nextHandNumber,
     computerStyles: room.game.computerStyles,
     computerLevels: room.game.computerLevels,
     endlessMode: room.game.endlessMode,
@@ -1746,7 +1923,7 @@ function startNextRoomHand(room) {
     playerConfigs: nextPlayerConfigs,
     forcedContributions,
   });
-  const participationLog = [...reservationLog, ...endlessJoinLog, ...missedBlindLog];
+  const participationLog = [...reservationLog, ...endlessJoinLog, ...emptySeatJoinLog, ...computerBackfillLog, ...missedBlindLog];
   room.game.state = participationLog.length ? { ...nextState, log: [...participationLog, ...nextState.log] } : nextState;
   room.game.playerConfigs = room.game.state.playerConfigs;
   syncAllPlayerConfigs(room, nextPlayerConfigs, room.game.state.playerConfigs);
