@@ -1184,6 +1184,24 @@ function scheduleEmptyRoomCleanup(room) {
   }, EMPTY_ROOM_TTL_MS);
 }
 
+function playerIsInUnfinishedHand(room, playerId) {
+  const state = room.game?.state;
+  if (!state || state.finished || state.gameOver || !playerId) {
+    return false;
+  }
+  return state.players.some((player) => player.id === playerId && !player.folded && !player.eliminated);
+}
+
+function reassignRoomHostIfNeeded(room, removedPlayerId) {
+  if (room.hostPlayerId !== removedPlayerId) {
+    return;
+  }
+
+  const nextSeat = room.seats.find((seat) => seat.playerId && seat.connected);
+  const nextWaitingParticipant = roomWaitingParticipants(room).find((participant) => participant.playerId && participant.connected);
+  room.hostPlayerId = nextSeat?.playerId ?? nextWaitingParticipant?.playerId ?? null;
+}
+
 function detachSocketFromRoom(socket, { clearSeat = false } = {}) {
   if (!socket.roomId) {
     return;
@@ -1209,18 +1227,9 @@ function detachSocketFromRoom(socket, { clearSeat = false } = {}) {
   }
   const seat = room.seats.find((entry) => entry.playerId === playerId);
   if (seat) {
-    const shouldClearSeat = clearSeat && !room.game;
+    const shouldClearSeat = clearSeat && (!room.game || !playerIsInUnfinishedHand(room, playerId));
     if (shouldClearSeat) {
-      seat.playerId = null;
-      seat.name = null;
-      seat.away = false;
-      seat.pendingAway = false;
-      seat.pendingReturn = false;
-      seat.pendingStandUp = false;
-      seat.pendingJoin = false;
-      seat.pendingEndlessJoin = false;
-      seat.missedSmallBlind = false;
-      seat.missedBigBlind = false;
+      clearHumanSeatFromGame(room, seat);
     }
     if (room.game && !shouldClearSeat) {
       if (seat.pendingEndlessJoin) {
@@ -1235,6 +1244,9 @@ function detachSocketFromRoom(socket, { clearSeat = false } = {}) {
     seat.connected = false;
   }
   room.game?.cardPeekPlayerIds?.delete(playerId);
+  if (clearSeat) {
+    reassignRoomHostIfNeeded(room, playerId);
+  }
 
   if (room.clients.size === 0) {
     if (room.automationTimer) {

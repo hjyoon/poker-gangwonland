@@ -190,6 +190,16 @@ a {
   color: var(--gold);
 }
 
+.active-game-menu-item.is-danger {
+  color: #fecaca;
+}
+
+.active-game-menu-item.is-danger:hover {
+  background: rgba(226, 82, 73, 0.14);
+  border-color: rgba(226, 82, 73, 0.32);
+  color: #fee2e2;
+}
+
 .active-game-panel.is-table {
   background:
     radial-gradient(circle at center, rgba(18, 89, 56, 0.48), rgba(7, 20, 16, 0.95) 72%),

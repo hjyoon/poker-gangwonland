@@ -3121,6 +3121,11 @@ export default function PokerApp() {
                   {tab.label}
                 </button>
               ))}
+              {multiplayerGameActive ? (
+                <button className="active-game-menu-item is-danger" onClick={leaveMultiplayerRoom} role="menuitem" type="button">
+                  룸 나가기
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -3351,6 +3356,9 @@ export default function PokerApp() {
               <button className="secondary" type="button" onClick={toggleMultiplayerSeatAway} disabled={ownSeatEliminated}>
                 {ownSeatAwayButtonLabel}
               </button>
+              <button className="secondary danger-lite" type="button" onClick={leaveMultiplayerRoom}>
+                룸 나가기
+              </button>
               <button
                 className="secondary danger-lite"
                 type="button"
@@ -3369,6 +3377,9 @@ export default function PokerApp() {
                 <strong>내 참가 상태</strong>
                 <p className="note">엔들리스 참가 대기 중입니다. 컴퓨터 플레이어가 탈락하면 그 좌석으로 다음 핸드부터 참가합니다.</p>
               </div>
+              <button className="secondary danger-lite" type="button" onClick={leaveMultiplayerRoom}>
+                룸 나가기
+              </button>
             </div>
           ) : null}
           {isNextHandReadyPhase ? (
