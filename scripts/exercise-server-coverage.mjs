@@ -150,6 +150,10 @@ class WsClient {
     this.socket.write(makeClientFrame("coverage-ping", 0x9));
   }
 
+  sendRaw(buffer) {
+    this.socket.write(buffer);
+  }
+
   close() {
     this.socket?.write(makeClientFrame(Buffer.alloc(0), 0x8));
     this.socket?.end();
@@ -292,6 +296,27 @@ async function sendUpgradeWithBufferedHeadFrame(port) {
   socket.end();
 }
 
+async function sendMalformedFrameCases(port) {
+  const partialExtended = await new WsClient(port, "partial-extended-frame").connect();
+  partialExtended.sendRaw(Buffer.from([0x81, 0xfe, 0x00]));
+  await delay(20);
+  partialExtended.socket.destroy();
+
+  const length127 = await new WsClient(port, "length-127-frame").connect();
+  length127.sendRaw(Buffer.from([0x81, 0xff]));
+  await delay(20);
+  length127.socket.destroy();
+
+  const incompleteMasked = await new WsClient(port, "incomplete-masked-frame").connect();
+  incompleteMasked.sendRaw(Buffer.from([0x81, 0x85, 0, 1, 2, 3, 0x41, 0x42]));
+  await delay(20);
+  incompleteMasked.socket.destroy();
+
+  const explicitClose = await new WsClient(port, "explicit-close-frame").connect();
+  explicitClose.sendRaw(makeClientFrame(Buffer.alloc(0), 0x8));
+  await waitForSocketToSettle(explicitClose.socket);
+}
+
 async function expectError(client, message, expectedMessage = null) {
   const seenMessages = client.messages.length;
   client.send(message);
@@ -379,6 +404,7 @@ try {
   await expectError(probe, { type: "updateGameOptions", autoNextHand: true });
   await sendUpgradeWithoutKey(port);
   await sendUpgradeWithBufferedHeadFrame(port);
+  await sendMalformedFrameCases(port);
 
   const defaultsHost = await new WsClient(port, "defaults-host").connect();
   clients.push(defaultsHost);
@@ -531,6 +557,12 @@ try {
   replacementLate.send({ type: "joinRoom", roomId: replacementRoomId, playerName: "Replacement Late" });
   const replacementLateJoined = await replacementLate.waitFor((message) => message.type === "joinedRoom");
   await replacementLate.waitFor((message) => message.type === "roomState" && message.room?.waitingParticipants?.some((participant) => participant.playerId === replacementLateJoined.playerId));
+  const replacementComputerSeatIndex = latestRoom(replacementHost, replacementRoomId).gameState.tableSeats.findIndex((seat) => !seat.isHuman && !seat.isEmptySeat);
+  await expectError(
+    replacementLate,
+    { type: "joinGameSeat", tableSeatIndex: replacementComputerSeatIndex, playerName: "Replacement Late" },
+    "참여할 수 있는 인간 플레이어 빈 자리가 아닙니다.",
+  );
   const replacementPlayersById = new Map([
     [replacementHostJoined.playerId, replacementHost],
     [replacementGuestJoined.playerId, replacementGuest],
@@ -583,6 +615,7 @@ try {
       ],
       computerPlayers: [],
       playerOrder: ["human-slot-1", "human-slot-2", "human-slot-3", "human-slot-4"],
+      endlessMode: true,
       humanActionTimeoutMs: 3000,
     },
   });
@@ -598,6 +631,18 @@ try {
   await expectError(seatGuest, { type: "joinGameSeat", tableSeatIndex: seatFourIndex, playerName: "Seat Guest" }, "이미 현재 게임에 참여 중입니다.");
   seatLate.send({ type: "joinRoom", roomId: seatRoomId, playerName: "Seat Late" });
   const seatLateJoined = await seatLate.waitFor((message) => message.type === "joinedRoom");
+  seatLate.send({ type: "reserveEndlessSeat", playerName: "Seat Late Endless" });
+  await seatLate.waitFor(
+    (message) =>
+      message.type === "roomState" &&
+      message.room?.seats?.some((seat) => seat.playerId === seatLateJoined.playerId && seat.pendingEndlessJoin),
+  );
+  seatLate.send({ type: "reserveEndlessSeat", cancel: true });
+  await seatLate.waitFor(
+    (message) =>
+      message.type === "roomState" &&
+      message.room?.seats?.some((seat) => seat.playerId === seatLateJoined.playerId && !seat.pendingEndlessJoin),
+  );
   seatLate.send({ type: "joinGameSeat", tableSeatIndex: seatFourIndex, playerName: "Moved Late" });
   await seatLate.waitFor(
     (message) =>
@@ -631,6 +676,98 @@ try {
   seatLate.close();
   seatGuest.close();
   seatHost.close();
+
+  const blindHost = await new WsClient(port, "blind-host").connect();
+  const blindGuest = await new WsClient(port, "blind-guest").connect();
+  const blindThird = await new WsClient(port, "blind-third").connect();
+  const blindFourth = await new WsClient(port, "blind-fourth").connect();
+  clients.push(blindHost, blindGuest, blindThird, blindFourth);
+  blindHost.send({
+    type: "createRoom",
+    playerName: "Blind Host",
+    humanSlots: 4,
+    settings: {
+      humanPlayers: [
+        { name: "Blind Host", startingBalance: 100000 },
+        { name: "Blind Guest", startingBalance: 100000 },
+        { name: "Blind Third", startingBalance: 100000 },
+        { name: "Blind Fourth", startingBalance: 100000 },
+      ],
+      computerPlayers: [],
+      playerOrder: ["human-slot-1", "human-slot-2", "human-slot-3", "human-slot-4"],
+      randomizePlayerOrder: false,
+      computerActionDelayMs: 100,
+      nextHandDelayMs: 500,
+      humanActionTimeoutMs: 3000,
+    },
+  });
+  const blindHostJoined = await blindHost.waitFor((message) => message.type === "joinedRoom");
+  const blindRoomId = blindHostJoined.roomId;
+  blindGuest.send({ type: "joinRoom", roomId: blindRoomId, playerName: "Blind Guest" });
+  const blindGuestJoined = await blindGuest.waitFor((message) => message.type === "joinedRoom");
+  blindThird.send({ type: "joinRoom", roomId: blindRoomId, playerName: "Blind Third" });
+  const blindThirdJoined = await blindThird.waitFor((message) => message.type === "joinedRoom");
+  blindFourth.send({ type: "joinRoom", roomId: blindRoomId, playerName: "Blind Fourth" });
+  const blindFourthJoined = await blindFourth.waitFor((message) => message.type === "joinedRoom");
+  blindHost.send({ type: "startGame" });
+  await blindHost.waitFor((message) => message.type === "roomState" && message.room?.gameState?.handNumber === 1);
+  blindThird.send({ type: "setSeatAway", away: true });
+  blindFourth.send({ type: "setSeatAway", away: true });
+  await blindHost.waitFor(
+    (message) =>
+      message.type === "roomState" &&
+      message.room?.seats?.some((seat) => seat.playerId === blindThirdJoined.playerId && seat.pendingAway) &&
+      message.room?.seats?.some((seat) => seat.playerId === blindFourthJoined.playerId && seat.pendingAway),
+  );
+
+  const blindPlayersById = new Map([
+    [blindHostJoined.playerId, blindHost],
+    [blindGuestJoined.playerId, blindGuest],
+    [blindThirdJoined.playerId, blindThird],
+    [blindFourthJoined.playerId, blindFourth],
+  ]);
+  const blindFirstFinished = await finishRoomHand(blindHost, blindRoomId, blindPlayersById, 100);
+  assert(blindFirstFinished.finished, "missed blind exercise should finish first hand");
+  const blindFirstFinishedRoom = latestRoom(blindHost, blindRoomId);
+  for (const playerId of blindFirstFinishedRoom?.nextHandRequiredPlayerIds ?? []) {
+    blindPlayersById.get(playerId)?.send({ type: "requestNextHand" });
+  }
+  await blindHost.waitFor(
+    (message) =>
+      message.type === "roomState" &&
+      message.room?.id === blindRoomId &&
+      message.room?.gameState?.handNumber === 2 &&
+      message.room.seats.some((seat) => seat.playerId === blindThirdJoined.playerId && seat.away && seat.missedBlindAmount > 0) &&
+      message.room.seats.some((seat) => seat.playerId === blindFourthJoined.playerId && seat.away && seat.missedBlindAmount > 0),
+    12_000,
+  );
+
+  blindThird.send({ type: "setSeatAway", away: false });
+  blindFourth.send({ type: "setSeatAway", away: false });
+  await blindHost.waitFor(
+    (message) =>
+      message.type === "roomState" &&
+      message.room?.seats?.some((seat) => seat.playerId === blindThirdJoined.playerId && seat.pendingReturn) &&
+      message.room?.seats?.some((seat) => seat.playerId === blindFourthJoined.playerId && seat.pendingReturn),
+  );
+  const blindSecondFinished = await finishRoomHand(blindGuest, blindRoomId, blindPlayersById, 100);
+  assert(blindSecondFinished.finished, "missed blind exercise should finish second hand");
+  const blindSecondFinishedRoom = latestRoom(blindHost, blindRoomId);
+  for (const playerId of blindSecondFinishedRoom?.nextHandRequiredPlayerIds ?? []) {
+    blindPlayersById.get(playerId)?.send({ type: "requestNextHand" });
+  }
+  await blindHost.waitFor(
+    (message) =>
+      message.type === "roomState" &&
+      message.room?.id === blindRoomId &&
+      message.room?.gameState?.handNumber === 3 &&
+      message.room.gameState.log.some((entry) => entry.includes("미스드 블라인드")),
+    12_000,
+  );
+  blindFourth.close();
+  blindThird.close();
+  blindGuest.close();
+  blindHost.close();
 
   const host = await new WsClient(port, "host").connect();
   const guest = await new WsClient(port, "guest").connect();
@@ -699,6 +836,18 @@ try {
   host.send({ type: "startGame" });
   await host.waitFor((message) => message.type === "roomState" && message.room?.gameState);
   await guest.waitFor((message) => message.type === "roomState" && message.room?.gameState);
+
+  {
+    const initialRoom = latestRoom(host, roomId);
+    const initialActor = initialRoom?.gameState?.players?.[initialRoom.gameState.currentPlayerIndex];
+    const initialActorClient = new Map([
+      [joinedHost.playerId, host],
+      [joinedGuest.playerId, guest],
+    ]).get(initialActor?.id);
+    if (initialActor?.isHuman && initialActorClient) {
+      await expectError(initialActorClient, { type: "gameAction", action: "not-real" }, "해당 행동을 적용할 수 없습니다.");
+    }
+  }
 
   host.send({ type: "updatePlayerName", playerName: "Renamed Host" });
   await host.waitFor((message) => message.type === "roomState" && message.room?.gameState?.players?.some((player) => player.id === joinedHost.playerId && player.name === "Renamed Host"));

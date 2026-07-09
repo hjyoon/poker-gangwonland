@@ -328,6 +328,22 @@ test.describe("mocked multiplayer protocol rendering", () => {
     await expect(page.getByRole("button", { name: "오픈" })).toBeVisible();
     await expect(page.getByRole("button", { name: "머크" })).toBeVisible();
 
+    await page.getByRole("button", { name: "게임 진행 메뉴 열기" }).click();
+    await page.getByRole("menuitem", { name: "게임 설정" }).click();
+    await expect(page.getByRole("heading", { name: "게임 진행 설정" })).toBeVisible();
+    await page.getByRole("button", { name: "게임 진행 메뉴 열기" }).click();
+    await page.getByRole("menuitem", { name: "개인 설정" }).click();
+    await expect(page.getByText("개인 설정")).toBeVisible();
+    await page.getByRole("button", { name: "게임 진행 메뉴 열기" }).click();
+    await page.getByRole("menuitem", { name: "보조 정보" }).click();
+    await expect(page.getByRole("heading", { name: "보조 정보" })).toBeVisible();
+    await page.getByRole("tab", { name: "규칙 요약" }).click();
+    await expect(page.getByText("로열 플러쉬")).toBeVisible();
+    await page.getByRole("tab", { name: "플레이 안내" }).click();
+    await expect(page.getByText("잔액이 0원인 플레이어는 다음 핸드부터 탈락 처리됩니다.")).toBeVisible();
+    await page.getByRole("button", { name: "게임 진행 메뉴 열기" }).click();
+    await page.getByRole("menuitem", { name: "게임 테이블" }).click();
+
     await emitWs(page, { type: "joinedRoom", roomId: "MOCK01", playerId: "spectator" });
     await emitWs(page, {
       type: "roomState",
@@ -342,6 +358,137 @@ test.describe("mocked multiplayer protocol rendering", () => {
     await page.locator(".seat").filter({ hasText: "비어 있음" }).getByRole("button", { name: "다음 핸드부터 참여" }).click();
     await expectSentMessage(page, "joinGameSeat");
     await page.getByRole("button", { name: "다음 자리 예약" }).click();
+    await expectSentMessage(page, "reserveEndlessSeat");
+  });
+
+  test("renders mocked active status branches", async ({ page }) => {
+    await installMockWebSocket(page);
+    await gotoRoot(page);
+    await page.getByRole("radio", { name: "멀티플레이" }).click();
+    await waitForAppSocket(page);
+
+    await emitWs(page, { type: "joinedRoom", roomId: "MOCK01", playerId: "host" });
+    await emitWs(page, {
+      type: "roomState",
+      room: room({
+        gameState: gameState({
+          currentPlayerIndex: 1,
+          waitingForHuman: true,
+        }),
+      }),
+    });
+    await expect(page.getByText("Guest 차례입니다.")).toBeVisible();
+
+    await emitWs(page, {
+      type: "roomState",
+      room: room({
+        nextHandRequiredPlayerIds: [],
+        gameState: gameState({
+          finished: true,
+          waitingForHuman: false,
+          currentPlayerIndex: -1,
+          winnerIds: ["host"],
+          currentHandFee: 350,
+        }),
+      }),
+    });
+    await expect(page.getByText("핸드가 종료되었습니다. 참가 중인 인간 플레이어가 없어 자동 진행을 대기 중입니다.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "다음 핸드 자동 진행 대기" })).toBeDisabled();
+
+    await emitWs(page, {
+      type: "roomState",
+      room: room({
+        settings: baseSettings({ autoNextHand: true }),
+        nextHandRequiredPlayerIds: ["host", "guest"],
+        nextHandReadyPlayerIds: [],
+        gameState: gameState({
+          finished: true,
+          waitingForHuman: false,
+          currentPlayerIndex: -1,
+          winnerIds: ["host"],
+          currentHandFee: 350,
+        }),
+      }),
+    });
+    await expect(page.getByText("핸드가 종료되었습니다. 자동 진행 옵션에 따라 다음 핸드를 대기 중입니다.")).toBeVisible();
+    await expect(page.getByText("준비 0/2명")).toBeVisible();
+
+    await emitWs(page, {
+      type: "roomState",
+      room: room({
+        nextHandRequiredPlayerIds: ["host", "guest"],
+        nextHandReadyPlayerIds: ["host"],
+        gameState: gameState({
+          finished: true,
+          waitingForHuman: false,
+          currentPlayerIndex: -1,
+          winnerIds: ["host"],
+          currentHandFee: 350,
+        }),
+      }),
+    });
+    await expect(page.getByText("다른 인간 플레이어의 다음 핸드 클릭을 기다립니다.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "다음 핸드 준비 완료" })).toBeDisabled();
+
+    await emitWs(page, {
+      type: "roomState",
+      room: room({
+        nextHandRequiredPlayerIds: ["host", "guest"],
+        nextHandReadyPlayerIds: [],
+        gameState: gameState({
+          finished: true,
+          waitingForHuman: false,
+          currentPlayerIndex: -1,
+          winnerIds: ["host"],
+          currentHandFee: 350,
+        }),
+      }),
+    });
+    await expect(page.getByText("핸드가 종료되었습니다. 다음 핸드를 눌러 준비하세요.")).toBeVisible();
+
+    await emitWs(page, {
+      type: "roomState",
+      room: room({
+        gameState: gameState({
+          streetIndex: 3,
+          communityCards: [card("QS"), card("JS"), card("10S"), card("9D"), card("8C")],
+          currentBet: 0,
+          pot: 50000,
+          showdownPending: true,
+          revealOrder: ["host", "guest"],
+          waitingForHuman: true,
+          currentPlayerIndex: 1,
+        }),
+      }),
+    });
+    await expect(page.getByText("Guest 쇼다운 공개 차례입니다.")).toBeVisible();
+
+    await emitWs(page, { type: "joinedRoom", roomId: "MOCK01", playerId: "observer" });
+    await emitWs(page, {
+      type: "roomState",
+      room: room({
+        waitingParticipants: [{ playerId: "observer", name: "Observer", connected: true, pendingEndlessJoin: true, createdAt: 1 }],
+        gameState: gameState({
+          players: [
+            tablePlayer("cpu-a", { name: "CPU A", isHuman: false, computerStyle: "balanced", computerLevel: "advanced", stateIndex: 0 }),
+            tablePlayer("cpu-b", { name: "CPU B", isHuman: false, computerStyle: "cautious", computerLevel: "beginner", stateIndex: 1 }),
+          ],
+          playerConfigs: [
+            { id: "cpu-a", name: "CPU A", isHuman: false, startingBalance: 100000 },
+            { id: "cpu-b", name: "CPU B", isHuman: false, startingBalance: 100000 },
+          ],
+          tableSeats: [
+            tablePlayer("cpu-a", { name: "CPU A", isHuman: false, computerStyle: "balanced", computerLevel: "advanced", stateIndex: 0 }),
+            tablePlayer("cpu-b", { name: "CPU B", isHuman: false, computerStyle: "cautious", computerLevel: "beginner", stateIndex: 1 }),
+          ],
+          currentPlayerIndex: 0,
+          waitingForHuman: false,
+        }),
+      }),
+    });
+    await expect(page.getByText("관전 중입니다.")).toBeVisible();
+    await expect(page.getByText("엔들리스 참가 대기 중입니다.")).toBeVisible();
+    await page.getByRole("button", { name: "자리 예약 취소" }).click();
     await expectSentMessage(page, "reserveEndlessSeat");
   });
 });

@@ -150,6 +150,15 @@ function exerciseWinRate() {
     }).samples === 6,
     "win-rate should run requested samples",
   );
+  assert(
+    estimateHoldemWinRate({
+      playerCards: hand("2D", "3C"),
+      communityCards: hand("AS", "KS", "QS", "JS", "10S"),
+      opponentCount: 1,
+      samples: 1,
+    }).percent === 50,
+    "board royal flush should split simulated equity",
+  );
 }
 
 function player(id, options = {}) {
@@ -349,15 +358,40 @@ function exerciseShowdown() {
   assert(applyAction(state, "fold", 0) === state, "non-showdown action should be ignored during showdown");
   assert(applyAction(state, "show", 1) === state, "wrong showdown actor should be ignored");
   state = applyAction(state, "show", 0);
-  assert(getAvailableActions(state, 0).length === 0, "opened player should not act again");
+  const openedAgainState = { ...state, currentPlayerIndex: 0, pendingIndices: [0] };
+  assert(getAvailableActions(openedAgainState, 0).length === 0, "opened player should not act again");
+  assert(applyAction(openedAgainState, "show", 0) === openedAgainState, "opened player showdown action should be ignored");
   state = applyAction({ ...state, currentPlayerIndex: 1 }, "muck", 1);
   state = applyAction({ ...state, currentPlayerIndex: 2 }, "show", 2);
   assert(state.finished, "showdown should finish after all contenders resolve");
 
   const noMuckState = showdownState({ revealOrder: ["a"], players: [player("a", { cards: hand("AS", "AH"), totalContribution: 10000 })] });
   assert(getAvailableActions({ ...noMuckState, players: [{ ...noMuckState.players[0], folded: true }] }, 0).length === 0, "folded showdown player cannot act");
+  assert(
+    applyAction({ ...noMuckState, players: [{ ...noMuckState.players[0], folded: true }] }, "show", 0).players[0].folded,
+    "folded showdown actor should be ignored",
+  );
   assert(getAvailableActions(noMuckState, 0).find((action) => action.key === "muck")?.enabled === false, "last contender cannot muck");
   assert(applyAction(noMuckState, "muck", 0) === noMuckState, "illegal muck should not mutate");
+
+  const implicitSoloShowdown = showdownState({
+    players: [player("solo", { cards: hand("AS", "AH"), totalContribution: 10000 }), player("folded", { folded: true, totalContribution: 10000 })],
+    revealOrder: [],
+    currentPlayerIndex: 0,
+  });
+  assert(getAvailableActions(implicitSoloShowdown, 0).some((action) => action.key === "show"), "implicit one-player showdown should build order");
+
+  const foldedAggressorShowdown = showdownState({
+    players: [
+      player("folded-aggressor", { folded: true, totalContribution: 10000 }),
+      player("active-a", { cards: hand("AS", "AH"), totalContribution: 10000 }),
+      player("active-b", { cards: hand("KS", "KH"), totalContribution: 10000 }),
+    ],
+    revealOrder: [],
+    currentPlayerIndex: 1,
+    lastAggressorIndex: 0,
+  });
+  assert(getAvailableActions(foldedAggressorShowdown, 1).some((action) => action.key === "show"), "folded aggressor showdown should start with first active");
 
   const sidePotState = showdownState({
     players: [
@@ -384,6 +418,30 @@ function exerciseShowdown() {
   });
   const splitPotFinished = applyAction(applyAction(applyAction(splitPotState, "show", 0), "show", 1), "show", 2);
   assert(splitPotFinished.winnerIds.length === 3, "board royal flush should split the pot");
+
+  const weakShowdownState = showdownState({
+    players: [
+      player("weak-a", { cards: hand("2D", "7C"), totalContribution: 10000 }),
+      player("weak-b", { cards: hand("3D", "8C"), totalContribution: 10000 }),
+    ],
+    communityCards: hand("AS", "KD", "QH", "9S", "4C"),
+    pot: 20000,
+    revealOrder: ["weak-a", "weak-b"],
+  });
+  const weakShowdownFinished = applyAction(applyAction(weakShowdownState, "show", 0), "show", 1);
+  assert(weakShowdownFinished.playerStats["weak-a"].showdownWeakShows >= 1, "weak opened hands should update showdown stats");
+
+  const allInLoserState = showdownState({
+    players: [
+      player("winner", { cards: hand("AS", "AH"), totalContribution: 10000, chipBalance: 90000 }),
+      player("all-in-loser", { cards: hand("3D", "8C"), totalContribution: 10000, chipBalance: 0 }),
+    ],
+    communityCards: hand("KS", "QD", "9H", "5S", "4C"),
+    pot: 20000,
+    revealOrder: ["winner", "all-in-loser"],
+  });
+  const allInLoserFinished = applyAction(applyAction(allInLoserState, "show", 0), "show", 1);
+  assert(allInLoserFinished.players.find((entry) => entry.id === "all-in-loser").eliminated, "busted showdown loser should be eliminated");
 
   const emptyPotState = showdownState({
     players: [
@@ -553,19 +611,21 @@ function exerciseComputerDecisions() {
       player(`cpu-extra-${scenarioIndex}-${index}`, {
         cards: index % 2 === 0 ? hand("KD", "KC") : hand("7D", "6D"),
         streetContribution: scenario.currentBet,
+        totalContribution: scenario.currentBet,
       }),
     );
     const state = actionState({
       players: [
-        player("human", { isHuman: true, cards: hand("2D", "7C"), streetContribution: scenario.currentBet }),
+        player("human", { isHuman: true, cards: hand("2D", "7C"), streetContribution: scenario.currentBet, totalContribution: scenario.currentBet }),
         player(`cpu-texture-${scenarioIndex}`, {
           cards: scenario.actorCards,
           streetContribution: scenario.streetContribution,
+          totalContribution: scenario.streetContribution,
           chipBalance: scenario.chipBalance,
           computerStyle: scenarioIndex === 2 ? "adaptive" : "balanced",
           computerLevel: "advanced",
         }),
-        player("cpu-last-aggressor", { cards: hand("QD", "QC"), streetContribution: scenario.currentBet }),
+        player("cpu-last-aggressor", { cards: hand("QD", "QC"), streetContribution: scenario.currentBet, totalContribution: scenario.currentBet }),
         ...opponents,
       ],
       currentPlayerIndex: 1,
@@ -604,20 +664,28 @@ function exerciseComputerDecisions() {
     { label: "quarter call share", opponentCount: 2, streetContribution: 5000, currentBet: 6000, chipBalance: 95000 },
     { label: "third call share", opponentCount: 1, streetContribution: 5000, currentBet: 6000, chipBalance: 95000 },
     { label: "short all-in call", opponentCount: 6, streetContribution: 0, currentBet: 5000, chipBalance: 1000 },
+    { label: "heads-up full stack call", opponentCount: 1, streetContribution: 0, currentBet: 5000, chipBalance: 1000 },
     { label: "large stack commitment", opponentCount: 2, streetContribution: 5000, currentBet: 6000, chipBalance: 1250 },
   ].forEach((scenario, scenarioIndex) => {
     const extraOpponents = Array.from({ length: scenario.opponentCount }, (_, index) =>
       player(`cpu-call-extra-${scenarioIndex}-${index}`, {
         cards: index % 2 === 0 ? hand("JD", "JC") : hand("9D", "9C"),
         streetContribution: scenario.currentBet,
+        totalContribution: scenario.currentBet,
       }),
     );
     const state = actionState({
       players: [
-        player("human-call-lead", { isHuman: true, cards: hand("2D", "7C"), streetContribution: scenario.currentBet }),
+        player("human-call-lead", {
+          isHuman: true,
+          cards: hand("2D", "7C"),
+          streetContribution: scenario.currentBet,
+          totalContribution: scenario.currentBet,
+        }),
         player(`cpu-call-${scenarioIndex}`, {
           cards: hand("AS", "QS"),
           streetContribution: scenario.streetContribution,
+          totalContribution: scenario.streetContribution,
           chipBalance: scenario.chipBalance,
           computerStyle: "balanced",
           computerLevel: "advanced",
@@ -632,6 +700,386 @@ function exerciseComputerDecisions() {
     });
     assert(typeof chooseComputerAction(state, 1) === "string", `call pressure branch ${scenario.label}`);
   });
+
+  const zeroChipPressureState = actionState({
+    players: [
+      player("human", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 5000 }),
+      player("cpu-zero-chip", {
+        cards: hand("AS", "AH"),
+        chipBalance: 0,
+        streetContribution: 0,
+        computerStyle: "balanced",
+        computerLevel: "advanced",
+      }),
+    ],
+    currentPlayerIndex: 1,
+    pendingIndices: [1, 0],
+    currentBet: 5000,
+    pot: 10000,
+    lastAggressorIndex: -1,
+  });
+  assert(chooseComputerAction(zeroChipPressureState, 1) === "fold", "computer without callable chips should fold to pressure");
+
+  [
+    {
+      label: "no last aggressor",
+      lastAggressorIndex: -1,
+      lastAggressorStats: {},
+    },
+    {
+      label: "quiet computer aggressor",
+      lastAggressorIndex: 2,
+      lastAggressorStats: {},
+    },
+    {
+      label: "moderately aggressive computer",
+      lastAggressorIndex: 2,
+      lastAggressorStats: { actions: 5, aggressiveActions: 2, raises: 1 },
+    },
+    {
+      label: "single sharp computer action",
+      lastAggressorIndex: 2,
+      lastAggressorStats: { actions: 2, aggressiveActions: 1, raises: 0 },
+    },
+  ].forEach((scenario, scenarioIndex) => {
+    const state = actionState({
+      players: [
+        player("human-call-source", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 5000, totalContribution: 5000 }),
+        player(`cpu-bluff-catch-${scenarioIndex}`, {
+          cards: hand("AS", "QS"),
+          streetContribution: 0,
+          totalContribution: 0,
+          chipBalance: 95000,
+          computerStyle: "balanced",
+          computerLevel: "advanced",
+        }),
+        player("cpu-last-source", { cards: hand("QD", "QC"), streetContribution: 5000, totalContribution: 5000 }),
+      ],
+      currentPlayerIndex: 1,
+      pendingIndices: [1, 2, 0],
+      currentBet: 5000,
+      pot: 15000,
+      lastAggressorIndex: scenario.lastAggressorIndex,
+      playerStats: {
+        "cpu-last-source": {
+          actions: 0,
+          folds: 0,
+          calls: 0,
+          checks: 0,
+          bets: 0,
+          raises: 0,
+          aggressiveActions: 0,
+          voluntaryChips: 0,
+          showdownOpens: 0,
+          showdownMucks: 0,
+          showdownWins: 0,
+          showdownStrengthTotal: 0,
+          showdownHoleStrengthTotal: 0,
+          showdownStrongShows: 0,
+          showdownWeakShows: 0,
+          showdownSamples: [],
+          ...scenario.lastAggressorStats,
+        },
+      },
+    });
+    assert(typeof chooseComputerAction(state, 1) === "string", `bluff-catch profile branch ${scenario.label}`);
+  });
+
+  [
+    {
+      label: "vulnerable pair call",
+      streetIndex: 1,
+      currentBet: 10000,
+      streetContribution: 5000,
+      board: hand("AS", "9S", "6S"),
+    },
+    {
+      label: "river high-card call",
+      streetIndex: 3,
+      currentBet: 10000,
+      streetContribution: 5000,
+      board: hand("AS", "KD", "QH", "9S", "4C"),
+    },
+    {
+      label: "vulnerable pair open",
+      streetIndex: 1,
+      currentBet: 0,
+      streetContribution: 0,
+      board: hand("AS", "9S", "6S"),
+    },
+  ].forEach((scenario) => {
+    const state = actionState({
+      players: [
+        player("human-texture", { isHuman: true, cards: hand("2D", "7C"), streetContribution: scenario.currentBet, totalContribution: scenario.currentBet }),
+        player(`cpu-${scenario.label}`, {
+          cards: scenario.label === "river high-card call" ? hand("2D", "7C") : hand("9D", "2C"),
+          streetContribution: scenario.streetContribution,
+          totalContribution: scenario.streetContribution,
+          chipBalance: 95000,
+          computerStyle: "balanced",
+          computerLevel: "advanced",
+        }),
+        player("cpu-texture-x", { cards: hand("JD", "JC"), streetContribution: scenario.currentBet, totalContribution: scenario.currentBet }),
+        player("cpu-texture-y", { cards: hand("8D", "8C"), streetContribution: scenario.currentBet, totalContribution: scenario.currentBet }),
+      ],
+      currentPlayerIndex: 1,
+      pendingIndices: [1, 2, 3, 0],
+      streetIndex: scenario.streetIndex,
+      communityCards: scenario.board,
+      currentBet: scenario.currentBet,
+      pot: Math.max(12000, scenario.currentBet * 4),
+      lastAggressorIndex: 0,
+    });
+    assert(typeof chooseComputerAction(state, 1) === "string", `board texture branch ${scenario.label}`);
+  });
+
+  const noStatsAdaptiveState = actionState({
+    players: [
+      player("human", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 0 }),
+      player("cpu-adaptive-quiet", {
+        cards: hand("AS", "KS"),
+        streetContribution: 0,
+        computerStyle: "adaptive",
+        computerLevel: "advanced",
+      }),
+    ],
+    currentPlayerIndex: 1,
+    pendingIndices: [1, 0],
+    currentBet: 0,
+    pot: 10000,
+    lastAggressorIndex: -1,
+    playerStats: {},
+  });
+  delete noStatsAdaptiveState.cardPeekPlayerIds;
+  assert(typeof chooseComputerAction(noStatsAdaptiveState, 1) === "string", "adaptive style without patterns should keep base style");
+
+  const passiveAdaptiveState = actionState({
+    players: [
+      player("human-passive", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 5000 }),
+      player("cpu-adaptive-passive", {
+        cards: hand("KS", "QS"),
+        streetContribution: 0,
+        computerStyle: "adaptive",
+        computerLevel: "advanced",
+      }),
+      player("cpu-x", { cards: hand("QD", "QC"), streetContribution: 5000 }),
+    ],
+    currentPlayerIndex: 1,
+    pendingIndices: [1, 2, 0],
+    currentBet: 5000,
+    pot: 22000,
+    lastAggressorIndex: 0,
+    playerStats: {
+      "human-passive": {
+        actions: 8,
+        folds: 1,
+        calls: 5,
+        checks: 2,
+        bets: 0,
+        raises: 0,
+        aggressiveActions: 0,
+        voluntaryChips: 18000,
+        showdownOpens: 0,
+        showdownMucks: 0,
+        showdownWins: 0,
+        showdownStrengthTotal: 0,
+        showdownHoleStrengthTotal: 0,
+        showdownStrongShows: 0,
+        showdownWeakShows: 0,
+        showdownSamples: [],
+      },
+    },
+  });
+  assert(typeof chooseComputerAction(passiveAdaptiveState, 1) === "string", "adaptive style should tighten against passive fields");
+
+  [
+    { label: "heads-up first", totalPlayers: 2, pendingIndices: [1, 0] },
+    { label: "late quarter", totalPlayers: 5, pendingIndices: [0, 2, 3, 1, 4] },
+    { label: "middle half", totalPlayers: 5, pendingIndices: [0, 2, 1, 3, 4] },
+    { label: "early three-quarter", totalPlayers: 5, pendingIndices: [0, 1, 2, 3, 4] },
+  ].forEach((scenario, scenarioIndex) => {
+    const players = [
+      player("human-position", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 5000 }),
+      player(`cpu-position-${scenarioIndex}`, {
+        cards: hand("AS", "QS"),
+        streetContribution: 0,
+        computerStyle: "balanced",
+        computerLevel: "advanced",
+      }),
+      ...Array.from({ length: scenario.totalPlayers - 2 }, (_, index) =>
+        player(`cpu-position-extra-${scenarioIndex}-${index}`, {
+          cards: index % 2 === 0 ? hand("JD", "JC") : hand("9D", "9C"),
+          streetContribution: 5000,
+        }),
+      ),
+    ];
+    const state = actionState({
+      players,
+      currentPlayerIndex: 1,
+      pendingIndices: scenario.pendingIndices,
+      currentBet: 5000,
+      pot: 5000 * players.length,
+      lastAggressorIndex: 0,
+    });
+    assert(typeof chooseComputerAction(state, 1) === "string", `position context branch ${scenario.label}`);
+  });
+
+  const cautiousNoWagerState = actionState({
+    players: [
+      player("human", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 15000 }),
+      player("cpu-cautious-no-wager", {
+        cards: hand("AS", "AH"),
+        streetContribution: 15000,
+        totalContribution: 99000,
+        computerStyle: "cautious",
+        computerLevel: "advanced",
+      }),
+      player("cpu-x", { cards: hand("QD", "QC"), streetContribution: 15000 }),
+    ],
+    currentPlayerIndex: 1,
+    pendingIndices: [1, 2, 0],
+    currentBet: 15000,
+    pot: 45000,
+    lastAggressorIndex: 0,
+  });
+  assert(typeof chooseComputerAction(cautiousNoWagerState, 1) === "string", "cautious pressure should tolerate no aggressive action");
+
+  const cautiousPremiumOpenState = actionState({
+    players: [
+      player("human", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 0 }),
+      player("cpu-cautious-premium", {
+        cards: hand("AS", "AH"),
+        streetContribution: 0,
+        computerStyle: "cautious",
+        computerLevel: "advanced",
+      }),
+      player("cpu-x", { cards: hand("QD", "QC"), streetContribution: 0 }),
+    ],
+    currentPlayerIndex: 1,
+    pendingIndices: [1, 2, 0],
+    currentBet: 0,
+    pot: 12000,
+    lastAggressorIndex: -1,
+  });
+  assert(chooseComputerAction(cautiousPremiumOpenState, 1) === "bet", "cautious premium hand should value bet");
+
+  const cautiousPremiumCallState = actionState({
+    players: [
+      player("human", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 15000 }),
+      player("cpu-cautious-call", {
+        cards: hand("AS", "AH"),
+        streetContribution: 10000,
+        computerStyle: "cautious",
+        computerLevel: "advanced",
+      }),
+      player("cpu-x", { cards: hand("QD", "QC"), streetContribution: 15000 }),
+    ],
+    currentPlayerIndex: 1,
+    pendingIndices: [1, 2, 0],
+    currentBet: 15000,
+    pot: 45000,
+    lastAggressorIndex: 0,
+  });
+  assert(chooseComputerAction(cautiousPremiumCallState, 1) === "call", "cautious strong hand should call capped pressure");
+
+  const adaptiveNoAggressorPatternState = actionState({
+    players: [
+      player("human-calm", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 5000 }),
+      player("cpu-adaptive-no-counter", {
+        cards: hand("KS", "QS"),
+        streetContribution: 0,
+        computerStyle: "adaptive",
+        computerLevel: "advanced",
+      }),
+      player("cpu-x", { cards: hand("QD", "QC"), streetContribution: 5000 }),
+    ],
+    currentPlayerIndex: 1,
+    pendingIndices: [1, 2, 0],
+    currentBet: 5000,
+    pot: 22000,
+    lastAggressorIndex: 0,
+    playerStats: {
+      "human-calm": {
+        actions: 5,
+        folds: 1,
+        calls: 3,
+        checks: 1,
+        bets: 0,
+        raises: 0,
+        aggressiveActions: 0,
+        voluntaryChips: 15000,
+        showdownOpens: 0,
+        showdownMucks: 0,
+        showdownWins: 0,
+        showdownStrengthTotal: 0,
+        showdownHoleStrengthTotal: 0,
+        showdownStrongShows: 0,
+        showdownWeakShows: 0,
+        showdownSamples: [],
+      },
+    },
+    cardPeekPlayerIds: [],
+  });
+  assert(typeof chooseComputerAction(adaptiveNoAggressorPatternState, 1) === "string", "adaptive counter should ignore calm aggressor");
+
+  const aggressiveOpenState = actionState({
+    players: [
+      player("human", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 0 }),
+      player("cpu-open", {
+        cards: hand("KS", "QS"),
+        streetContribution: 0,
+        computerStyle: "aggressive",
+        computerLevel: "advanced",
+      }),
+      player("cpu-x", { cards: hand("QD", "QC"), streetContribution: 0 }),
+    ],
+    currentPlayerIndex: 1,
+    pendingIndices: [1, 2, 0],
+    currentBet: 0,
+    pot: 10000,
+    lastAggressorIndex: -1,
+  });
+  assert(chooseComputerAction(aggressiveOpenState, 1) === "bet", "strong aggressive hand should open bet");
+
+  const noCallActionState = actionState({
+    players: [
+      player("human", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 5000 }),
+      player("cpu-no-call", {
+        cards: hand("AS", "AH"),
+        chipBalance: 0,
+        streetContribution: 0,
+        computerStyle: "aggressive",
+        computerLevel: "advanced",
+      }),
+      player("cpu-x", { cards: hand("QD", "QC"), streetContribution: 5000 }),
+    ],
+    currentPlayerIndex: 1,
+    pendingIndices: [1, 2, 0],
+    currentBet: 5000,
+    pot: 15000,
+    lastAggressorIndex: 0,
+  });
+  assert(chooseComputerAction(noCallActionState, 1) === "fold", "computer should fold when facing a bet without a call action");
+
+  for (let seedIndex = 0; seedIndex < 100; seedIndex += 1) {
+    const noWeightedChaosActionState = actionState({
+      handId: `chaos-no-actions-${seedIndex}`,
+      players: [
+        player("cpu-chaos-no-actions", {
+          cards: hand("7S", "2C"),
+          actionLocked: true,
+          computerStyle: "chaotic",
+          computerLevel: "beginner",
+        }),
+        player("human", { isHuman: true, folded: true }),
+      ],
+      currentPlayerIndex: 0,
+      pendingIndices: [],
+      currentBet: 0,
+      pot: 5000,
+    });
+    assert(chooseComputerAction(noWeightedChaosActionState, 0) === "fold", "chaotic weighted choice should tolerate no available actions");
+  }
 
   const invalidMemoryPlan = computerCardPeekPlan(
     actionState({
@@ -682,7 +1130,6 @@ function exerciseComputerDecisions() {
     const action = chooseComputerAction(chaoticState, 1);
     if (["call", "raise", "fold"].includes(action)) {
       sawChaoticOverride = true;
-      break;
     }
   }
   assert(sawChaoticOverride, "chaotic style should exercise weighted override choices");
@@ -712,7 +1159,6 @@ function exerciseComputerDecisions() {
     const action = chooseComputerAction(chaoticCheckedState, 1);
     if (["bet", "check", "fold"].includes(action)) {
       sawChaoticCheckedOverride = true;
-      break;
     }
   }
   assert(sawChaoticCheckedOverride, "chaotic style should exercise checked weighted override choices");
@@ -765,6 +1211,21 @@ function exerciseComputerDecisions() {
   );
   assert(["show", "muck"].includes(chooseComputerAction(openedBetterShowdown, 1)), "computer should compare against an opened stronger showdown hand");
 
+  const openedKickerShowdown = applyAction(
+    showdownState({
+      players: [
+        player("opened-ace", { cards: hand("AS", "3D"), totalContribution: 10000 }),
+        player("cpu-kicker-loser", { cards: hand("KS", "JD"), totalContribution: 10000, computerStyle: "balanced", computerLevel: "advanced" }),
+      ],
+      communityCards: hand("QS", "9H", "7D", "5C", "2S"),
+      revealOrder: ["opened-ace", "cpu-kicker-loser"],
+      currentPlayerIndex: 0,
+    }),
+    "show",
+    0,
+  );
+  assert(["show", "muck"].includes(chooseComputerAction(openedKickerShowdown, 1)), "computer should compare same-score showdown kickers");
+
   const invalidPeek = computerCardPeekPlan(actionState({ currentPlayerIndex: 0 }), 0);
   assert(!invalidPeek.shouldPeek, "human should not peek as computer");
 
@@ -802,6 +1263,74 @@ function exerciseComputerDecisions() {
     if (!state.finished) {
       assert(["show", "muck"].includes(chooseComputerAction(state, state.currentPlayerIndex)), `second computer showdown action ${style}`);
     }
+  });
+
+  [
+    {
+      label: "no patterns",
+      stats: {},
+    },
+    {
+      label: "passive action pattern",
+      stats: {
+        actions: 10,
+        folds: 1,
+        calls: 7,
+        checks: 2,
+        bets: 0,
+        raises: 0,
+        aggressiveActions: 0,
+      },
+    },
+    {
+      label: "strong showdown pattern",
+      stats: {
+        actions: 6,
+        folds: 3,
+        calls: 1,
+        checks: 0,
+        bets: 1,
+        raises: 1,
+        aggressiveActions: 2,
+        showdownOpens: 2,
+        showdownMucks: 0,
+        showdownStrengthTotal: 120,
+        showdownHoleStrengthTotal: 140,
+        showdownStrongShows: 2,
+        showdownWeakShows: 0,
+      },
+    },
+  ].forEach((scenario) => {
+    const state = showdownState({
+      players: [
+        player("cpu-adaptive-showdown", { cards: hand("KS", "QH"), computerStyle: "adaptive", computerLevel: "advanced" }),
+        player("showdown-opponent", { cards: hand("2S", "3H"), computerStyle: "balanced", computerLevel: "beginner" }),
+      ],
+      revealOrder: ["cpu-adaptive-showdown", "showdown-opponent"],
+      currentPlayerIndex: 0,
+      playerStats: {
+        "showdown-opponent": {
+          actions: 0,
+          folds: 0,
+          calls: 0,
+          checks: 0,
+          bets: 0,
+          raises: 0,
+          aggressiveActions: 0,
+          voluntaryChips: 0,
+          showdownOpens: 0,
+          showdownMucks: 0,
+          showdownWins: 0,
+          showdownStrengthTotal: 0,
+          showdownHoleStrengthTotal: 0,
+          showdownStrongShows: 0,
+          showdownWeakShows: 0,
+          showdownSamples: [],
+          ...scenario.stats,
+        },
+      },
+    });
+    assert(["show", "muck"].includes(chooseComputerAction(state, 0)), `adaptive showdown adjustment ${scenario.label}`);
   });
 }
 
