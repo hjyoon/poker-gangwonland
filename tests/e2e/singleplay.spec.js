@@ -142,11 +142,65 @@ test.describe("root singleplay table", () => {
     await settings.getByLabel("플레이어 카드 누적 승리 표시").uncheck();
     await settings.getByLabel("다음 핸드 자동 진행").check();
     await settings.getByLabel("다음 핸드 딜레이(ms)").fill("500");
+    await settings.getByLabel("엔들리스 게임 모드").check();
+    await settings.getByLabel("엔들리스 신규 컴퓨터 성향").selectOption({ label: "혼돈형" });
+    await settings.getByLabel("엔들리스 신규 컴퓨터 수준").selectOption({ label: "고급" });
+    await settings.getByLabel("엔들리스 신규 시작 금액").fill("150000");
+    await settings.getByLabel("컴퓨터 행동 딜레이(ms)").fill("1");
+    await expect(settings.getByLabel("컴퓨터 행동 딜레이(ms)")).toHaveValue("100");
+    await settings.getByLabel("컴퓨터 행동 딜레이(ms)").fill("999999");
+    await expect(settings.getByLabel("컴퓨터 행동 딜레이(ms)")).toHaveValue("3000");
+    await settings.getByLabel("다음 핸드 딜레이(ms)").fill("1");
     await expect(settings.getByLabel("다음 핸드 딜레이(ms)")).toHaveValue("500");
+    await settings.getByLabel("다음 핸드 딜레이(ms)").fill("999999");
+    await expect(settings.getByLabel("다음 핸드 딜레이(ms)")).toHaveValue("10000");
+    await settings.getByLabel("멀티플레이 제한 시간(ms)").fill("1");
+    await expect(settings.getByLabel("멀티플레이 제한 시간(ms)")).toHaveValue("3000");
+    await settings.getByLabel("멀티플레이 제한 시간(ms)").fill("999999");
+    await expect(settings.getByLabel("멀티플레이 제한 시간(ms)")).toHaveValue("60000");
+    await settings.getByLabel("다음 핸드 딜레이(ms)").fill("500");
+    await expect(settings.getByLabel("다음 핸드 딜레이(ms)")).toHaveValue("500");
+    await expect(settings.getByLabel("엔들리스 신규 시작 금액")).toHaveValue("150000");
 
     await openActiveMenuItem(page, "게임 테이블");
     await expect(page.getByText("설정 비공개").first()).toBeVisible();
     await expect(page.locator(".seat").first().getByText("누적 승리")).toHaveCount(0);
+  });
+
+  test("covers active personal settings and empty history info states", async ({ page }) => {
+    await startSingleGame(page);
+
+    await openActiveMenuItem(page, "개인 설정");
+    await expect(page.getByRole("heading", { name: "개인 설정" })).toBeVisible();
+    await page.getByLabel("핸드 랭킹 표시").uncheck();
+    await page.getByLabel("승률 표시").uncheck();
+    await page.getByLabel("핸드 별칭 표시").uncheck();
+    await expect(page.getByLabel("핸드 랭킹 표시")).not.toBeChecked();
+    await expect(page.getByLabel("승률 표시")).not.toBeChecked();
+    await expect(page.getByLabel("핸드 별칭 표시")).not.toBeChecked();
+
+    await openActiveMenuItem(page, "게임 테이블");
+    await page.getByLabel("개인 카드 확인").focus();
+    await expect(page.locator(".card-info-overlay")).toHaveCount(0);
+    await page.getByLabel("개인 카드 확인").blur();
+
+    await openActiveMenuItem(page, "개인 설정");
+    await page.getByLabel("핸드 랭킹 표시").check();
+    await page.getByLabel("승률 표시").check();
+    await page.getByLabel("핸드 별칭 표시").check();
+    await openActiveMenuItem(page, "게임 테이블");
+    await page.getByLabel("개인 카드 확인").hover({ position: { x: 4, y: 4 } });
+    await expect(page.getByText("핸드 랭킹")).toBeVisible();
+    await expect(page.getByText("승률")).toBeVisible();
+    await page.mouse.move(0, 0);
+
+    await openActiveMenuItem(page, "보조 정보");
+    await page.getByRole("tab", { name: "진행 로그" }).click();
+    await expect(page.getByText("아직 완료된 이전 핸드가 없습니다.")).toBeVisible();
+    await page.getByRole("tab", { name: "규칙 요약" }).click();
+    await expect(page.getByRole("heading", { name: "강원랜드 기준 요약" })).toBeVisible();
+    await page.getByRole("tab", { name: "플레이 안내" }).click();
+    await expect(page.getByText("엔들리스 게임 모드를 켜면 탈락 좌석에 새 컴퓨터 플레이어가 입장합니다.")).toBeVisible();
   });
 
   test("shows short-stack call as all-in and locks the player action", async ({ page }) => {

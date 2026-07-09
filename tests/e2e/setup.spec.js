@@ -58,6 +58,31 @@ test.describe("root setup shell", () => {
     await expect(page.getByText("진행 가능한 플레이어가 2명 이상 필요합니다.")).toBeVisible();
   });
 
+  test("covers multiplayer setup limits, human slot conversion, and timeout clamps", async ({ page }) => {
+    await gotoRoot(page);
+
+    await page.getByRole("radio", { name: "멀티플레이" }).click();
+    await page.getByRole("radio", { name: "룸 만들기" }).click();
+    await openSetupTab(page, "게임 설정");
+    await expectSetupCardOrder(page, ["컴퓨터 1", "컴퓨터 2", "컴퓨터 3", "빈 자리 1", "빈 자리 2"]);
+
+    await page.getByLabel("멀티플레이 제한 시간(ms)").fill("1");
+    await expect(page.getByLabel("멀티플레이 제한 시간(ms)")).toHaveValue("3000");
+    await page.getByLabel("멀티플레이 제한 시간(ms)").fill("999999");
+    await expect(page.getByLabel("멀티플레이 제한 시간(ms)")).toHaveValue("60000");
+
+    for (let index = 0; index < 3; index += 1) {
+      await page.getByRole("button", { name: "플레이어 카드 추가" }).click();
+    }
+    await expect(page.getByRole("group", { name: /설정 카드$/ })).toHaveCount(8);
+    await expect(page.getByRole("button", { name: "플레이어 카드 추가" })).toHaveCount(0);
+
+    await setupCard(page, "컴퓨터 6").getByLabel("플레이어 유형").selectOption("human");
+    await expect(setupCard(page, "빈 자리 3")).toBeVisible();
+    await expectSetupCardOrder(page, ["컴퓨터 1", "컴퓨터 2", "컴퓨터 3", "빈 자리 1", "빈 자리 2", "컴퓨터 4", "컴퓨터 5", "빈 자리 3"]);
+    await expect(setupCard(page, "빈 자리 1").getByRole("button", { name: "빈 자리 1 제거" })).toBeVisible();
+  });
+
   test("reorders setup cards by drag handle and starts with selected computer profile", async ({ page }) => {
     await gotoRoot(page);
     await setFastDelays(page);

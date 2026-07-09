@@ -146,6 +146,8 @@ test.describe("root multiplayer flows", () => {
     await hostPage.getByRole("button", { name: "플레이어 카드 추가" }).click();
     await setupCard(hostPage, "컴퓨터 2").getByLabel("플레이어 유형").selectOption("human");
     await expect(setupCard(hostPage, "빈 자리 3")).toBeVisible();
+    await openSetupTab(hostPage, "멀티플레이");
+    await expect(hostPage.locator(".room-slot").filter({ hasText: "빈 자리" })).toHaveCount(1);
     await startMultiplayerGame(hostPage, [guestPage]);
 
     const latePage = await joinActiveRoomInContext(lateContext, roomCode);
@@ -154,6 +156,31 @@ test.describe("root multiplayer flows", () => {
 
     await expect(latePage.locator(".seat").filter({ hasText: "참가 예약" })).toBeVisible();
     await expect(hostPage.locator(".seat").filter({ hasText: "참가 예약" })).toBeVisible();
+
+    await hostContext.close();
+    await guestContext.close();
+    await lateContext.close();
+  });
+
+  test("lets an overflow participant cancel and restore an endless waiting reservation", async ({ browser }) => {
+    const hostContext = await browser.newContext();
+    const guestContext = await browser.newContext();
+    const lateContext = await browser.newContext();
+    const hostPage = await hostContext.newPage();
+    const roomCode = await createRoom(hostPage, { name: "Host", computerCount: 0, endless: true });
+    const guestPage = await joinRoomInContext(guestContext, roomCode, { name: "Guest", viaDeepLink: true });
+
+    await startMultiplayerGame(hostPage, [guestPage]);
+
+    const latePage = await joinActiveRoomInContext(lateContext, roomCode);
+    await expect(latePage.getByText("엔들리스 참가 대기 중입니다. 컴퓨터 플레이어가 탈락하면 그 좌석으로 다음 핸드부터 참가합니다.")).toBeVisible();
+
+    await latePage.getByRole("button", { name: "자리 예약 취소" }).click();
+    await expect(latePage.getByText("현재 게임에는 앉아 있지 않습니다. 다음 자리를 예약하면 컴퓨터 플레이어가 탈락한 좌석을 기다립니다.")).toBeVisible();
+    await expect(latePage.getByRole("button", { name: "다음 자리 예약" })).toBeVisible();
+
+    await latePage.getByRole("button", { name: "다음 자리 예약" }).click();
+    await expect(latePage.getByText("엔들리스 참가 대기 중입니다. 컴퓨터 플레이어가 탈락하면 그 좌석으로 다음 핸드부터 참가합니다.")).toBeVisible();
 
     await hostContext.close();
     await guestContext.close();
