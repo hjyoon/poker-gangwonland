@@ -636,6 +636,62 @@ function exerciseComputerDecisions() {
   }
   assert(sawChaoticOverride, "chaotic style should exercise weighted override choices");
 
+  let sawChaoticCheckedOverride = false;
+  for (let seedIndex = 0; seedIndex < 120; seedIndex += 1) {
+    const chaoticCheckedState = actionState({
+      handId: `chaos-checked-${seedIndex}`,
+      players: [
+        player("human", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 0 }),
+        player("cpu-chaos-open", {
+          cards: hand("8S", "3C"),
+          streetContribution: 0,
+          computerStyle: "chaotic",
+          computerLevel: "beginner",
+        }),
+        player("cpu-x", { cards: hand("QD", "QC"), streetContribution: 0 }),
+      ],
+      currentPlayerIndex: 1,
+      pendingIndices: [1, 2, 0],
+      currentBet: 0,
+      streetIndex: 1,
+      communityCards: hand("2S", "6H", "10D"),
+      pot: 15000,
+      lastAggressorIndex: -1,
+    });
+    const action = chooseComputerAction(chaoticCheckedState, 1);
+    if (["bet", "check", "fold"].includes(action)) {
+      sawChaoticCheckedOverride = true;
+      break;
+    }
+  }
+  assert(sawChaoticCheckedOverride, "chaotic style should exercise checked weighted override choices");
+
+  const noActionState = actionState({
+    players: [
+      player("cpu-only", { cards: hand("7S", "2C"), actionLocked: true, computerStyle: "balanced" }),
+      player("human", { isHuman: true, folded: true }),
+    ],
+    currentPlayerIndex: 0,
+    pendingIndices: [],
+    currentBet: 0,
+  });
+  assert(chooseComputerAction(noActionState, 0) === "fold", "computer should fall back when no actions are available");
+
+  const checkFallbackState = actionState({
+    players: [
+      player("human", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 0 }),
+      player("cpu-check", { cards: hand("7S", "2C"), streetContribution: 0, computerStyle: "cautious", computerLevel: "beginner" }),
+      player("cpu-x", { cards: hand("QD", "QC"), streetContribution: 0 }),
+    ],
+    currentPlayerIndex: 1,
+    pendingIndices: [1, 2, 0],
+    currentBet: 0,
+    streetIndex: 1,
+    communityCards: hand("AS", "KD", "9H"),
+    pot: 15000,
+  });
+  assert(["check", "bet"].includes(chooseComputerAction(checkFallbackState, 1)), "computer should handle checkable fallback branch");
+
   const invalidPeek = computerCardPeekPlan(actionState({ currentPlayerIndex: 0 }), 0);
   assert(!invalidPeek.shouldPeek, "human should not peek as computer");
 
@@ -684,7 +740,10 @@ function exerciseHandLifecycle() {
       cpuCount: 1,
       includeHuman: true,
       dealerIndex: 0,
-      chipTotals: { human: 100000, "cpu-1": 100000 },
+      chipTotals: {
+        human: { chipBalance: 100000, chipsWon: 0 },
+        "cpu-1": { chipBalance: 100000, chipsWon: 0 },
+      },
       forcedContributions: [
         { playerId: "missing", amount: 5000, label: "누락" },
         { playerId: "human", amount: 0, label: "제로" },
@@ -697,7 +756,10 @@ function exerciseHandLifecycle() {
       cpuCount: 1,
       includeHuman: true,
       dealerIndex: 99,
-      chipTotals: { human: 1000, "cpu-1": 1000 },
+      chipTotals: {
+        human: { chipBalance: 1000, chipsWon: 0 },
+        "cpu-1": { chipBalance: 1000, chipsWon: 0 },
+      },
       handNumber: 3,
     }).showdownPending,
     "all-in blinds should auto-advance to showdown",
@@ -733,6 +795,20 @@ function exerciseHandLifecycle() {
     }).players.some((entry) => entry.id.startsWith("cpu-endless")),
     "endless mode should replace eliminated computer",
   );
+
+  const oneActionableStreetState = actionState({
+    players: [
+      player("all-in-a", { actionLocked: true, streetContribution: 5000, totalContribution: 5000, chipBalance: 0 }),
+      player("all-in-b", { actionLocked: true, streetContribution: 5000, totalContribution: 5000, chipBalance: 0 }),
+    ],
+    currentPlayerIndex: -1,
+    pendingIndices: [],
+    streetIndex: 0,
+    currentBet: 5000,
+    waitingForHuman: false,
+  });
+  const advancedAllIn = applyAction(oneActionableStreetState, "check", 0);
+  assert(advancedAllIn === oneActionableStreetState, "locked all-in action should not mutate state");
 }
 
 exerciseBasics();

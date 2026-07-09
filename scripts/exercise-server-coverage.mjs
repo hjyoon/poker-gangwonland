@@ -245,6 +245,53 @@ async function waitForRoomState(client, roomId, count) {
   return client.messages.filter((message) => message.type === "roomState" && message.room?.id === roomId).at(-1);
 }
 
+function roomStateMessages(client, roomId) {
+  return client.messages.filter((message) => message.type === "roomState" && message.room?.id === roomId);
+}
+
+function latestRoom(client, roomId) {
+  return roomStateMessages(client, roomId).at(-1)?.room ?? null;
+}
+
+async function waitForRoomUpdate(client, roomId, previousCount, predicate = () => true) {
+  await client.waitFor(
+    () => roomStateMessages(client, roomId).length > previousCount && Boolean(predicate(latestRoom(client, roomId))),
+    10_000,
+  );
+  return latestRoom(client, roomId);
+}
+
+async function finishRoomHand(observer, roomId, playerClientsById, maxActions = 80) {
+  let seenCount = roomStateMessages(observer, roomId).length;
+
+  for (let actionCount = 0; actionCount < maxActions; actionCount += 1) {
+    const room = latestRoom(observer, roomId) ?? (await waitForRoomUpdate(observer, roomId, seenCount, (entry) => entry?.gameState));
+    seenCount = roomStateMessages(observer, roomId).length;
+    const state = room?.gameState;
+    if (!state) {
+      await delay(100);
+      continue;
+    }
+    if (state.finished) {
+      return state;
+    }
+
+    const actor = state.players[state.currentPlayerIndex];
+    const actorClient = playerClientsById.get(actor?.id);
+    if (!actor || !actorClient) {
+      await waitForRoomUpdate(observer, roomId, seenCount, (entry) => entry?.gameState);
+      continue;
+    }
+
+    const toCall = Math.max(0, Number(state.currentBet) - Number(actor.streetContribution));
+    const action = state.showdownPending ? "show" : toCall > 0 ? "call" : "check";
+    actorClient.send({ type: "gameAction", action });
+    await waitForRoomUpdate(observer, roomId, seenCount, (entry) => entry?.gameState);
+  }
+
+  throw new Error("room hand did not finish within action limit");
+}
+
 const port = await findOpenPort();
 const server = await startCoverageServer(port);
 const clients = [];
@@ -324,7 +371,7 @@ try {
         { name: "Host", startingBalance: 100000 },
         { name: "Guest", startingBalance: 100000 },
       ],
-      computerPlayers: [],
+      computerPlayers: [{ name: "Computer", startingBalance: 100000, computerStyle: "balanced", computerLevel: "intermediate" }],
       computerActionDelayMs: 100,
       nextHandDelayMs: 500,
       humanActionTimeoutMs: 3000,
@@ -404,6 +451,24 @@ try {
   await late.waitFor((message) => message.type === "roomState" && message.room?.waitingParticipants?.some((participant) => participant.pendingEndlessJoin));
   late.send({ type: "reserveEndlessSeat", cancel: true });
   await expectError(late, { type: "joinGameSeat", tableSeatIndex: -1, playerName: "Late" });
+
+  const playersById = new Map([
+    [joinedHost.playerId, host],
+    [joinedGuest.playerId, guest],
+  ]);
+  const finishedState = await finishRoomHand(host, roomId, playersById);
+  assert(finishedState.finished, "raw server exercise should finish an active room hand");
+  const nextHandRoom = latestRoom(host, roomId);
+  for (const playerId of nextHandRoom?.nextHandRequiredPlayerIds ?? []) {
+    playersById.get(playerId)?.send({ type: "requestNextHand" });
+  }
+  await host.waitFor(
+    (message) =>
+      message.type === "roomState" &&
+      message.room?.id === roomId &&
+      (message.room.gameState?.handNumber === 2 || message.room.gameState?.gameOver),
+    12_000,
+  );
 
   probe.close();
   duplicate.close();
