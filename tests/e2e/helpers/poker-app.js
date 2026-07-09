@@ -96,6 +96,16 @@ export async function clickIfEnabledAction(page, actionNames = HUMAN_ACTIONS) {
   return "";
 }
 
+export async function clickNamedAction(page, actionName) {
+  const button = page.locator(".controls .action-row").getByRole("button", { name: actionName }).first();
+  if ((await button.count()) === 0 || !(await button.isEnabled())) {
+    return false;
+  }
+
+  await button.click();
+  return true;
+}
+
 export async function finishHandWithinLimit(page, { maxActions = 80 } = {}) {
   for (let actionCount = 0; actionCount < maxActions; actionCount += 1) {
     const nextHandButton = page.getByRole("button", { name: "다음 핸드", exact: true }).first();

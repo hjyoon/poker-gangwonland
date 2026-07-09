@@ -4,6 +4,7 @@ import {
   createRoom,
   gotoRoot,
   joinRoomInContext,
+  openSetupTab,
   startMultiplayerGame,
   waitForAnyTurn,
 } from "./helpers/poker-app";
@@ -104,6 +105,77 @@ test.describe("root multiplayer flows", () => {
 
     await hostPage.getByRole("button", { name: "룸 나가기" }).click();
     await expect(hostPage.getByRole("heading", { name: "게임 시작 설정" })).toBeVisible();
+    await hostContext.close();
+    await guestContext.close();
+  });
+
+  test("syncs host room settings, guest name changes, share URL, and same-browser rejoin", async ({ browser }) => {
+    const hostContext = await browser.newContext();
+    const guestContext = await browser.newContext();
+    const hostPage = await hostContext.newPage();
+    const roomCode = await createRoom(hostPage, { name: "Host", computerCount: 1 });
+    const guestPage = await joinRoomInContext(guestContext, roomCode, { name: "Guest", viaDeepLink: true });
+
+    await guestPage.getByLabel("표시 이름").fill("Renamed Guest");
+    await guestPage.keyboard.press("Tab");
+    await expect(hostPage.getByText("Renamed Guest").first()).toBeVisible();
+
+    await openSetupTab(hostPage, "게임 설정");
+    await hostPage.getByLabel("모든 플레이어 랜덤 배치").check();
+    await hostPage.getByLabel("플레이어 카드 누적 승리 표시").uncheck();
+    await openSetupTab(hostPage, "멀티플레이");
+    await expect(guestPage.getByText("게임 시작 시 모든 플레이어 순서는 랜덤으로 확정됩니다.")).toBeVisible();
+
+    await expect(hostPage.getByLabel("룸 참가 URL")).toHaveValue(new RegExp(`[?&]room=${roomCode}`));
+    await hostPage.getByRole("button", { name: "URL 복사" }).click();
+    await expect(hostPage.getByText(/URL을 복사했습니다\.|복사할 수 없습니다\./)).toBeVisible();
+
+    await guestPage.goto(`/?room=${roomCode}`);
+    await expect(guestPage.getByText(`룸 코드: ${roomCode}`)).toBeVisible();
+    await expect(guestPage.getByText("룸을 찾을 수 없습니다.")).toHaveCount(0);
+    await expect(hostPage.locator(".room-slot").filter({ hasText: "참가 중" })).toHaveCount(2);
+
+    await startMultiplayerGame(hostPage, [guestPage]);
+    await expect(guestPage.locator(".seat").first().getByText("누적 승리")).toHaveCount(0);
+
+    await hostContext.close();
+    await guestContext.close();
+  });
+
+  test("protects connected human slots while allowing empty human slot conversion and removal", async ({ browser }) => {
+    const hostContext = await browser.newContext();
+    const guestContext = await browser.newContext();
+    const hostPage = await hostContext.newPage();
+    const roomCode = await createRoom(hostPage, { name: "Host", computerCount: 1 });
+    await joinRoomInContext(guestContext, roomCode, { name: "Guest", viaDeepLink: true });
+
+    await openSetupTab(hostPage, "게임 설정");
+    const connectedGuestCard = hostPage.getByRole("group", { name: "Guest 설정 카드" });
+    await expect(connectedGuestCard.getByRole("button", { name: "Guest 제거" })).toHaveCount(0);
+    await expect
+      .poll(async () =>
+        connectedGuestCard.getByLabel("플레이어 유형").evaluate((select) => select.querySelector("option[value='computer']")?.disabled ?? false),
+      )
+      .toBe(true);
+
+    await hostPage.getByRole("button", { name: "플레이어 카드 추가" }).click();
+    await hostPage.getByRole("group", { name: "컴퓨터 2 설정 카드" }).getByLabel("플레이어 유형").selectOption("human");
+    const emptyHumanCard = hostPage.getByRole("group", { name: "빈 자리 3 설정 카드" });
+    await expect(emptyHumanCard).toBeVisible();
+    await expect(emptyHumanCard.getByRole("button", { name: "빈 자리 3 제거" })).toBeVisible();
+    await expect
+      .poll(async () =>
+        emptyHumanCard.getByLabel("플레이어 유형").evaluate((select) => select.querySelector("option[value='computer']")?.disabled ?? true),
+      )
+      .toBe(false);
+    await emptyHumanCard.getByLabel("플레이어 유형").selectOption("computer");
+    await expect(hostPage.getByRole("group", { name: "빈 자리 3 설정 카드" })).toHaveCount(0);
+
+    await hostPage.getByRole("button", { name: "플레이어 카드 추가" }).click();
+    await hostPage.getByRole("group", { name: "컴퓨터 3 설정 카드" }).getByLabel("플레이어 유형").selectOption("human");
+    await hostPage.getByRole("button", { name: "빈 자리 3 제거" }).click();
+    await expect(hostPage.getByRole("group", { name: "빈 자리 3 설정 카드" })).toHaveCount(0);
+
     await hostContext.close();
     await guestContext.close();
   });
