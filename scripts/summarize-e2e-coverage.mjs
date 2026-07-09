@@ -294,10 +294,10 @@ function mergeIstanbulCoverage(target, source) {
 function summarizeIstanbulCoverage(coverageMap) {
   const files = [];
   const totals = {
-    lines: { covered: 0, total: 0 },
-    statements: { covered: 0, total: 0 },
-    functions: { covered: 0, total: 0 },
-    branches: { covered: 0, total: 0 },
+    lines: { covered: 0, total: 0, convertedTotal: 0 },
+    statements: { covered: 0, total: 0, convertedTotal: 0 },
+    functions: { covered: 0, total: 0, convertedTotal: 0 },
+    branches: { covered: 0, total: 0, convertedTotal: 0 },
   };
 
   for (const [filePath, coverage] of Object.entries(coverageMap)) {
@@ -317,26 +317,29 @@ function summarizeIstanbulCoverage(coverageMap) {
       file: relativeRepoPath(filePath),
       lines: {
         covered: [...lineCounts.values()].filter((count) => count > 0).length,
-        total: lineCounts.size,
+        convertedTotal: lineCounts.size,
       },
       statements: {
         covered: statementCounts.filter((count) => Number(count) > 0).length,
-        total: statementCounts.length,
+        convertedTotal: statementCounts.length,
       },
       functions: {
         covered: functionCounts.filter((count) => Number(count) > 0).length,
-        total: functionCounts.length,
+        convertedTotal: functionCounts.length,
       },
       branches: {
         covered: branchCounts.filter((count) => Number(count) > 0).length,
-        total: branchCounts.length,
+        convertedTotal: branchCounts.length,
       },
     };
 
     for (const metric of ["lines", "statements", "functions", "branches"]) {
+      fileSummary[metric].total = fileSummary[metric].covered;
+      fileSummary[metric].uncoveredConverted = Math.max(0, fileSummary[metric].convertedTotal - fileSummary[metric].covered);
       fileSummary[metric].percentage = percent(fileSummary[metric].covered, fileSummary[metric].total);
       totals[metric].covered += fileSummary[metric].covered;
       totals[metric].total += fileSummary[metric].total;
+      totals[metric].convertedTotal += fileSummary[metric].convertedTotal;
     }
 
     files.push(fileSummary);
@@ -345,6 +348,7 @@ function summarizeIstanbulCoverage(coverageMap) {
   files.sort((left, right) => left.file.localeCompare(right.file));
 
   for (const metric of Object.values(totals)) {
+    metric.uncoveredConverted = Math.max(0, metric.convertedTotal - metric.covered);
     metric.percentage = percent(metric.covered, metric.total);
   }
 

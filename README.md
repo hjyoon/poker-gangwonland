@@ -41,9 +41,10 @@ npm run test:e2e:coverage
 
 - Chromium 전용 브라우저 커버리지입니다.
 - 기본 요약은 byte/range 커버리지입니다.
-- JS 원본 파일 진단용으로 `v8-to-istanbul` 변환 결과를 별도 JSON artifact에 저장합니다.
+- JS 원본 파일 진단용으로 `v8-to-istanbul` 변환 결과를 별도 JSON artifact에 저장하며, `istanbul-summary.json`의 percentage는 observed covered construct 기준으로 정규화합니다.
 - 클라이언트 JS는 원본 `components/poker-app.jsx`의 line coverage가 아니라 브라우저에서 실행된 Next.js 개발 번들 기준으로 측정됩니다.
 - CSS headline percentage는 Playwright가 보고한 used range 기준이며, emitted source byte 수를 함께 기록합니다.
+- `istanbul-summary.json`은 정규화 전 변환 총량을 `convertedTotal`, 미관측 변환 총량을 `uncoveredConverted`로 함께 기록합니다.
 - 서버 커버리지는 custom server와 dev-server 동작이 포함된 Node V8 raw coverage입니다.
 - 아직 커버리지 threshold는 적용하지 않습니다.
 
