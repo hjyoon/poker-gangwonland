@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures/coverage.js";
 import { dragSetupCardAfter, expectSetupCardOrder, gotoRoot, openSetupTab, setFastDelays, setupCard } from "./helpers/poker-app";
 
 test.describe("root setup shell", () => {

@@ -8,6 +8,7 @@ yarn-error.log*
 test-results/
 playwright-report/
 blob-report/
+coverage/
 .codex/*
 !.codex/config.toml
 !.codex/agents/

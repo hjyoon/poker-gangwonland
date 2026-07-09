@@ -1,0 +1,10 @@
+import { mkdir, rm } from "node:fs/promises";
+import path from "node:path";
+
+const coverageRoot = path.join(process.cwd(), "coverage", "e2e");
+
+await rm(coverageRoot, { recursive: true, force: true });
+await mkdir(path.join(coverageRoot, "raw", "client"), { recursive: true });
+await mkdir(path.join(coverageRoot, "raw", "server-v8"), { recursive: true });
+
+console.log(`Cleaned ${path.relative(process.cwd(), coverageRoot)}`);

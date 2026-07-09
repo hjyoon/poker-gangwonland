@@ -1,4 +1,4 @@
-import { expect } from "@playwright/test";
+import { expect } from "../fixtures/coverage.js";
 
 const HUMAN_ACTIONS = [/^오픈$/, /^체크$/, /^콜/, /^베팅/, /^레이즈/, /^폴드$/, /^머크$/];
 const DEFAULT_RANDOM_SEED = "playwright-e2e";

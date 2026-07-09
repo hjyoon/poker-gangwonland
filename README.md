@@ -29,6 +29,23 @@ npm run test:e2e
 
 Playwright 실행 시 포커 로직의 랜덤 요소는 테스트 seed로 고정됩니다.
 
+E2E 커버리지 수집은 별도 명령으로 실행합니다.
+
+```bash
+npm run test:e2e:coverage
+```
+
+이 명령은 기존 E2E와 같은 `E2E_RANDOM_SEED=playwright-e2e` seed를 유지하면서 Chromium 브라우저 JS/CSS 커버리지와 `server.mjs` Node V8 raw 커버리지를 수집합니다. 결과는 `coverage/e2e/summary.json`과 `coverage/e2e/client-coverage.json`에 JSON으로 저장되고, 원본 브라우저 커버리지는 `coverage/e2e/raw/client/`, 서버 V8 raw 파일은 `coverage/e2e/raw/server-v8/` 아래에 생성됩니다. `coverage/` 디렉터리는 git 추적 대상에서 제외됩니다.
+
+커버리지 수집의 알려진 제한은 다음과 같습니다.
+
+- Chromium 전용 브라우저 커버리지입니다.
+- statement/branch/function/line 커버리지가 아니라 byte/range 커버리지입니다.
+- 클라이언트 JS는 원본 `components/poker-app.jsx`의 line coverage가 아니라 브라우저에서 실행된 Next.js 개발 번들 기준으로 측정됩니다.
+- CSS 커버리지는 작성한 원본 CSS 줄과 정확히 대응하지 않을 수 있습니다.
+- 서버 커버리지는 custom server와 dev-server 동작이 포함된 Node V8 raw coverage입니다.
+- 아직 커버리지 threshold는 적용하지 않습니다.
+
 ## 구현 범위
 
 - `git init` 완료

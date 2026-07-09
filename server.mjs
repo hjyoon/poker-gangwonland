@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import http from "node:http";
+import v8 from "node:v8";
 import next from "next";
 import {
   COMPUTER_LEVEL_OPTIONS,
@@ -35,6 +36,16 @@ function createSeededRandom(seed) {
 
 if (process.env.E2E_RANDOM_SEED) {
   globalThis.__POKER_TEST_RANDOM__ = createSeededRandom(process.env.E2E_RANDOM_SEED);
+}
+
+function flushV8Coverage() {
+  if (process.env.NODE_V8_COVERAGE) {
+    v8.takeCoverage();
+  }
+}
+
+if (process.env.NODE_V8_COVERAGE) {
+  setInterval(flushV8Coverage, 1_000).unref();
 }
 
 const dev = process.env.NODE_ENV !== "production";
@@ -2730,3 +2741,24 @@ server.on("upgrade", (req, socket, head) => {
 server.listen(port, hostname, () => {
   console.log(`> Ready on http://${hostname}:${port}`);
 });
+
+function shutdownServer() {
+  flushV8Coverage();
+
+  for (const socket of sockets) {
+    socket.destroy();
+  }
+
+  server.close(() => {
+    flushV8Coverage();
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    flushV8Coverage();
+    process.exit(0);
+  }, 5_000).unref();
+}
+
+process.once("SIGTERM", shutdownServer);
+process.once("SIGINT", shutdownServer);
