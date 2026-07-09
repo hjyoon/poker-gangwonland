@@ -233,9 +233,67 @@ async function stopCoverageServer(child) {
   clearTimeout(timeout);
 }
 
-async function expectError(client, message) {
+async function waitForSocketToSettle(socket, timeoutMs = 500) {
+  await new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timeout);
+      socket.off("close", finish);
+      socket.off("end", finish);
+      socket.off("error", finish);
+      resolve();
+    };
+    const timeout = setTimeout(finish, timeoutMs);
+    socket.once("close", finish);
+    socket.once("end", finish);
+    socket.once("error", finish);
+  });
+}
+
+async function sendUpgradeWithoutKey(port) {
+  const socket = net.createConnection({ host: "127.0.0.1", port });
+  await once(socket, "connect");
+  socket.write(
+    [
+      "GET /ws HTTP/1.1",
+      `Host: 127.0.0.1:${port}`,
+      "Upgrade: websocket",
+      "Connection: Upgrade",
+      "Sec-WebSocket-Version: 13",
+      "",
+      "",
+    ].join("\r\n"),
+  );
+  await waitForSocketToSettle(socket);
+  socket.destroy();
+}
+
+async function sendUpgradeWithBufferedHeadFrame(port) {
+  const socket = net.createConnection({ host: "127.0.0.1", port });
+  await once(socket, "connect");
+  const key = crypto.randomBytes(16).toString("base64");
+  const headers = [
+    "GET /ws HTTP/1.1",
+    `Host: 127.0.0.1:${port}`,
+    "Upgrade: websocket",
+    "Connection: Upgrade",
+    `Sec-WebSocket-Key: ${key}`,
+    "Sec-WebSocket-Version: 13",
+    "",
+    "",
+  ].join("\r\n");
+  const largeUnknownMessage = JSON.stringify({ type: "unknownMessage", filler: "x".repeat(140) });
+  socket.write(Buffer.concat([Buffer.from(headers), makeClientFrame(largeUnknownMessage)]));
+  await waitForSocketToSettle(socket);
+  socket.end();
+}
+
+async function expectError(client, message, expectedMessage = null) {
+  const seenMessages = client.messages.length;
   client.send(message);
-  const error = await client.waitFor((entry) => entry.type === "error");
+  await client.waitFor(() =>
+    client.messages.slice(seenMessages).some((entry) => entry.type === "error" && (!expectedMessage || entry.message === expectedMessage)),
+  );
+  const error = client.messages.slice(seenMessages).find((entry) => entry.type === "error" && (!expectedMessage || entry.message === expectedMessage));
   assert(typeof error.message === "string" && error.message.length > 0, "server should return an error message");
   return error;
 }
@@ -313,6 +371,8 @@ try {
   await expectError(probe, { type: "joinGameSeat", tableSeatIndex: 0 });
   await expectError(probe, { type: "updateRoomSettings", settings: {} });
   await expectError(probe, { type: "updateGameOptions", autoNextHand: true });
+  await sendUpgradeWithoutKey(port);
+  await sendUpgradeWithBufferedHeadFrame(port);
 
   const defaultsHost = await new WsClient(port, "defaults-host").connect();
   clients.push(defaultsHost);
@@ -354,6 +414,88 @@ try {
 
   defaultsHost.close();
 
+  const tooFewHost = await new WsClient(port, "too-few-host").connect();
+  clients.push(tooFewHost);
+  tooFewHost.send({
+    type: "createRoom",
+    playerName: "Solo",
+    humanSlots: 1,
+    settings: {
+      humanPlayers: [{ name: "Solo", startingBalance: 100000 }],
+      computerPlayers: [],
+    },
+  });
+  await tooFewHost.waitFor((message) => message.type === "joinedRoom");
+  await expectError(tooFewHost, { type: "startGame" }, "게임 시작에는 연결된 인간 또는 컴퓨터가 2명 이상 필요합니다.");
+  tooFewHost.close();
+
+  const fullRoomHost = await new WsClient(port, "full-room-host").connect();
+  const fullRoomGuest = await new WsClient(port, "full-room-guest").connect();
+  clients.push(fullRoomHost, fullRoomGuest);
+  fullRoomHost.send({
+    type: "createRoom",
+    playerName: "Only Host",
+    humanSlots: 1,
+    settings: {
+      humanPlayers: [{ name: "Only Host", startingBalance: 100000 }],
+      computerPlayers: [],
+    },
+  });
+  const fullRoomJoined = await fullRoomHost.waitFor((message) => message.type === "joinedRoom");
+  fullRoomGuest.send({ type: "joinRoom", roomId: fullRoomJoined.roomId, playerName: "No Seat" });
+  await fullRoomGuest.waitFor((message) => message.type === "error" && message.message === "빈 자리가 없습니다.");
+  fullRoomGuest.close();
+  fullRoomHost.close();
+
+  const seatHost = await new WsClient(port, "seat-host").connect();
+  const seatGuest = await new WsClient(port, "seat-guest").connect();
+  const seatLate = await new WsClient(port, "seat-late").connect();
+  const seatOther = await new WsClient(port, "seat-other").connect();
+  clients.push(seatHost, seatGuest, seatLate, seatOther);
+  seatHost.send({
+    type: "createRoom",
+    playerName: "Seat Host",
+    humanSlots: 4,
+    settings: {
+      humanPlayers: [
+        { name: "Seat Host", startingBalance: 100000 },
+        { name: "Seat Guest", startingBalance: 100000 },
+        { name: "Seat Three", startingBalance: 100000 },
+        { name: "Seat Four", startingBalance: 100000 },
+      ],
+      computerPlayers: [],
+      playerOrder: ["human-slot-1", "human-slot-2", "human-slot-3", "human-slot-4"],
+      humanActionTimeoutMs: 3000,
+    },
+  });
+  const seatHostJoined = await seatHost.waitFor((message) => message.type === "joinedRoom");
+  const seatRoomId = seatHostJoined.roomId;
+  seatGuest.send({ type: "joinRoom", roomId: seatRoomId, playerName: "Seat Guest" });
+  await seatGuest.waitFor((message) => message.type === "joinedRoom");
+  seatHost.send({ type: "startGame" });
+  await seatHost.waitFor((message) => message.type === "roomState" && message.room?.gameState);
+  const seatRoom = latestRoom(seatHost, seatRoomId);
+  const seatFourIndex = seatRoom.gameState.tableSeats.findIndex((seat) => seat.setupPlayerId === "human-slot-4");
+  assert(seatFourIndex >= 0, "seat exercise should expose the fourth human setup seat");
+  await expectError(seatGuest, { type: "joinGameSeat", tableSeatIndex: seatFourIndex, playerName: "Seat Guest" }, "이미 현재 게임에 참여 중입니다.");
+  seatLate.send({ type: "joinRoom", roomId: seatRoomId, playerName: "Seat Late" });
+  await seatLate.waitFor((message) => message.type === "joinedRoom");
+  seatLate.send({ type: "joinGameSeat", tableSeatIndex: seatFourIndex, playerName: "Moved Late" });
+  await seatLate.waitFor(
+    (message) =>
+      message.type === "roomState" &&
+      message.room?.seats?.some((seat) => seat.name === "Moved Late" && seat.pendingJoin) &&
+      message.room?.gameState?.tableSeats?.[seatFourIndex]?.name === "Moved Late",
+  );
+  await expectError(seatLate, { type: "joinGameSeat", tableSeatIndex: seatFourIndex, playerName: "Moved Late" }, "이미 다음 핸드 참가가 예약되어 있습니다.");
+  seatOther.send({ type: "joinRoom", roomId: seatRoomId, playerName: "Seat Other" });
+  await seatOther.waitFor((message) => message.type === "joinedRoom");
+  await expectError(seatOther, { type: "joinGameSeat", tableSeatIndex: seatFourIndex, playerName: "Seat Other" }, "이미 다른 참가자가 예약한 자리입니다.");
+  seatOther.close();
+  seatLate.close();
+  seatGuest.close();
+  seatHost.close();
+
   const host = await new WsClient(port, "host").connect();
   const guest = await new WsClient(port, "guest").connect();
   const late = await new WsClient(port, "late").connect();
@@ -394,6 +536,11 @@ try {
 
   await expectError(guest, { type: "updateRoomSettings", settings: { autoNextHand: true } });
   await expectError(guest, { type: "startGame" });
+  await expectError(
+    host,
+    { type: "updateRoomSettings", settings: { humanPlayers: [{ name: "Host", startingBalance: 100000 }] } },
+    "참가자가 있는 인간 플레이어는 컴퓨터로 변경하거나 삭제할 수 없습니다.",
+  );
 
   host.send({
     type: "updateRoomSettings",
@@ -412,6 +559,8 @@ try {
   await host.waitFor((message) => message.type === "roomState" && message.room?.gameState);
   await guest.waitFor((message) => message.type === "roomState" && message.room?.gameState);
 
+  host.send({ type: "updatePlayerName", playerName: "Renamed Host" });
+  await host.waitFor((message) => message.type === "roomState" && message.room?.gameState?.players?.some((player) => player.id === joinedHost.playerId && player.name === "Renamed Host"));
   await expectError(host, { type: "updateRoomSettings", settings: { autoNextHand: false } });
   await expectError(guest, { type: "updateGameOptions", autoNextHand: true });
   host.send({
@@ -447,10 +596,26 @@ try {
   late.send({ type: "joinRoom", roomId, playerName: "Late" });
   const joinedLate = await late.waitFor((message) => message.type === "joinedRoom");
   assert(joinedLate.playerId, "late endless participant should get a player id");
-  late.send({ type: "reserveEndlessSeat", playerName: "Late" });
-  await late.waitFor((message) => message.type === "roomState" && message.room?.waitingParticipants?.some((participant) => participant.pendingEndlessJoin));
-  late.send({ type: "reserveEndlessSeat", cancel: true });
-  await expectError(late, { type: "joinGameSeat", tableSeatIndex: -1, playerName: "Late" });
+  await late.waitFor((message) => message.type === "roomState" && message.room?.waitingParticipants?.some((participant) => participant.playerId === joinedLate.playerId));
+  late.close();
+
+  const lateReconnect = await new WsClient(port, "late-reconnect").connect();
+  clients.push(lateReconnect);
+  lateReconnect.send({ type: "joinRoom", roomId, playerName: "Late Again", playerId: joinedLate.playerId });
+  await lateReconnect.waitFor((message) => message.type === "joinedRoom" && message.playerId === joinedLate.playerId);
+  await lateReconnect.waitFor(
+    (message) =>
+      message.type === "roomState" &&
+      message.room?.waitingParticipants?.some((participant) => participant.playerId === joinedLate.playerId && participant.connected),
+  );
+  lateReconnect.send({ type: "updatePlayerName", playerName: "Late Renamed" });
+  await lateReconnect.waitFor((message) => message.type === "roomState" && message.room?.waitingParticipants?.some((participant) => participant.name === "Late Renamed"));
+  await expectError(lateReconnect, { type: "setSeatAway", away: true }, "참가자 자리를 찾을 수 없습니다.");
+  await expectError(lateReconnect, { type: "standUpFromGame" }, "현재 게임 좌석에 앉아 있지 않습니다.");
+  lateReconnect.send({ type: "reserveEndlessSeat", playerName: "Late" });
+  await lateReconnect.waitFor((message) => message.type === "roomState" && message.room?.waitingParticipants?.some((participant) => participant.pendingEndlessJoin));
+  lateReconnect.send({ type: "reserveEndlessSeat", cancel: true });
+  await expectError(lateReconnect, { type: "joinGameSeat", tableSeatIndex: -1, playerName: "Late" });
 
   const playersById = new Map([
     [joinedHost.playerId, host],
@@ -458,6 +623,7 @@ try {
   ]);
   const finishedState = await finishRoomHand(host, roomId, playersById);
   assert(finishedState.finished, "raw server exercise should finish an active room hand");
+  await expectError(lateReconnect, { type: "requestNextHand" }, "다음 핸드 진행 확인 대상이 아닙니다.");
   const nextHandRoom = latestRoom(host, roomId);
   for (const playerId of nextHandRoom?.nextHandRequiredPlayerIds ?? []) {
     playersById.get(playerId)?.send({ type: "requestNextHand" });
@@ -472,7 +638,7 @@ try {
 
   probe.close();
   duplicate.close();
-  late.close();
+  lateReconnect.close();
   guest.close();
   host.close();
   await delay(200);
