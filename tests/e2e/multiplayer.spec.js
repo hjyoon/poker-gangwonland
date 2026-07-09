@@ -202,6 +202,8 @@ test.describe("root multiplayer flows", () => {
     await openSetupTab(hostPage, "게임 설정");
     await hostPage.getByLabel("모든 플레이어 랜덤 배치").check();
     await hostPage.getByLabel("플레이어 카드 누적 승리 표시").uncheck();
+    await expect(hostPage.getByLabel("모든 플레이어 랜덤 배치")).toBeChecked();
+    await expect(hostPage.getByLabel("플레이어 카드 누적 승리 표시")).not.toBeChecked();
     await openSetupTab(hostPage, "멀티플레이");
     await expect(guestPage.getByText("게임 시작 시 모든 플레이어 순서는 랜덤으로 확정됩니다.")).toBeVisible();
 

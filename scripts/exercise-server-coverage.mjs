@@ -53,7 +53,7 @@ function parseServerFrames(buffer) {
     } else if (opcode === 0x8) {
       frames.push({ type: "close" });
     } else if (opcode === 0x0a) {
-      frames.push({ type: "pong" });
+      frames.push({ type: "pong", payload });
     }
     offset += headerLength + length;
   }
@@ -124,6 +124,11 @@ class WsClient {
     const parsed = parseServerFrames(this.buffer);
     this.buffer = parsed.remaining;
     for (const frame of parsed.frames) {
+      if (frame.type === "pong") {
+        this.messages.push({ type: "pong", payload: frame.payload.toString("utf8") });
+        this.resolveWaiters();
+        continue;
+      }
       if (frame.type !== "text") {
         continue;
       }
@@ -360,6 +365,7 @@ try {
   probe.sendInvalidJson();
   await probe.waitFor((message) => message.type === "error" && message.message === "메시지를 처리할 수 없습니다.");
   probe.ping();
+  await probe.waitFor((message) => message.type === "pong" && message.payload === "coverage-ping");
   await expectError(probe, { type: "unknownMessage" });
   await expectError(probe, { type: "updatePlayerName", playerName: "No room" });
   await expectError(probe, { type: "startGame" });
@@ -447,6 +453,22 @@ try {
   fullRoomGuest.close();
   fullRoomHost.close();
 
+  const leaveHost = await new WsClient(port, "leave-host").connect();
+  clients.push(leaveHost);
+  leaveHost.send({
+    type: "createRoom",
+    playerName: "Leaving Host",
+    humanSlots: 1,
+    settings: {
+      humanPlayers: [{ name: "Leaving Host", startingBalance: 100000 }],
+      computerPlayers: [{ name: "Leave Computer", startingBalance: 100000 }],
+    },
+  });
+  await leaveHost.waitFor((message) => message.type === "joinedRoom");
+  leaveHost.send({ type: "leaveRoom" });
+  await leaveHost.waitFor((message) => message.type === "leftRoom");
+  leaveHost.close();
+
   const seatHost = await new WsClient(port, "seat-host").connect();
   const seatGuest = await new WsClient(port, "seat-guest").connect();
   const seatLate = await new WsClient(port, "seat-late").connect();
@@ -533,6 +555,11 @@ try {
   clients.push(duplicate);
   duplicate.send({ type: "joinRoom", roomId, playerName: "Guest again", playerId: joinedGuest.playerId });
   await duplicate.waitFor((message) => message.type === "error" && message.message === "이미 연결된 참가자입니다.");
+  await expectError(
+    duplicate,
+    { type: "rejoinRoom", roomId, playerName: "Guest again", playerId: joinedGuest.playerId },
+    "이미 연결된 참가자입니다.",
+  );
 
   await expectError(guest, { type: "updateRoomSettings", settings: { autoNextHand: true } });
   await expectError(guest, { type: "startGame" });
