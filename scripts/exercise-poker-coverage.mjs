@@ -261,6 +261,23 @@ function exerciseActions() {
   assert(applyAction(checkState, "check", 0).players[0].lastAction === "체크", "check should apply when no call is needed");
   assert(applyAction(checkState, "call", 0) === checkState, "call with no amount should be ignored");
 
+  const checkedStats = applyAction({ ...checkState, playerStats: {} }, "check", 0);
+  assert(checkedStats.playerStats.human.checks === 1, "check action should update player stats");
+  const betStatsState = actionState({
+    currentBet: 0,
+    streetIndex: 1,
+    players: [
+      player("human", { isHuman: true, streetContribution: 0 }),
+      player("cpu-1", { streetContribution: 0 }),
+    ],
+    pendingIndices: [0, 1],
+    playerStats: {},
+  });
+  const betStats = applyAction(betStatsState, "bet", 0);
+  assert(betStats.playerStats.human.bets === 1 && betStats.playerStats.human.aggressiveActions === 1, "bet action should update player stats");
+  const raiseStats = applyAction({ ...actionState(), playerStats: {} }, "raise", 0);
+  assert(raiseStats.playerStats.human.raises === 1 && raiseStats.playerStats.human.aggressiveActions === 1, "raise action should update player stats");
+
   const noChipsCallState = actionState({
     players: [
       player("human", { isHuman: true, chipBalance: 0, actionLocked: false, streetContribution: 0 }),
@@ -750,6 +767,18 @@ function exerciseHandLifecycle() {
       ],
     }).players.length === 2,
     "invalid forced contributions should be ignored",
+  );
+  assert(
+    startNewHand({
+      cpuCount: 1,
+      includeHuman: true,
+      dealerIndex: 0,
+      chipTotals: {
+        human: 100000,
+        "cpu-1": 100000,
+      },
+    }).players.every((entry) => entry.chipBalance > 0),
+    "numeric chip ledger should be accepted for backward compatibility",
   );
   assert(
     startNewHand({
