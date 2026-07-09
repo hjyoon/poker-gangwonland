@@ -691,6 +691,14 @@ try {
   const finishedState = await finishRoomHand(host, roomId, playersById);
   assert(finishedState.finished, "raw server exercise should finish an active room hand");
   await expectError(lateReconnect, { type: "requestNextHand" }, "다음 핸드 진행 확인 대상이 아닙니다.");
+  host.send({ type: "setSeatAway", away: true });
+  await host.waitFor((message) => message.type === "roomState" && message.room?.seats?.some((seat) => seat.playerId === joinedHost.playerId && seat.away));
+  host.send({ type: "setSeatAway", away: false });
+  await host.waitFor((message) => message.type === "roomState" && message.room?.seats?.some((seat) => seat.playerId === joinedHost.playerId && !seat.away));
+  guest.send({ type: "standUpFromGame" });
+  await guest.waitFor((message) => message.type === "roomState" && message.room?.seats?.some((seat) => seat.playerId === joinedGuest.playerId && seat.pendingStandUp));
+  guest.send({ type: "standUpFromGame", cancel: true });
+  await guest.waitFor((message) => message.type === "roomState" && message.room?.seats?.some((seat) => seat.playerId === joinedGuest.playerId && !seat.pendingStandUp));
   const nextHandRoom = latestRoom(host, roomId);
   for (const playerId of nextHandRoom?.nextHandRequiredPlayerIds ?? []) {
     playersById.get(playerId)?.send({ type: "requestNextHand" });
