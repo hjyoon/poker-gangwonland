@@ -294,10 +294,10 @@ function mergeIstanbulCoverage(target, source) {
 function summarizeIstanbulCoverage(coverageMap) {
   const files = [];
   const totals = {
-    lines: { covered: 0, total: 0, convertedTotal: 0 },
-    statements: { covered: 0, total: 0, convertedTotal: 0 },
-    functions: { covered: 0, total: 0, convertedTotal: 0 },
-    branches: { covered: 0, total: 0, convertedTotal: 0 },
+    lines: { covered: 0, total: 0 },
+    statements: { covered: 0, total: 0 },
+    functions: { covered: 0, total: 0 },
+    branches: { covered: 0, total: 0 },
   };
 
   for (const [filePath, coverage] of Object.entries(coverageMap)) {
@@ -317,29 +317,26 @@ function summarizeIstanbulCoverage(coverageMap) {
       file: relativeRepoPath(filePath),
       lines: {
         covered: [...lineCounts.values()].filter((count) => count > 0).length,
-        convertedTotal: lineCounts.size,
+        total: lineCounts.size,
       },
       statements: {
         covered: statementCounts.filter((count) => Number(count) > 0).length,
-        convertedTotal: statementCounts.length,
+        total: statementCounts.length,
       },
       functions: {
         covered: functionCounts.filter((count) => Number(count) > 0).length,
-        convertedTotal: functionCounts.length,
+        total: functionCounts.length,
       },
       branches: {
         covered: branchCounts.filter((count) => Number(count) > 0).length,
-        convertedTotal: branchCounts.length,
+        total: branchCounts.length,
       },
     };
 
     for (const metric of ["lines", "statements", "functions", "branches"]) {
-      fileSummary[metric].total = fileSummary[metric].covered;
-      fileSummary[metric].uncoveredConverted = Math.max(0, fileSummary[metric].convertedTotal - fileSummary[metric].covered);
       fileSummary[metric].percentage = percent(fileSummary[metric].covered, fileSummary[metric].total);
       totals[metric].covered += fileSummary[metric].covered;
       totals[metric].total += fileSummary[metric].total;
-      totals[metric].convertedTotal += fileSummary[metric].convertedTotal;
     }
 
     files.push(fileSummary);
@@ -348,7 +345,6 @@ function summarizeIstanbulCoverage(coverageMap) {
   files.sort((left, right) => left.file.localeCompare(right.file));
 
   for (const metric of Object.values(totals)) {
-    metric.uncoveredConverted = Math.max(0, metric.convertedTotal - metric.covered);
     metric.percentage = percent(metric.covered, metric.total);
   }
 
@@ -432,6 +428,9 @@ async function summarizeIstanbul(clientFiles, serverFiles) {
 
   const clientCoverage = await convertEntriesToIstanbul(clientGroups);
   const serverCoverage = await convertEntriesToIstanbul(serverGroups);
+  const combinedCoverage = {};
+  mergeIstanbulCoverage(combinedCoverage, clientCoverage);
+  mergeIstanbulCoverage(combinedCoverage, serverCoverage);
 
   return {
     client: {
@@ -441,6 +440,10 @@ async function summarizeIstanbul(clientFiles, serverFiles) {
     server: {
       coverage: serverCoverage,
       summary: summarizeIstanbulCoverage(serverCoverage),
+    },
+    combined: {
+      coverage: combinedCoverage,
+      summary: summarizeIstanbulCoverage(combinedCoverage),
     },
   };
 }
@@ -581,11 +584,19 @@ await writeFile(
 );
 await writeFile(
   path.join(coverageRoot, "istanbul-coverage.json"),
-  `${JSON.stringify({ generatedAt: summary.generatedAt, client: istanbul.client.coverage, server: istanbul.server.coverage }, null, 2)}\n`,
+  `${JSON.stringify(
+    { generatedAt: summary.generatedAt, client: istanbul.client.coverage, server: istanbul.server.coverage, combined: istanbul.combined.coverage },
+    null,
+    2,
+  )}\n`,
 );
 await writeFile(
   path.join(coverageRoot, "istanbul-summary.json"),
-  `${JSON.stringify({ generatedAt: summary.generatedAt, client: istanbul.client.summary, server: istanbul.server.summary }, null, 2)}\n`,
+  `${JSON.stringify(
+    { generatedAt: summary.generatedAt, client: istanbul.client.summary, server: istanbul.server.summary, combined: istanbul.combined.summary },
+    null,
+    2,
+  )}\n`,
 );
 
 console.log("E2E coverage summary");
@@ -594,5 +605,8 @@ console.log(`Raw server V8 files: ${serverFiles.length}`);
 printMetric("Client JS", client.js);
 printMetric("Client CSS", client.css);
 printMetric("Server Node raw V8", serverNodeV8);
-console.log(`Istanbul authored JS diagnostics: client ${istanbul.client.summary.files} files, server ${istanbul.server.summary.files} files`);
+console.log(
+  `Istanbul authored JS diagnostics: client ${istanbul.client.summary.files} files, ` +
+    `server ${istanbul.server.summary.files} files, combined ${istanbul.combined.summary.files} files`,
+);
 console.log(`Wrote ${path.relative(process.cwd(), path.join(coverageRoot, "summary.json"))}`);

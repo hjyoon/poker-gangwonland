@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "NODE_ENV=production node server.mjs",
     "test:e2e": "playwright test",
-    "test:e2e:coverage": "node scripts/clean-e2e-coverage.mjs && E2E_COVERAGE=1 playwright test && node scripts/summarize-e2e-coverage.mjs",
+    "test:e2e:coverage": "node scripts/clean-e2e-coverage.mjs && E2E_COVERAGE=1 playwright test && node scripts/exercise-server-coverage.mjs && NODE_V8_COVERAGE=coverage/e2e/raw/server-v8 node scripts/exercise-poker-coverage.mjs && node scripts/summarize-e2e-coverage.mjs",
     "test:preflop-ranking": "node scripts/validate-preflop-ranking.mjs",
     "test:showdown-settlement": "node scripts/validate-showdown-settlement.mjs"
   },

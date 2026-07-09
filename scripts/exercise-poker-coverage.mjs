@@ -1,0 +1,586 @@
+import {
+  COMPUTER_LEVELS,
+  COMPUTER_STYLES,
+  PREFLOP_CONNECTOR_TEST_CASES,
+  PREFLOP_RANK_TEST_CASES,
+  applyAction,
+  calculateFee,
+  chooseComputerAction,
+  computerCardPeekPlan,
+  compareEvaluations,
+  createDeck,
+  createInitialState,
+  createPlayers,
+  describePreflopHand,
+  estimateHoldemWinRate,
+  evaluateSevenCards,
+  formatCard,
+  formatMoney,
+  getAvailableActions,
+  pokerRandom,
+  randomIndex,
+  resolveComputerLevelKey,
+  resolveComputerStyleKey,
+  shuffleDeck,
+  startNewHand,
+} from "../lib/poker.js";
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}
+
+function createSeededRandom(seed) {
+  let state = 2166136261;
+  for (const char of String(seed)) {
+    state ^= char.charCodeAt(0);
+    state = Math.imul(state, 16777619);
+  }
+  return () => {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+globalThis.__POKER_TEST_RANDOM__ = createSeededRandom("exercise-poker-coverage");
+
+const deck = createDeck();
+const cardById = new Map(deck.map((card) => [card.id, card]));
+const card = (id) => cardById.get(id);
+const hand = (...ids) => ids.map(card);
+
+function exerciseBasics() {
+  const seededRandom = globalThis.__POKER_TEST_RANDOM__;
+  delete globalThis.__POKER_TEST_RANDOM__;
+  assert(pokerRandom() >= 0 && pokerRandom() < 1, "pokerRandom should fall back to Math.random");
+  globalThis.__POKER_TEST_RANDOM__ = () => Number.NaN;
+  assert(pokerRandom() >= 0 && pokerRandom() < 1, "pokerRandom should tolerate non-finite test random");
+  globalThis.__POKER_TEST_RANDOM__ = () => -1;
+  assert(pokerRandom() === 0, "pokerRandom should clamp low deterministic values");
+  globalThis.__POKER_TEST_RANDOM__ = () => 2;
+  assert(pokerRandom() < 1, "pokerRandom should clamp high deterministic values");
+  globalThis.__POKER_TEST_RANDOM__ = seededRandom;
+
+  assert(formatMoney(120000) === "₩120,000", "formatMoney should format KRW");
+  assert(calculateFee(101) === 6, "calculateFee should round fee down from payout");
+  assert(formatCard(null) === "??", "formatCard should tolerate missing cards");
+  assert(formatCard(card("AH")) === "A♥", "formatCard should render suit");
+  assert(randomIndex(3) >= 0, "randomIndex should return an index");
+  assert(shuffleDeck(deck).length === 52, "shuffleDeck should keep deck size");
+  assert(createPlayers(2, true).length === 3, "createPlayers should include human");
+  assert(createPlayers(2, false).every((player) => !player.isHuman), "createPlayers should support computer-only");
+  assert(createPlayers(0, true, [{ id: "h1", name: "H", isHuman: true }])[0].id === "h1", "createPlayers should honor configs");
+  assert(resolveComputerStyleKey("unknown") === "balanced", "unknown style should resolve to fallback");
+  assert(resolveComputerLevelKey("unknown") === "intermediate", "unknown level should resolve to fallback");
+  assert(COMPUTER_STYLES.some((style) => style.key === resolveComputerStyleKey("random")), "random style should resolve");
+  assert(COMPUTER_LEVELS.some((level) => level.key === resolveComputerLevelKey("random")), "random level should resolve");
+}
+
+function exercisePreflop() {
+  Object.keys(PREFLOP_RANK_TEST_CASES).forEach((key) => {
+    const sampleCards = {
+      AA: hand("AS", "AH"),
+      AKs: hand("AS", "KS"),
+      AKo: hand("AS", "KC"),
+      QJs: hand("QS", "JS"),
+      A2s: hand("AS", "2S"),
+      J8s: hand("JS", "8S"),
+      QTo: hand("QS", "10C"),
+      "22": hand("2S", "2C"),
+      "72s": hand("7S", "2S"),
+      "82o": hand("8S", "2C"),
+      "72o": hand("7S", "2C"),
+    }[key];
+    assert(describePreflopHand(sampleCards)?.rank === PREFLOP_RANK_TEST_CASES[key], `preflop rank ${key}`);
+  });
+  Object.keys(PREFLOP_CONNECTOR_TEST_CASES).forEach((key) => {
+    const sampleCards = {
+      AKs: hand("AS", "KS"),
+      QJs: hand("QS", "JS"),
+      "72s": hand("7S", "2S"),
+      A2s: hand("AS", "2S"),
+      "22": hand("2S", "2C"),
+    }[key];
+    assert(describePreflopHand(sampleCards)?.connector === PREFLOP_CONNECTOR_TEST_CASES[key], `preflop connector ${key}`);
+  });
+  assert(describePreflopHand([]) === null, "invalid preflop hand should return null");
+  assert(describePreflopHand([card("AS"), null]) === null, "missing preflop card should return null");
+}
+
+function exerciseHandEvaluation() {
+  const cases = [
+    ["royal flush", hand("AS", "KS", "QS", "JS", "10S", "2D", "3C"), 9],
+    ["straight flush", hand("9S", "8S", "7S", "6S", "5S", "2D", "3C"), 8],
+    ["four of a kind", hand("AS", "AH", "AD", "AC", "2S", "3D", "4C"), 7],
+    ["full house", hand("KS", "KH", "KD", "2C", "2S", "3D", "4C"), 6],
+    ["flush", hand("AS", "9S", "7S", "4S", "2S", "3D", "5C"), 5],
+    ["wheel straight", hand("AS", "2H", "3D", "4C", "5S", "9D", "KC"), 4],
+    ["three of a kind", hand("QS", "QH", "QD", "8C", "6S", "3D", "2C"), 3],
+    ["two pair", hand("JS", "JH", "8D", "8C", "6S", "3D", "2C"), 2],
+    ["one pair", hand("10S", "10H", "8D", "7C", "6S", "3D", "2C"), 1],
+    ["high card", hand("AS", "KH", "8D", "7C", "6S", "3D", "2C"), 0],
+  ];
+  const evaluations = cases.map(([label, cards, score]) => {
+    const evaluation = evaluateSevenCards(cards);
+    assert(evaluation.score === score, `${label} should score ${score}`);
+    return evaluation;
+  });
+  assert(compareEvaluations(evaluations[0], evaluations[1]) > 0, "royal flush should beat straight flush");
+  assert(compareEvaluations(evaluations.at(-1), evaluations.at(-1)) === 0, "same hand should tie");
+  assert(compareEvaluations(evaluations[8], evaluations[9]) > 0, "pair should beat high card");
+}
+
+function exerciseWinRate() {
+  assert(estimateHoldemWinRate({ playerCards: [] }) === null, "invalid win-rate input should return null");
+  assert(estimateHoldemWinRate({ playerCards: hand("AS", "AH"), opponentCount: 0 }).percent === 100, "zero opponents should be certain");
+  assert(
+    estimateHoldemWinRate({ playerCards: hand("AS", "AH"), opponentCount: 30 }) === null,
+    "impossible win-rate deal should return null",
+  );
+  assert(
+    estimateHoldemWinRate({
+      playerCards: hand("AS", "AH"),
+      communityCards: hand("KS", "QS", "JS"),
+      opponentCount: 2,
+      samples: 6,
+    }).samples === 6,
+    "win-rate should run requested samples",
+  );
+}
+
+function player(id, options = {}) {
+  return {
+    id,
+    name: options.name ?? id,
+    isHuman: options.isHuman ?? false,
+    cards: options.cards ?? hand("AS", "AH"),
+    folded: options.folded ?? false,
+    eliminated: options.eliminated ?? false,
+    actionLocked: options.actionLocked ?? false,
+    streetContribution: options.streetContribution ?? 0,
+    totalContribution: options.totalContribution ?? 0,
+    chipBalance: options.chipBalance ?? 100000,
+    chipsWon: options.chipsWon ?? 0,
+    lastAction: options.lastAction ?? "대기",
+    computerStyle: options.computerStyle ?? "balanced",
+    computerLevel: options.computerLevel ?? "intermediate",
+  };
+}
+
+function actionState(overrides = {}) {
+  const players = overrides.players ?? [
+    player("human", { isHuman: true, cards: hand("AS", "AH") }),
+    player("cpu-1", { cards: hand("KS", "KH") }),
+    player("cpu-2", { cards: hand("QS", "QH") }),
+  ];
+  return {
+    deck: deck.slice(10),
+    players,
+    dealerIndex: 0,
+    smallBlindIndex: 1,
+    bigBlindIndex: 2,
+    currentPlayerIndex: overrides.currentPlayerIndex ?? 0,
+    pendingIndices: overrides.pendingIndices ?? [0, 1, 2],
+    streetIndex: overrides.streetIndex ?? 0,
+    communityCards: overrides.communityCards ?? [],
+    pot: overrides.pot ?? 7000,
+    currentBet: overrides.currentBet ?? 5000,
+    currentHandFee: 0,
+    feeTotal: 0,
+    handNumber: 1,
+    handId: overrides.handId ?? "exercise-hand",
+    winnerIds: [],
+    finished: overrides.finished ?? false,
+    gameOver: false,
+    waitingForHuman: true,
+    showdownPending: overrides.showdownPending ?? false,
+    revealOrder: overrides.revealOrder ?? [],
+    muckIds: overrides.muckIds ?? [],
+    showdownResults: overrides.showdownResults ?? [],
+    log: [],
+    lastAggressorIndex: overrides.lastAggressorIndex ?? 2,
+    chipTotals: {},
+    playerStats: overrides.playerStats ?? {},
+    cardPeekPlayerIds: overrides.cardPeekPlayerIds ?? [],
+    computerCardCheckedPlayerIds: overrides.computerCardCheckedPlayerIds ?? [],
+  };
+}
+
+function exerciseActions() {
+  assert(applyAction({ ...actionState(), finished: true }, "fold", 0).finished, "finished action should be ignored");
+  assert(applyAction(actionState(), "fold", 99) !== null, "missing actor should be ignored without throwing");
+  assert(getAvailableActions({ ...actionState(), finished: true }, 0).length === 0, "finished state has no actions");
+  assert(getAvailableActions(actionState(), 99).length === 0, "missing player has no actions");
+  assert(
+    getAvailableActions(
+      actionState({
+        players: [player("human", { isHuman: true }), player("cpu-1", { folded: true })],
+        pendingIndices: [0],
+      }),
+      0,
+    ).length === 0,
+    "single actionable player should have no betting actions",
+  );
+
+  const openingActions = getAvailableActions(
+    actionState({
+      currentBet: 0,
+      streetIndex: 1,
+      players: [
+        player("human", { isHuman: true, streetContribution: 0 }),
+        player("cpu-1", { streetContribution: 0 }),
+      ],
+      pendingIndices: [0, 1],
+    }),
+    0,
+  );
+  assert(openingActions.some((action) => action.key === "bet" && action.enabled), "opening street should allow bet");
+
+  let state = actionState();
+  assert(getAvailableActions(state, 0).some((action) => action.key === "call" && action.enabled), "human can call");
+  state = applyAction(state, "call", 0);
+  state = applyAction({ ...state, currentPlayerIndex: 1 }, "call", 1);
+  state = applyAction({ ...state, currentPlayerIndex: 2, currentBet: 0, streetIndex: 1 }, "bet", 2);
+  state = applyAction({ ...state, currentPlayerIndex: 0 }, "raise", 0);
+  state = applyAction({ ...state, currentPlayerIndex: 1 }, "fold", 1);
+  assert(state.log.length > 0, "actions should log progress");
+
+  const checkState = actionState({
+    currentBet: 0,
+    streetIndex: 1,
+    players: [
+      player("human", { isHuman: true, streetContribution: 0 }),
+      player("cpu-1", { streetContribution: 0 }),
+    ],
+    pendingIndices: [0, 1],
+  });
+  assert(applyAction(checkState, "check", 0).players[0].lastAction === "체크", "check should apply when no call is needed");
+  assert(applyAction(checkState, "call", 0) === checkState, "call with no amount should be ignored");
+
+  const noChipsCallState = actionState({
+    players: [
+      player("human", { isHuman: true, chipBalance: 0, actionLocked: false, streetContribution: 0 }),
+      player("cpu-1", { streetContribution: 5000 }),
+    ],
+    pendingIndices: [0, 1],
+    lastAggressorIndex: 1,
+  });
+  assert(applyAction(noChipsCallState, "call", 0) === noChipsCallState, "zero-spend call should be ignored");
+
+  const shortStackState = actionState({
+    players: [
+      player("human", { isHuman: true, chipBalance: 3000, streetContribution: 0 }),
+      player("cpu-1", { chipBalance: 100000, streetContribution: 5000 }),
+    ],
+    pendingIndices: [0, 1],
+    lastAggressorIndex: 1,
+  });
+  const allInCall = applyAction(shortStackState, "call", 0);
+  assert(allInCall.players[0].actionLocked, "short-stack call should lock action");
+
+  const streetAdvanceState = actionState({
+    players: [
+      player("human", { isHuman: true, streetContribution: 0 }),
+      player("cpu-1", { streetContribution: 5000 }),
+    ],
+    currentPlayerIndex: 0,
+    pendingIndices: [0],
+    lastAggressorIndex: 1,
+  });
+  assert(applyAction(streetAdvanceState, "call", 0).streetIndex === 1, "last call should advance the street");
+
+  const foldWinState = actionState({
+    players: [
+      player("human", { isHuman: true }),
+      player("cpu-1", { cards: hand("KS", "KH") }),
+    ],
+    currentPlayerIndex: 0,
+    pendingIndices: [0],
+    lastAggressorIndex: 1,
+  });
+  assert(applyAction(foldWinState, "fold", 0).finished, "fold leaving one player should finish");
+}
+
+function showdownState(overrides = {}) {
+  const players = overrides.players ?? [
+    player("a", { cards: hand("AS", "AH"), totalContribution: 10000, chipBalance: 90000 }),
+    player("b", { cards: hand("KS", "KH"), totalContribution: 10000, chipBalance: 90000 }),
+    player("c", { cards: hand("2S", "3H"), totalContribution: 10000, chipBalance: 90000 }),
+  ];
+  return actionState({
+    players,
+    currentPlayerIndex: overrides.currentPlayerIndex ?? 0,
+    pendingIndices: [0, 1, 2],
+    streetIndex: 3,
+    communityCards: overrides.communityCards ?? hand("QS", "JS", "10S", "9D", "8C"),
+    pot: 30000,
+    currentBet: 0,
+    showdownPending: true,
+    revealOrder: overrides.revealOrder ?? ["a", "b", "c"],
+    lastAggressorIndex: overrides.lastAggressorIndex ?? 1,
+    playerStats: overrides.playerStats ?? {},
+  });
+}
+
+function exerciseShowdown() {
+  let state = showdownState();
+  assert(getAvailableActions(state, 0).some((action) => action.key === "show"), "showdown can show");
+  assert(applyAction(state, "fold", 0) === state, "non-showdown action should be ignored during showdown");
+  assert(applyAction(state, "show", 1) === state, "wrong showdown actor should be ignored");
+  state = applyAction(state, "show", 0);
+  assert(getAvailableActions(state, 0).length === 0, "opened player should not act again");
+  state = applyAction({ ...state, currentPlayerIndex: 1 }, "muck", 1);
+  state = applyAction({ ...state, currentPlayerIndex: 2 }, "show", 2);
+  assert(state.finished, "showdown should finish after all contenders resolve");
+
+  const noMuckState = showdownState({ revealOrder: ["a"], players: [player("a", { cards: hand("AS", "AH"), totalContribution: 10000 })] });
+  assert(getAvailableActions({ ...noMuckState, players: [{ ...noMuckState.players[0], folded: true }] }, 0).length === 0, "folded showdown player cannot act");
+  assert(getAvailableActions(noMuckState, 0).find((action) => action.key === "muck")?.enabled === false, "last contender cannot muck");
+  assert(applyAction(noMuckState, "muck", 0) === noMuckState, "illegal muck should not mutate");
+
+  const sidePotState = showdownState({
+    players: [
+      player("a", { cards: hand("AS", "KS"), totalContribution: 20000, chipBalance: 80000 }),
+      player("b", { cards: hand("AH", "KH"), totalContribution: 10000, chipBalance: 90000 }),
+      player("c", { cards: hand("2D", "3C"), totalContribution: 10000, chipBalance: 90000 }),
+    ],
+    communityCards: hand("QS", "JS", "10S", "9S", "8C"),
+    pot: 40000,
+    revealOrder: ["a", "b", "c"],
+  });
+  const sidePotFinished = applyAction(applyAction(applyAction(sidePotState, "show", 0), "show", 1), "show", 2);
+  assert(sidePotFinished.log.some((entry) => entry.startsWith("반환:")), "uncalled side-pot contribution should be returned");
+
+  const splitPotState = showdownState({
+    players: [
+      player("a", { cards: hand("2D", "3C"), totalContribution: 10000 }),
+      player("b", { cards: hand("4D", "5C"), totalContribution: 10000 }),
+      player("c", { cards: hand("6D", "7C"), totalContribution: 10000 }),
+    ],
+    communityCards: hand("AS", "KS", "QS", "JS", "10S"),
+    pot: 30000,
+    revealOrder: ["a", "b", "c"],
+  });
+  const splitPotFinished = applyAction(applyAction(applyAction(splitPotState, "show", 0), "show", 1), "show", 2);
+  assert(splitPotFinished.winnerIds.length === 3, "board royal flush should split the pot");
+
+  const emptyPotState = showdownState({
+    players: [
+      player("a", { cards: hand("AS", "AH"), totalContribution: 0 }),
+      player("b", { cards: hand("KS", "KH"), totalContribution: 0 }),
+    ],
+    pot: 0,
+    revealOrder: ["a", "b"],
+  });
+  const emptyPotFinished = applyAction(applyAction(emptyPotState, "show", 0), "show", 1);
+  assert(emptyPotFinished.log.includes("정산 대상 팟이 없습니다."), "empty showdown pot should be logged");
+}
+
+function exerciseComputerDecisions() {
+  const styles = ["balanced", "cautious", "aggressive", "adaptive", "chaotic"];
+  const levels = ["beginner", "intermediate", "advanced"];
+  styles.forEach((style, styleIndex) => {
+    levels.forEach((level, levelIndex) => {
+      const actor = player(`cpu-${style}-${level}`, {
+        cards: styleIndex % 2 === 0 ? hand("AS", "KS") : hand("7S", "2C"),
+        computerStyle: style,
+        computerLevel: level,
+        streetContribution: levelIndex === 0 ? 0 : 5000,
+      });
+      const state = actionState({
+        players: [
+          player("human", { isHuman: true, cards: hand("2S", "2H"), streetContribution: 5000 }),
+          actor,
+          player("cpu-x", { cards: hand("QD", "QC"), streetContribution: 5000 }),
+        ],
+        currentPlayerIndex: 1,
+        pendingIndices: [1, 2, 0],
+        streetIndex: styleIndex >= 2 ? 2 : 0,
+        communityCards: styleIndex >= 2 ? hand("QS", "JS", "4S", "3D") : [],
+        currentBet: levelIndex === 2 ? 10000 : 5000,
+        pot: 24000 + styleIndex * 1000,
+        lastAggressorIndex: 0,
+        cardPeekPlayerIds: ["human"],
+        playerStats: {
+          human: {
+            actions: 6,
+            folds: styleIndex,
+            calls: 1,
+            checks: 0,
+            bets: 2,
+            raises: 2,
+            aggressiveActions: 4,
+            voluntaryChips: 25000,
+            showdownOpens: 2,
+            showdownMucks: 1,
+            showdownWins: 1,
+            showdownStrengthTotal: style === "adaptive" ? 40 : 110,
+            showdownHoleStrengthTotal: style === "adaptive" ? 40 : 140,
+            showdownStrongShows: style === "adaptive" ? 0 : 2,
+            showdownWeakShows: style === "adaptive" ? 2 : 0,
+            showdownSamples: [],
+          },
+        },
+      });
+      assert(typeof chooseComputerAction(state, 1) === "string", `computer action ${style}/${level}`);
+      const peekPlan = computerCardPeekPlan(state, 1, 900);
+      assert(typeof peekPlan.shouldPeek === "boolean", `peek plan ${style}/${level}`);
+    });
+  });
+
+  [
+    hand("AS", "KS"),
+    hand("AS", "QS"),
+    hand("AS", "JS"),
+    hand("AS", "8C"),
+    hand("AS", "5S"),
+    hand("7S", "2C"),
+  ].forEach((cards, index) => {
+    const state = actionState({
+      players: [
+        player("human", { isHuman: true, cards: hand("2S", "2H"), streetContribution: 5000 }),
+        player(`cpu-gap-${index}`, { cards, streetContribution: 5000, computerStyle: "balanced", computerLevel: "advanced" }),
+        player("cpu-x", { cards: hand("QD", "QC"), streetContribution: 5000 }),
+      ],
+      currentPlayerIndex: 1,
+      pendingIndices: [1, 2, 0],
+      currentBet: 5000,
+    });
+    assert(typeof chooseComputerAction(state, 1) === "string", `preflop gap branch ${index}`);
+  });
+
+  ["balanced", "cautious", "aggressive", "adaptive", "chaotic"].forEach((style) => {
+    const state = actionState({
+      players: [
+        player("human", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 10000 }),
+        player(`cpu-post-${style}`, {
+          cards: style === "cautious" ? hand("AS", "AH") : hand("9S", "8S"),
+          streetContribution: 5000,
+          computerStyle: style,
+          computerLevel: "advanced",
+        }),
+        player("cpu-x", { cards: hand("QD", "QC"), streetContribution: 10000 }),
+      ],
+      currentPlayerIndex: 1,
+      pendingIndices: [1, 2, 0],
+      streetIndex: 2,
+      communityCards: style === "balanced" ? hand("AC", "KD", "7H", "2C") : hand("QS", "JS", "4S", "4D"),
+      currentBet: 10000,
+      pot: 45000,
+      lastAggressorIndex: 0,
+      cardPeekPlayerIds: ["human"],
+      playerStats: {
+        human: {
+          actions: 5,
+          folds: 3,
+          calls: 1,
+          checks: 0,
+          bets: 1,
+          raises: 0,
+          aggressiveActions: 1,
+          voluntaryChips: 10000,
+          showdownOpens: 2,
+          showdownMucks: 1,
+          showdownWins: 0,
+          showdownStrengthTotal: style === "adaptive" ? 60 : 30,
+          showdownHoleStrengthTotal: style === "adaptive" ? 80 : 40,
+          showdownStrongShows: style === "adaptive" ? 2 : 0,
+          showdownWeakShows: style === "adaptive" ? 0 : 2,
+          showdownSamples: [],
+        },
+      },
+    });
+    assert(typeof chooseComputerAction(state, 1) === "string", `postflop board branch ${style}`);
+  });
+
+  const invalidPeek = computerCardPeekPlan(actionState({ currentPlayerIndex: 0 }), 0);
+  assert(!invalidPeek.shouldPeek, "human should not peek as computer");
+
+  let state = showdownState({
+    players: [
+      player("cpu-a", { cards: hand("AS", "AH"), computerStyle: "aggressive", computerLevel: "advanced" }),
+      player("cpu-b", { cards: hand("2S", "3H"), computerStyle: "cautious", computerLevel: "beginner" }),
+    ],
+    revealOrder: ["cpu-a", "cpu-b"],
+    currentPlayerIndex: 0,
+  });
+  assert(["show", "muck"].includes(chooseComputerAction(state, 0)), "computer showdown action");
+  state = applyAction(state, chooseComputerAction(state, 0), 0);
+  if (!state.finished) {
+    assert(["show", "muck"].includes(chooseComputerAction(state, state.currentPlayerIndex)), "second computer showdown action");
+  }
+}
+
+function exerciseHandLifecycle() {
+  assert(createInitialState(1, 100000, true).players.length === 2, "initial state should create players");
+  assert(startNewHand({ cpuCount: 1, includeHuman: true, dealerIndex: 0 }).gameOver, "missing chip ledger should eliminate players");
+  assert(
+    startNewHand({
+      cpuCount: 1,
+      includeHuman: true,
+      dealerIndex: 0,
+      chipTotals: { human: 100000, "cpu-1": 100000 },
+      forcedContributions: [
+        { playerId: "missing", amount: 5000, label: "누락" },
+        { playerId: "human", amount: 0, label: "제로" },
+      ],
+    }).players.length === 2,
+    "invalid forced contributions should be ignored",
+  );
+  assert(
+    startNewHand({
+      cpuCount: 1,
+      includeHuman: true,
+      dealerIndex: 99,
+      chipTotals: { human: 1000, "cpu-1": 1000 },
+      handNumber: 3,
+    }).showdownPending,
+    "all-in blinds should auto-advance to showdown",
+  );
+  assert(
+    startNewHand({
+      cpuCount: 0,
+      includeHuman: true,
+      dealerIndex: 0,
+      chipTotals: { human: { chipBalance: 0, chipsWon: 0 } },
+    }).gameOver,
+    "game should end with fewer than two playable players",
+  );
+  assert(
+    startNewHand({
+      cpuCount: 2,
+      includeHuman: false,
+      dealerIndex: 99,
+      chipTotals: {
+        "cpu-1": { chipBalance: 0, chipsWon: 0 },
+        "cpu-2": { chipBalance: 50000, chipsWon: 0 },
+      },
+      playerConfigs: [
+        { id: "cpu-1", name: "컴퓨터 1", isHuman: false, startingBalance: 100000 },
+        { id: "cpu-2", name: "컴퓨터 2", isHuman: false, startingBalance: 100000 },
+      ],
+      endlessMode: true,
+      handNumber: 2,
+      endlessReplacementComputerStyle: "aggressive",
+      endlessReplacementComputerLevel: "advanced",
+      endlessReplacementStartingBalance: 120000,
+      forcedContributions: [{ playerId: "cpu-2", amount: 7000, label: "미스드 블라인드" }],
+    }).players.some((entry) => entry.id.startsWith("cpu-endless")),
+    "endless mode should replace eliminated computer",
+  );
+}
+
+exerciseBasics();
+exercisePreflop();
+exerciseHandEvaluation();
+exerciseWinRate();
+exerciseActions();
+exerciseShowdown();
+exerciseComputerDecisions();
+exerciseHandLifecycle();
+
+console.log("포커 authored-code coverage exercise 통과");
