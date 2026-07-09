@@ -42,6 +42,49 @@ export async function openActiveMenuItem(page, name) {
   await page.getByRole("menuitem", { name }).click();
 }
 
+export function setupCard(page, name) {
+  return page.getByRole("group", { name: `${name} 설정 카드` });
+}
+
+export async function setupCardOrder(page) {
+  return page.locator(".setup-player-config .setup-player-card-header strong").allTextContents();
+}
+
+export async function expectSetupCardOrder(page, expectedNames) {
+  await expect.poll(async () => setupCardOrder(page)).toEqual(expectedNames);
+}
+
+export async function dragSetupCardAfter(page, draggedName, targetName) {
+  const handle = page.getByLabel(`${draggedName} 순서 변경`);
+  const target = setupCard(page, targetName);
+  await expect(handle).toBeVisible();
+  await expect(target).toBeVisible();
+  await handle.dragTo(target, { targetPosition: { x: 240, y: 80 } });
+}
+
+export function activeGameSettingsPanel(page) {
+  return page.locator(".game-settings-panel");
+}
+
+export async function expectActiveGameSettingsEditable(page, editable) {
+  const panel = activeGameSettingsPanel(page);
+  for (const label of [
+    "다음 핸드 자동 진행",
+    "엔들리스 게임 모드",
+    "인게임 컴퓨터 성향/수준 표시",
+    "플레이어 카드 누적 승리 표시",
+    "컴퓨터 행동 딜레이(ms)",
+    "멀티플레이 제한 시간(ms)",
+  ]) {
+    const control = panel.getByLabel(label);
+    if (editable) {
+      await expect(control).toBeEnabled();
+    } else {
+      await expect(control).toBeDisabled();
+    }
+  }
+}
+
 export async function setFastDelays(page, { autoNext = false, multiplayer = false } = {}) {
   await page.getByLabel("컴퓨터 행동 딜레이(ms)").fill("100");
   if (autoNext) {
@@ -135,8 +178,8 @@ export async function createRoom(page, { name = "Host", autoNext = false, endles
   await page.keyboard.press("Tab");
   await openSetupTab(page, "게임 설정");
   await setFastDelays(page, { autoNext, multiplayer: true });
-  if (computerCount === 0) {
-    for (const name of ["컴퓨터 3", "컴퓨터 2", "컴퓨터 1"]) {
+  if (computerCount < 3) {
+    for (const name of ["컴퓨터 3", "컴퓨터 2", "컴퓨터 1"].slice(0, Math.max(0, 3 - computerCount))) {
       const removeButton = page.getByRole("button", { name: `${name} 제거` });
       if ((await removeButton.count()) > 0) {
         await removeButton.click();
@@ -166,6 +209,15 @@ export async function joinRoomInContext(context, roomCode, { name = "Guest", via
   await page.getByLabel("표시 이름").fill(name);
   await page.keyboard.press("Tab");
   await expect(page.getByText(name).first()).toBeVisible();
+  return page;
+}
+
+export async function joinActiveRoomInContext(context, roomCode) {
+  const page = await context.newPage();
+  await installDeterministicRandom(page);
+  await page.goto(`/?room=${roomCode}`);
+  await expect(page.getByText("먹(Pot)")).toBeVisible();
+  await expect(page.locator(".seat")).toHaveCount(8);
   return page;
 }
 

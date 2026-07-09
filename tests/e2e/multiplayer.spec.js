@@ -2,9 +2,13 @@ import { expect, test } from "@playwright/test";
 import {
   clickIfEnabledAction,
   createRoom,
+  expectActiveGameSettingsEditable,
   gotoRoot,
+  joinActiveRoomInContext,
   joinRoomInContext,
+  openActiveMenuItem,
   openSetupTab,
+  setupCard,
   startMultiplayerGame,
   waitForAnyTurn,
 } from "./helpers/poker-app";
@@ -49,7 +53,7 @@ test.describe("root multiplayer flows", () => {
     const hostContext = await browser.newContext();
     const guestContext = await browser.newContext();
     const hostPage = await hostContext.newPage();
-    const roomCode = await createRoom(hostPage, { name: "Host" });
+    const roomCode = await createRoom(hostPage, { name: "Host", computerCount: 1 });
     const guestPage = await joinRoomInContext(guestContext, roomCode, { name: "Guest", viaDeepLink: true });
 
     await expect(hostPage.getByText("Guest").first()).toBeVisible();
@@ -80,6 +84,26 @@ test.describe("root multiplayer flows", () => {
     await expect(hostPage.getByRole("button", { name: "룸 나가기" })).toBeVisible();
     await expect(hostPage.getByRole("button", { name: /자리 비움/ })).toBeVisible();
     await expect(hostPage.getByRole("button", { name: /게임에서 빠지기|게임 퇴장 예약 취소/ })).toBeVisible();
+    await expect(hostPage.getByLabel(/행동 제한 시간/)).toBeVisible();
+
+    await hostPage.getByRole("button", { name: "다음 핸드부터 자리 비움" }).click();
+    await expect(hostPage.getByText("이번 핸드가 끝나면 자리 비움으로 전환됩니다.")).toBeVisible();
+    await expect(hostPage.getByRole("button", { name: "자리 비움 예약 취소" })).toBeVisible();
+    await hostPage.getByRole("button", { name: "자리 비움 예약 취소" }).click();
+    await expect(hostPage.getByRole("button", { name: "다음 핸드부터 자리 비움" })).toBeVisible();
+
+    await hostPage.getByRole("button", { name: "게임에서 빠지기" }).click();
+    await expect(hostPage.getByText("딜러(D) 차례가 되면 게임에서 빠지고 좌석은 빈 자리로 바뀝니다.")).toBeVisible();
+    await expect(hostPage.getByRole("button", { name: "게임 퇴장 예약 취소" })).toBeVisible();
+    await hostPage.getByRole("button", { name: "게임 퇴장 예약 취소" }).click();
+    await expect(hostPage.getByRole("button", { name: "게임에서 빠지기" })).toBeVisible();
+
+    await openActiveMenuItem(guestPage, "게임 설정");
+    await expectActiveGameSettingsEditable(guestPage, false);
+    await openActiveMenuItem(hostPage, "게임 설정");
+    await expectActiveGameSettingsEditable(hostPage, true);
+    await openActiveMenuItem(hostPage, "게임 테이블");
+    await openActiveMenuItem(guestPage, "게임 테이블");
 
     const hostActionRow = hostPage.locator(".controls .action-row");
     const guestActionRow = guestPage.locator(".controls .action-row");
@@ -94,6 +118,7 @@ test.describe("root multiplayer flows", () => {
     await finishMultiplayerHandWithinLimit([hostPage, guestPage]);
     await expect(hostPage.getByRole("button", { name: "다음 핸드", exact: true })).toBeEnabled();
     await expect(guestPage.getByRole("button", { name: "다음 핸드", exact: true })).toBeEnabled();
+    await expect(hostPage.getByLabel("다음 핸드 준비 제한 시간")).toBeVisible();
 
     await hostPage.getByRole("button", { name: "다음 핸드", exact: true }).click();
     await expect(hostPage.getByRole("button", { name: "다음 핸드 준비 완료", exact: true })).toBeDisabled();
@@ -107,6 +132,32 @@ test.describe("root multiplayer flows", () => {
     await expect(hostPage.getByRole("heading", { name: "게임 시작 설정" })).toBeVisible();
     await hostContext.close();
     await guestContext.close();
+  });
+
+  test("lets a late participant reserve an empty human seat for the next hand", async ({ browser }) => {
+    const hostContext = await browser.newContext();
+    const guestContext = await browser.newContext();
+    const lateContext = await browser.newContext();
+    const hostPage = await hostContext.newPage();
+    const roomCode = await createRoom(hostPage, { name: "Host" });
+    const guestPage = await joinRoomInContext(guestContext, roomCode, { name: "Guest", viaDeepLink: true });
+
+    await openSetupTab(hostPage, "게임 설정");
+    await hostPage.getByRole("button", { name: "플레이어 카드 추가" }).click();
+    await setupCard(hostPage, "컴퓨터 2").getByLabel("플레이어 유형").selectOption("human");
+    await expect(setupCard(hostPage, "빈 자리 3")).toBeVisible();
+    await startMultiplayerGame(hostPage, [guestPage]);
+
+    const latePage = await joinActiveRoomInContext(lateContext, roomCode);
+    await expect(latePage.locator(".seat").filter({ hasText: "비어 있음" }).getByRole("button", { name: "다음 핸드부터 참여" })).toBeVisible();
+    await latePage.locator(".seat").filter({ hasText: "비어 있음" }).getByRole("button", { name: "다음 핸드부터 참여" }).click();
+
+    await expect(latePage.locator(".seat").filter({ hasText: "참가 예약" })).toBeVisible();
+    await expect(hostPage.locator(".seat").filter({ hasText: "참가 예약" })).toBeVisible();
+
+    await hostContext.close();
+    await guestContext.close();
+    await lateContext.close();
   });
 
   test("syncs host room settings, guest name changes, share URL, and same-browser rejoin", async ({ browser }) => {
@@ -146,7 +197,7 @@ test.describe("root multiplayer flows", () => {
     const hostContext = await browser.newContext();
     const guestContext = await browser.newContext();
     const hostPage = await hostContext.newPage();
-    const roomCode = await createRoom(hostPage, { name: "Host", computerCount: 1 });
+    const roomCode = await createRoom(hostPage, { name: "Host" });
     await joinRoomInContext(guestContext, roomCode, { name: "Guest", viaDeepLink: true });
 
     await openSetupTab(hostPage, "게임 설정");

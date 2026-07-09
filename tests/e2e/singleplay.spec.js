@@ -1,9 +1,13 @@
 import { expect, test } from "@playwright/test";
 import {
+  activeGameSettingsPanel,
   clickIfEnabledAction,
   clickNamedAction,
   finishHandWithinLimit,
+  gotoRoot,
   openActiveMenuItem,
+  setFastDelays,
+  setupCard,
   startSingleGame,
 } from "./helpers/poker-app";
 
@@ -124,6 +128,62 @@ test.describe("root singleplay table", () => {
     await page.getByRole("button", { name: "새 게임 설정" }).click();
     await expect(page.getByRole("heading", { name: "게임 시작 설정" })).toBeVisible();
     await expect(page.getByRole("button", { name: "게임 시작" })).toBeVisible();
+  });
+
+  test("applies active game settings changes to the running table", async ({ page }) => {
+    await startSingleGame(page);
+
+    await expect(page.getByText(/(기본형|신중형|공격형|적응형|혼돈형) · (초급|중급|고급)/).first()).toBeVisible();
+    await expect(page.locator(".seat").first().getByText("누적 승리")).toBeVisible();
+
+    await openActiveMenuItem(page, "게임 설정");
+    const settings = activeGameSettingsPanel(page);
+    await settings.getByLabel("인게임 컴퓨터 성향/수준 표시").uncheck();
+    await settings.getByLabel("플레이어 카드 누적 승리 표시").uncheck();
+    await settings.getByLabel("다음 핸드 자동 진행").check();
+    await settings.getByLabel("다음 핸드 딜레이(ms)").fill("500");
+    await expect(settings.getByLabel("다음 핸드 딜레이(ms)")).toHaveValue("500");
+
+    await openActiveMenuItem(page, "게임 테이블");
+    await expect(page.getByText("설정 비공개").first()).toBeVisible();
+    await expect(page.locator(".seat").first().getByText("누적 승리")).toHaveCount(0);
+  });
+
+  test("shows short-stack call as all-in and locks the player action", async ({ page }) => {
+    await gotoRoot(page);
+    await setFastDelays(page);
+    await page.getByRole("group", { name: "플레이어 설정 카드" }).getByLabel("시작 금액").fill("3000");
+    await page.getByRole("button", { name: "게임 시작" }).click();
+    await expect(page.getByText("먹(Pot)")).toBeVisible();
+
+    await expect
+      .poll(async () => page.locator(".controls .action-row").innerText().catch(() => ""), { timeout: 20_000 })
+      .toMatch(/올인/);
+    await page.locator(".controls .action-row").getByRole("button", { name: /올인/ }).click();
+
+    const humanSeat = page.locator(".seat").filter({ hasText: "플레이어" });
+    await expect(humanSeat.getByText("올인")).toBeVisible();
+    await expect(humanSeat.getByText(/콜|베팅|레이즈/)).toBeVisible();
+  });
+
+  test("ends the game when fewer than two players are playable on the next hand", async ({ page }) => {
+    await gotoRoot(page);
+    await setFastDelays(page);
+    await page.getByRole("button", { name: "컴퓨터 3 제거" }).click();
+    await page.getByRole("button", { name: "컴퓨터 2 제거" }).click();
+    await page.getByRole("group", { name: "플레이어 설정 카드" }).getByLabel("시작 금액").fill("1000");
+    await setupCard(page, "컴퓨터 1").getByLabel("시작 금액").fill("1000");
+    await page.getByRole("button", { name: "게임 시작" }).click();
+    await expect(page.getByText("먹(Pot)")).toBeVisible();
+
+    await finishHandWithinLimit(page, { maxActions: 20 });
+    await page.getByRole("button", { name: "다음 핸드", exact: true }).click();
+
+    await expect(page.getByText("게임이 종료되었습니다.")).toBeVisible();
+    await expect(page.locator(".seat").filter({ hasText: "플레이어" }).getByText("탈락").first()).toBeVisible();
+    await openActiveMenuItem(page, "보조 정보");
+    await page.getByRole("tab", { name: "진행 로그" }).click();
+    await expect(page.getByText("게임 종료: 진행 가능한 플레이어가 2명 미만입니다.")).toBeVisible();
   });
 
   test("starts computer-only, random-order, and endless setup branches", async ({ page }) => {

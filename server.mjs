@@ -10,6 +10,7 @@ import {
   computerCardPeekPlan,
   formatMoney,
   getAvailableActions,
+  randomIndex,
   resolveComputerLevelKey,
   resolveComputerStyleKey,
   startNewHand,
@@ -186,7 +187,7 @@ function normalizePlayerOrder(order, humanSlots, computerCount) {
 function shuffledPlayerOrder(humanSlots, computerCount) {
   const order = normalizePlayerOrder([], humanSlots, computerCount);
   for (let index = order.length - 1; index > 0; index -= 1) {
-    const swapIndex = crypto.randomInt(index + 1);
+    const swapIndex = randomIndex(index + 1);
     [order[index], order[swapIndex]] = [order[swapIndex], order[index]];
   }
   return order;

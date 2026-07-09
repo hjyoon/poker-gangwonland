@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { gotoRoot, openSetupTab, setFastDelays } from "./helpers/poker-app";
+import { dragSetupCardAfter, expectSetupCardOrder, gotoRoot, openSetupTab, setFastDelays, setupCard } from "./helpers/poker-app";
 
 test.describe("root setup shell", () => {
   test("switches setup modes and preserves the route tree from root", async ({ page }) => {
@@ -56,6 +56,23 @@ test.describe("root setup shell", () => {
 
     await expect(page.getByRole("button", { name: "게임 시작" })).toBeDisabled();
     await expect(page.getByText("진행 가능한 플레이어가 2명 이상 필요합니다.")).toBeVisible();
+  });
+
+  test("reorders setup cards by drag handle and starts with selected computer profile", async ({ page }) => {
+    await gotoRoot(page);
+    await setFastDelays(page);
+
+    await expectSetupCardOrder(page, ["플레이어", "컴퓨터 1", "컴퓨터 2", "컴퓨터 3"]);
+    await setupCard(page, "컴퓨터 3").getByLabel("컴퓨터 플레이 성향").selectOption({ label: "공격형" });
+    await setupCard(page, "컴퓨터 3").getByLabel("컴퓨터 판단 수준").selectOption({ label: "고급" });
+
+    await dragSetupCardAfter(page, "컴퓨터 3", "플레이어");
+    await expectSetupCardOrder(page, ["플레이어", "컴퓨터 3", "컴퓨터 1", "컴퓨터 2"]);
+
+    await page.getByRole("button", { name: "게임 시작" }).click();
+    await expect(page.getByText("먹(Pot)")).toBeVisible();
+    await expect(page.locator(".seat header strong")).toHaveText(["플레이어", "컴퓨터 3", "컴퓨터 1", "컴퓨터 2", "빈 자리", "빈 자리", "빈 자리", "빈 자리"]);
+    await expect(page.locator(".seat").filter({ hasText: "컴퓨터 3" }).getByText("공격형 · 고급")).toBeVisible();
   });
 
   test("enforces max setup cards, singleplay human uniqueness, type conversion, and input clamps", async ({ page }) => {
