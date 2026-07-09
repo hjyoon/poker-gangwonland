@@ -163,7 +163,11 @@ class WsClient {
         reject,
         timer: setTimeout(() => {
           this.waiters = this.waiters.filter((entry) => entry !== waiter);
-          reject(new Error(`${this.label} timed out waiting for WebSocket message`));
+          const recentMessages = this.messages
+            .slice(-5)
+            .map((message) => `${message.type}${message.message ? `:${message.message}` : ""}${message.room?.id ? `:${message.room.id}` : ""}`)
+            .join(", ");
+          reject(new Error(`${this.label} timed out waiting for WebSocket message. Recent messages: ${recentMessages}`));
         }, timeoutMs),
       };
       this.waiters.push(waiter);
@@ -236,6 +240,11 @@ async function expectError(client, message) {
   return error;
 }
 
+async function waitForRoomState(client, roomId, count) {
+  await client.waitFor(() => client.messages.filter((message) => message.type === "roomState" && message.room?.id === roomId).length >= count);
+  return client.messages.filter((message) => message.type === "roomState" && message.room?.id === roomId).at(-1);
+}
+
 const port = await findOpenPort();
 const server = await startCoverageServer(port);
 const clients = [];
@@ -257,6 +266,46 @@ try {
   await expectError(probe, { type: "joinGameSeat", tableSeatIndex: 0 });
   await expectError(probe, { type: "updateRoomSettings", settings: {} });
   await expectError(probe, { type: "updateGameOptions", autoNextHand: true });
+
+  const defaultsHost = await new WsClient(port, "defaults-host").connect();
+  clients.push(defaultsHost);
+  defaultsHost.send({ type: "createRoom", playerName: "   ", humanSlots: 3 });
+  const defaultsJoined = await defaultsHost.waitFor((message) => message.type === "joinedRoom");
+  const defaultsRoomId = defaultsJoined.roomId;
+  assert(defaultsRoomId, "default room should be created");
+  const defaultRoomState = await waitForRoomState(defaultsHost, defaultsRoomId, 1);
+  assert(defaultRoomState.room.settings.computerPlayers.length === 3, "default room should create default computer settings");
+  assert(defaultRoomState.room.settings.humanPlayers.length === 3, "default room should create default human settings");
+  assert(defaultRoomState.room.seats[0].name === "방장", "blank host name should use the host fallback");
+
+  defaultsHost.send({
+    type: "updateRoomSettings",
+    settings: {
+      humanPlayers: [
+        { name: "Alpha", startingBalance: -50 },
+        { name: "Beta", startingBalance: 25000 },
+        { name: "", startingBalance: "bad" },
+      ],
+      humanSeatPlacements: [0, 0, 99],
+      computerPlayers: [
+        { name: "", startingBalance: -100, computerStyle: "bad-style", computerLevel: "bad-level" },
+        { name: "Computer B", startingBalance: 30000, computerStyle: "aggressive", computerLevel: "advanced" },
+      ],
+      playerOrder: ["cpu-2", "cpu-2", "missing", "human-slot-3", "human-slot-1"],
+      randomizePlayerOrder: true,
+      computerActionDelayMs: 1,
+      nextHandDelayMs: 999999,
+      humanActionTimeoutMs: "bad",
+    },
+  });
+  const normalizedDefaults = await waitForRoomState(defaultsHost, defaultsRoomId, 2);
+  assert(normalizedDefaults.room.settings.randomizePlayerOrder === true, "randomized player order should be stored");
+  assert(normalizedDefaults.room.settings.computerPlayers.length === 2, "custom computer settings should replace defaults");
+  assert(normalizedDefaults.room.settings.humanPlayers[0].startingBalance === 0, "negative human balance should clamp to zero");
+  assert(normalizedDefaults.room.settings.computerPlayers[0].computerStyle === "random", "invalid computer style should fall back");
+  assert(normalizedDefaults.room.settings.computerPlayers[0].computerLevel === "random", "invalid computer level should fall back");
+
+  defaultsHost.close();
 
   const host = await new WsClient(port, "host").connect();
   const guest = await new WsClient(port, "guest").connect();

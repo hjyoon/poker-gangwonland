@@ -497,22 +497,183 @@ function exerciseComputerDecisions() {
     assert(typeof chooseComputerAction(state, 1) === "string", `postflop board branch ${style}`);
   });
 
+  [
+    {
+      label: "straight texture and small call share",
+      board: hand("2S", "3H", "4D"),
+      actorCards: hand("AS", "5S"),
+      playerCount: 3,
+      currentBet: 7000,
+      streetContribution: 5000,
+      chipBalance: 95000,
+      pot: 65000,
+      lastAggressorStats: { actions: 3, aggressiveActions: 1, raises: 0 },
+    },
+    {
+      label: "four-run texture and multiway pressure",
+      board: hand("2S", "3H", "4D", "5C"),
+      actorCards: hand("9S", "9D"),
+      playerCount: 6,
+      currentBet: 30000,
+      streetContribution: 0,
+      chipBalance: 30000,
+      pot: 40000,
+      lastAggressorStats: { actions: 4, aggressiveActions: 3, raises: 2 },
+    },
+    {
+      label: "paired flush-pressure board",
+      board: hand("QS", "JS", "4S", "4D"),
+      actorCards: hand("AS", "2C"),
+      playerCount: 4,
+      currentBet: 10000,
+      streetContribution: 0,
+      chipBalance: 15000,
+      pot: 25000,
+      lastAggressorStats: { actions: 5, aggressiveActions: 1, raises: 0 },
+    },
+  ].forEach((scenario, scenarioIndex) => {
+    const opponents = Array.from({ length: scenario.playerCount - 2 }, (_, index) =>
+      player(`cpu-extra-${scenarioIndex}-${index}`, {
+        cards: index % 2 === 0 ? hand("KD", "KC") : hand("7D", "6D"),
+        streetContribution: scenario.currentBet,
+      }),
+    );
+    const state = actionState({
+      players: [
+        player("human", { isHuman: true, cards: hand("2D", "7C"), streetContribution: scenario.currentBet }),
+        player(`cpu-texture-${scenarioIndex}`, {
+          cards: scenario.actorCards,
+          streetContribution: scenario.streetContribution,
+          chipBalance: scenario.chipBalance,
+          computerStyle: scenarioIndex === 2 ? "adaptive" : "balanced",
+          computerLevel: "advanced",
+        }),
+        player("cpu-last-aggressor", { cards: hand("QD", "QC"), streetContribution: scenario.currentBet }),
+        ...opponents,
+      ],
+      currentPlayerIndex: 1,
+      pendingIndices: [1, 2, 0, ...opponents.map((_, index) => index + 3)],
+      streetIndex: scenario.board.length === 3 ? 1 : 2,
+      communityCards: scenario.board,
+      currentBet: scenario.currentBet,
+      pot: scenario.pot,
+      lastAggressorIndex: 2,
+      cardPeekPlayerIds: new Set(["human", "cpu-last-aggressor"]),
+      playerStats: {
+        "cpu-last-aggressor": {
+          folds: 0,
+          calls: 1,
+          checks: 0,
+          bets: 1,
+          voluntaryChips: 20000,
+          showdownOpens: 0,
+          showdownMucks: 0,
+          showdownWins: 0,
+          showdownStrengthTotal: 0,
+          showdownHoleStrengthTotal: 0,
+          showdownStrongShows: 0,
+          showdownWeakShows: 0,
+          showdownSamples: [],
+          ...scenario.lastAggressorStats,
+        },
+      },
+    });
+    assert(typeof chooseComputerAction(state, 1) === "string", `texture computer branch ${scenario.label}`);
+    assert(typeof computerCardPeekPlan(state, 1, 1200).shouldPeek === "boolean", `texture peek branch ${scenario.label}`);
+  });
+
+  const invalidMemoryPlan = computerCardPeekPlan(
+    actionState({
+      players: [player("cpu-invalid-memory", { cards: [null, null] }), player("human", { isHuman: true })],
+      currentPlayerIndex: 0,
+      pendingIndices: [0, 1],
+    }),
+    0,
+  );
+  assert(typeof invalidMemoryPlan.shouldPeek === "boolean", "invalid computer cards should still produce a peek plan");
+
+  let sawCheckedComputerSkipPeek = false;
+  for (let seedIndex = 0; seedIndex < 60; seedIndex += 1) {
+    const checkedState = actionState({
+      handId: `checked-peek-${seedIndex}`,
+      players: [player("cpu-checked", { cards: hand("7S", "2C"), computerStyle: "aggressive" }), player("human", { isHuman: true })],
+      currentPlayerIndex: 0,
+      pendingIndices: [0, 1],
+      computerCardCheckedPlayerIds: new Set(["cpu-checked"]),
+    });
+    if (!computerCardPeekPlan(checkedState, 0, 900).shouldPeek) {
+      sawCheckedComputerSkipPeek = true;
+      break;
+    }
+  }
+  assert(sawCheckedComputerSkipPeek, "checked computer should sometimes skip repeat peeking");
+
+  let sawChaoticOverride = false;
+  for (let seedIndex = 0; seedIndex < 80; seedIndex += 1) {
+    const chaoticState = actionState({
+      handId: `chaos-${seedIndex}`,
+      players: [
+        player("human", { isHuman: true, cards: hand("2D", "7C"), streetContribution: 5000 }),
+        player("cpu-chaos", {
+          cards: hand("8S", "3C"),
+          streetContribution: 0,
+          computerStyle: "chaotic",
+          computerLevel: "beginner",
+        }),
+        player("cpu-x", { cards: hand("QD", "QC"), streetContribution: 5000 }),
+      ],
+      currentPlayerIndex: 1,
+      pendingIndices: [1, 2, 0],
+      currentBet: 5000,
+      pot: 15000,
+      lastAggressorIndex: 2,
+    });
+    const action = chooseComputerAction(chaoticState, 1);
+    if (["call", "raise", "fold"].includes(action)) {
+      sawChaoticOverride = true;
+      break;
+    }
+  }
+  assert(sawChaoticOverride, "chaotic style should exercise weighted override choices");
+
   const invalidPeek = computerCardPeekPlan(actionState({ currentPlayerIndex: 0 }), 0);
   assert(!invalidPeek.shouldPeek, "human should not peek as computer");
 
-  let state = showdownState({
-    players: [
-      player("cpu-a", { cards: hand("AS", "AH"), computerStyle: "aggressive", computerLevel: "advanced" }),
-      player("cpu-b", { cards: hand("2S", "3H"), computerStyle: "cautious", computerLevel: "beginner" }),
-    ],
-    revealOrder: ["cpu-a", "cpu-b"],
-    currentPlayerIndex: 0,
+  ["aggressive", "chaotic", "adaptive"].forEach((style) => {
+    let state = showdownState({
+      players: [
+        player("cpu-a", { cards: hand("AS", "AH"), computerStyle: style, computerLevel: "advanced" }),
+        player("cpu-b", { cards: hand("2S", "3H"), computerStyle: "cautious", computerLevel: "beginner" }),
+      ],
+      revealOrder: ["cpu-a", "cpu-b"],
+      currentPlayerIndex: 0,
+      playerStats: {
+        "cpu-b": {
+          actions: 6,
+          folds: style === "adaptive" ? 4 : 1,
+          calls: 1,
+          checks: 0,
+          bets: 1,
+          raises: 2,
+          aggressiveActions: 3,
+          voluntaryChips: 30000,
+          showdownOpens: 2,
+          showdownMucks: 2,
+          showdownWins: 0,
+          showdownStrengthTotal: style === "adaptive" ? 40 : 120,
+          showdownHoleStrengthTotal: style === "adaptive" ? 40 : 140,
+          showdownStrongShows: style === "adaptive" ? 0 : 2,
+          showdownWeakShows: style === "adaptive" ? 2 : 0,
+          showdownSamples: [],
+        },
+      },
+    });
+    assert(["show", "muck"].includes(chooseComputerAction(state, 0)), `computer showdown action ${style}`);
+    state = applyAction(state, chooseComputerAction(state, 0), 0);
+    if (!state.finished) {
+      assert(["show", "muck"].includes(chooseComputerAction(state, state.currentPlayerIndex)), `second computer showdown action ${style}`);
+    }
   });
-  assert(["show", "muck"].includes(chooseComputerAction(state, 0)), "computer showdown action");
-  state = applyAction(state, chooseComputerAction(state, 0), 0);
-  if (!state.finished) {
-    assert(["show", "muck"].includes(chooseComputerAction(state, state.currentPlayerIndex)), "second computer showdown action");
-  }
 }
 
 function exerciseHandLifecycle() {
