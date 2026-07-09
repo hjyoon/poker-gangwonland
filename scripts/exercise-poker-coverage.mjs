@@ -599,6 +599,40 @@ function exerciseComputerDecisions() {
     assert(typeof computerCardPeekPlan(state, 1, 1200).shouldPeek === "boolean", `texture peek branch ${scenario.label}`);
   });
 
+  [
+    { label: "tiny call share", opponentCount: 6, streetContribution: 5000, currentBet: 6000, chipBalance: 95000 },
+    { label: "quarter call share", opponentCount: 2, streetContribution: 5000, currentBet: 6000, chipBalance: 95000 },
+    { label: "third call share", opponentCount: 1, streetContribution: 5000, currentBet: 6000, chipBalance: 95000 },
+    { label: "short all-in call", opponentCount: 6, streetContribution: 0, currentBet: 5000, chipBalance: 1000 },
+    { label: "large stack commitment", opponentCount: 2, streetContribution: 5000, currentBet: 6000, chipBalance: 1250 },
+  ].forEach((scenario, scenarioIndex) => {
+    const extraOpponents = Array.from({ length: scenario.opponentCount }, (_, index) =>
+      player(`cpu-call-extra-${scenarioIndex}-${index}`, {
+        cards: index % 2 === 0 ? hand("JD", "JC") : hand("9D", "9C"),
+        streetContribution: scenario.currentBet,
+      }),
+    );
+    const state = actionState({
+      players: [
+        player("human-call-lead", { isHuman: true, cards: hand("2D", "7C"), streetContribution: scenario.currentBet }),
+        player(`cpu-call-${scenarioIndex}`, {
+          cards: hand("AS", "QS"),
+          streetContribution: scenario.streetContribution,
+          chipBalance: scenario.chipBalance,
+          computerStyle: "balanced",
+          computerLevel: "advanced",
+        }),
+        ...extraOpponents,
+      ],
+      currentPlayerIndex: 1,
+      pendingIndices: [1, 0, ...extraOpponents.map((_, index) => index + 2)],
+      currentBet: scenario.currentBet,
+      pot: scenario.currentBet * (scenario.opponentCount + 2),
+      lastAggressorIndex: 0,
+    });
+    assert(typeof chooseComputerAction(state, 1) === "string", `call pressure branch ${scenario.label}`);
+  });
+
   const invalidMemoryPlan = computerCardPeekPlan(
     actionState({
       players: [player("cpu-invalid-memory", { cards: [null, null] }), player("human", { isHuman: true })],
@@ -708,6 +742,28 @@ function exerciseComputerDecisions() {
     pot: 15000,
   });
   assert(["check", "bet"].includes(chooseComputerAction(checkFallbackState, 1)), "computer should handle checkable fallback branch");
+
+  const onlyShowState = showdownState({
+    players: [player("cpu-show-only", { cards: hand("AS", "AH"), computerStyle: "balanced", computerLevel: "advanced" })],
+    revealOrder: ["cpu-show-only"],
+    currentPlayerIndex: 0,
+  });
+  assert(chooseComputerAction(onlyShowState, 0) === "show", "computer should show when muck is unavailable");
+
+  const openedBetterShowdown = applyAction(
+    showdownState({
+      players: [
+        player("opened-strong", { cards: hand("AS", "KS"), totalContribution: 10000 }),
+        player("cpu-losing-showdown", { cards: hand("2D", "3C"), totalContribution: 10000, computerStyle: "chaotic", computerLevel: "advanced" }),
+      ],
+      communityCards: hand("QS", "JS", "10S", "9D", "8C"),
+      revealOrder: ["opened-strong", "cpu-losing-showdown"],
+      currentPlayerIndex: 0,
+    }),
+    "show",
+    0,
+  );
+  assert(["show", "muck"].includes(chooseComputerAction(openedBetterShowdown, 1)), "computer should compare against an opened stronger showdown hand");
 
   const invalidPeek = computerCardPeekPlan(actionState({ currentPlayerIndex: 0 }), 0);
   assert(!invalidPeek.shouldPeek, "human should not peek as computer");

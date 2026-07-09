@@ -501,6 +501,70 @@ try {
   cleanupJoiner.close();
   leaveHost.close();
 
+  const replacementHost = await new WsClient(port, "replacement-host").connect();
+  const replacementGuest = await new WsClient(port, "replacement-guest").connect();
+  const replacementLate = await new WsClient(port, "replacement-late").connect();
+  clients.push(replacementHost, replacementGuest, replacementLate);
+  replacementHost.send({
+    type: "createRoom",
+    playerName: "Replacement Host",
+    humanSlots: 2,
+    settings: {
+      humanPlayers: [
+        { name: "Replacement Host", startingBalance: 100000 },
+        { name: "Replacement Guest", startingBalance: 100000 },
+      ],
+      computerPlayers: [{ name: "Short Computer", startingBalance: 1, computerStyle: "balanced", computerLevel: "intermediate" }],
+      endlessMode: true,
+      endlessReplacementStartingBalance: 50000,
+      computerActionDelayMs: 100,
+      nextHandDelayMs: 500,
+      humanActionTimeoutMs: 3000,
+    },
+  });
+  const replacementHostJoined = await replacementHost.waitFor((message) => message.type === "joinedRoom");
+  const replacementRoomId = replacementHostJoined.roomId;
+  replacementGuest.send({ type: "joinRoom", roomId: replacementRoomId, playerName: "Replacement Guest" });
+  const replacementGuestJoined = await replacementGuest.waitFor((message) => message.type === "joinedRoom");
+  replacementHost.send({ type: "startGame" });
+  await replacementHost.waitFor((message) => message.type === "roomState" && message.room?.gameState);
+  replacementLate.send({ type: "joinRoom", roomId: replacementRoomId, playerName: "Replacement Late" });
+  const replacementLateJoined = await replacementLate.waitFor((message) => message.type === "joinedRoom");
+  await replacementLate.waitFor((message) => message.type === "roomState" && message.room?.waitingParticipants?.some((participant) => participant.playerId === replacementLateJoined.playerId));
+  const replacementPlayersById = new Map([
+    [replacementHostJoined.playerId, replacementHost],
+    [replacementGuestJoined.playerId, replacementGuest],
+  ]);
+  const replacementFinished = await finishRoomHand(replacementHost, replacementRoomId, replacementPlayersById, 120);
+  assert(
+    replacementFinished.players.some((player) => !player.isHuman && player.eliminated),
+    `replacement exercise should eliminate the short computer: ${JSON.stringify(
+      replacementFinished.players.map((player) => ({
+        id: player.id,
+        isHuman: player.isHuman,
+        chipBalance: player.chipBalance,
+        chipsWon: player.chipsWon,
+        eliminated: player.eliminated,
+        lastAction: player.lastAction,
+      })),
+    )}`,
+  );
+  const replacementFinishedRoom = latestRoom(replacementHost, replacementRoomId);
+  for (const playerId of replacementFinishedRoom?.nextHandRequiredPlayerIds ?? []) {
+    replacementPlayersById.get(playerId)?.send({ type: "requestNextHand" });
+  }
+  await replacementHost.waitFor(
+    (message) =>
+      message.type === "roomState" &&
+      message.room?.id === replacementRoomId &&
+      message.room?.gameState?.handNumber === 2 &&
+      message.room.gameState.players.some((player) => player.id === replacementLateJoined.playerId && player.isHuman),
+    12_000,
+  );
+  replacementLate.close();
+  replacementGuest.close();
+  replacementHost.close();
+
   const seatHost = await new WsClient(port, "seat-host").connect();
   const seatGuest = await new WsClient(port, "seat-guest").connect();
   const seatLate = await new WsClient(port, "seat-late").connect();
@@ -525,7 +589,7 @@ try {
   const seatHostJoined = await seatHost.waitFor((message) => message.type === "joinedRoom");
   const seatRoomId = seatHostJoined.roomId;
   seatGuest.send({ type: "joinRoom", roomId: seatRoomId, playerName: "Seat Guest" });
-  await seatGuest.waitFor((message) => message.type === "joinedRoom");
+  const seatGuestJoined = await seatGuest.waitFor((message) => message.type === "joinedRoom");
   seatHost.send({ type: "startGame" });
   await seatHost.waitFor((message) => message.type === "roomState" && message.room?.gameState);
   const seatRoom = latestRoom(seatHost, seatRoomId);
@@ -533,7 +597,7 @@ try {
   assert(seatFourIndex >= 0, "seat exercise should expose the fourth human setup seat");
   await expectError(seatGuest, { type: "joinGameSeat", tableSeatIndex: seatFourIndex, playerName: "Seat Guest" }, "이미 현재 게임에 참여 중입니다.");
   seatLate.send({ type: "joinRoom", roomId: seatRoomId, playerName: "Seat Late" });
-  await seatLate.waitFor((message) => message.type === "joinedRoom");
+  const seatLateJoined = await seatLate.waitFor((message) => message.type === "joinedRoom");
   seatLate.send({ type: "joinGameSeat", tableSeatIndex: seatFourIndex, playerName: "Moved Late" });
   await seatLate.waitFor(
     (message) =>
@@ -546,6 +610,24 @@ try {
   await seatOther.waitFor((message) => message.type === "joinedRoom");
   await expectError(seatOther, { type: "joinGameSeat", tableSeatIndex: seatFourIndex, playerName: "Seat Other" }, "이미 다른 참가자가 예약한 자리입니다.");
   seatOther.close();
+  const seatPlayersById = new Map([
+    [seatHostJoined.playerId, seatHost],
+    [seatGuestJoined.playerId, seatGuest],
+  ]);
+  const seatFinished = await finishRoomHand(seatHost, seatRoomId, seatPlayersById, 80);
+  assert(seatFinished.finished, "seat reservation exercise should finish the active hand");
+  const seatFinishedRoom = latestRoom(seatHost, seatRoomId);
+  for (const playerId of seatFinishedRoom?.nextHandRequiredPlayerIds ?? []) {
+    seatPlayersById.get(playerId)?.send({ type: "requestNextHand" });
+  }
+  await seatHost.waitFor(
+    (message) =>
+      message.type === "roomState" &&
+      message.room?.id === seatRoomId &&
+      message.room?.gameState?.handNumber === 2 &&
+      message.room.gameState.players.some((player) => player.id === seatLateJoined.playerId),
+    12_000,
+  );
   seatLate.close();
   seatGuest.close();
   seatHost.close();

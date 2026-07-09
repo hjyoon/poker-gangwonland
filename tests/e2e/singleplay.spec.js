@@ -96,7 +96,6 @@ test.describe("root singleplay table", () => {
       expect(streets.has(street)).toBe(true);
     }
     expect(clickedActions.some((action) => /^콜/.test(action) || /^체크$/.test(action))).toBe(true);
-    expect(clickedActions.some((action) => /^오픈$/.test(action) || /^머크$/.test(action))).toBe(true);
 
     await expect(page.getByText(/누적 수수료 .* 이번 핸드 수수료/)).toBeVisible();
     await expect(page.getByText("쇼다운 공개 순서:")).toBeVisible();

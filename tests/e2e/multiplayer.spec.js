@@ -145,7 +145,7 @@ test.describe("root multiplayer flows", () => {
 
     await openSetupTab(hostPage, "게임 설정");
     await hostPage.getByRole("button", { name: "플레이어 카드 추가" }).click();
-    await setupCard(hostPage, "컴퓨터 2").getByLabel("플레이어 유형").selectOption("human");
+    await setupCard(hostPage, "컴퓨터 4").getByLabel("플레이어 유형").selectOption("human");
     await expect(setupCard(hostPage, "빈 자리 3")).toBeVisible();
     await openSetupTab(hostPage, "멀티플레이");
     await expect(hostPage.locator(".room-slot").filter({ hasText: "빈 자리" })).toHaveCount(1);

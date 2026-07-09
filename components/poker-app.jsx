@@ -486,6 +486,12 @@ function websocketUrl() {
   return `${protocol}//${window.location.host}/ws`;
 }
 
+function createAppWebSocket(url) {
+  // Lets e2e tests mock only the app protocol socket without replacing Next dev HMR.
+  const WebSocketConstructor = globalThis.__POKER_E2E_WEBSOCKET__ ?? WebSocket;
+  return new WebSocketConstructor(url);
+}
+
 function normalizeRoomCode(value) {
   return String(value || "")
     .trim()
@@ -1317,7 +1323,7 @@ export default function PokerApp() {
         return;
       }
 
-      const socket = new WebSocket(websocketUrl());
+      const socket = createAppWebSocket(websocketUrl());
       multiplayerSocketRef.current = socket;
       setMultiplayerStatus("연결 중");
 
