@@ -13,6 +13,7 @@ import {
   startMultiplayerGame,
   waitForAnyTurn,
 } from "./helpers/poker-app";
+import { recordMeaningfulCoverage } from "../../scripts/e2e-meaningful-coverage.mjs";
 
 async function finishMultiplayerHandWithinLimit(pages, { maxActions = 120 } = {}) {
   for (let actionCount = 0; actionCount < maxActions; actionCount += 1) {
@@ -65,6 +66,7 @@ test.describe("root multiplayer flows", () => {
 
     await hostPage.getByRole("button", { name: "룸 나가기" }).click();
     await expect(hostPage.getByText("룸 만들기 또는 룸 참가를 먼저 선택하세요.")).toBeVisible();
+    await recordMeaningfulCoverage("multiplayer.lobby-errors-deeplink-permissions");
     await hostContext.close();
     await guestContext.close();
   });
@@ -131,6 +133,7 @@ test.describe("root multiplayer flows", () => {
 
     await hostPage.getByRole("button", { name: "룸 나가기" }).click();
     await expect(hostPage.getByRole("heading", { name: "게임 시작 설정" })).toBeVisible();
+    await recordMeaningfulCoverage("multiplayer.active-sync-next-hand");
     await hostContext.close();
     await guestContext.close();
   });
@@ -157,6 +160,7 @@ test.describe("root multiplayer flows", () => {
 
     await expect(latePage.locator(".seat").filter({ hasText: "참가 예약" })).toBeVisible();
     await expect(hostPage.locator(".seat").filter({ hasText: "참가 예약" })).toBeVisible();
+    await recordMeaningfulCoverage("multiplayer.late-seat-reservation");
 
     await hostContext.close();
     await guestContext.close();
@@ -182,6 +186,7 @@ test.describe("root multiplayer flows", () => {
 
     await latePage.getByRole("button", { name: "다음 자리 예약" }).click();
     await expect(latePage.getByText("엔들리스 참가 대기 중입니다. 컴퓨터 플레이어가 탈락하면 그 좌석으로 다음 핸드부터 참가합니다.")).toBeVisible();
+    await recordMeaningfulCoverage("multiplayer.endless-waiting-cancel-restore");
 
     await hostContext.close();
     await guestContext.close();
@@ -218,6 +223,7 @@ test.describe("root multiplayer flows", () => {
 
     await startMultiplayerGame(hostPage, [guestPage]);
     await expect(guestPage.locator(".seat").first().getByText("누적 승리")).toHaveCount(0);
+    await recordMeaningfulCoverage("multiplayer.settings-share-rejoin");
 
     await hostContext.close();
     await guestContext.close();
@@ -253,6 +259,7 @@ test.describe("root multiplayer flows", () => {
     await expect(hostPage.getByRole("menuitem", { name: "룸 나가기" })).toBeVisible();
     await hostPage.getByRole("menuitem", { name: "룸 나가기" }).click();
     await expect(hostPage.getByRole("heading", { name: "게임 시작 설정" })).toBeVisible();
+    await recordMeaningfulCoverage("multiplayer.active-info-endless-leave");
 
     await hostContext.close();
     await guestContext.close();
@@ -289,8 +296,11 @@ test.describe("root multiplayer flows", () => {
 
     await hostPage.getByRole("button", { name: "플레이어 카드 추가" }).click();
     await hostPage.getByRole("group", { name: "컴퓨터 3 설정 카드" }).getByLabel("플레이어 유형").selectOption("human");
-    await hostPage.getByRole("button", { name: "빈 자리 3 제거" }).click();
+    const removableEmptyHumanCard = hostPage.getByRole("group", { name: "빈 자리 3 설정 카드" });
+    await expect(removableEmptyHumanCard).toBeVisible();
+    await removableEmptyHumanCard.getByRole("button", { name: "빈 자리 3 제거" }).click();
     await expect(hostPage.getByRole("group", { name: "빈 자리 3 설정 카드" })).toHaveCount(0);
+    await recordMeaningfulCoverage("multiplayer.protected-slots-conversion");
 
     await hostContext.close();
     await guestContext.close();

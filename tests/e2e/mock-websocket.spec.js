@@ -1,5 +1,6 @@
 import { expect, test } from "./fixtures/coverage.js";
 import { gotoRoot } from "./helpers/poker-app";
+import { recordMeaningfulCoverage } from "../../scripts/e2e-meaningful-coverage.mjs";
 
 async function installMockWebSocket(page) {
   await page.addInitScript(() => {
@@ -260,6 +261,7 @@ test.describe("mocked multiplayer protocol rendering", () => {
 
     await page.getByRole("button", { name: "룸 나가기" }).click();
     await expectSentMessage(page, "leaveRoom");
+    await recordMeaningfulCoverage("mock.lobby-status-commands");
   });
 
   test("renders active mocked table states and sends participation commands", async ({ page }) => {
@@ -279,6 +281,11 @@ test.describe("mocked multiplayer protocol rendering", () => {
     await expect(page.locator(".seat").filter({ hasText: "탈락" })).toBeVisible();
     await expect(page.locator(".seat").filter({ hasText: "비어 있음" })).toBeVisible();
     await expect(page.getByText("현재 참가 중입니다. 자리 비움은 다음 핸드부터 적용됩니다.")).toBeVisible();
+
+    await page.locator(".seat").filter({ hasText: "Host" }).locator(".seat-card-pair").hover();
+    await expect(page.getByText("핸드 랭킹")).toBeVisible();
+    await expect(page.getByText("승률")).toBeVisible();
+    await page.mouse.move(0, 0);
 
     await page.getByRole("button", { name: "다음 핸드부터 자리 비움" }).click();
     await expectSentMessage(page, "setSeatAway");
@@ -359,6 +366,7 @@ test.describe("mocked multiplayer protocol rendering", () => {
     await expectSentMessage(page, "joinGameSeat");
     await page.getByRole("button", { name: "다음 자리 예약" }).click();
     await expectSentMessage(page, "reserveEndlessSeat");
+    await recordMeaningfulCoverage("mock.active-participation-card-overlay");
   });
 
   test("renders mocked active status branches", async ({ page }) => {
@@ -378,6 +386,57 @@ test.describe("mocked multiplayer protocol rendering", () => {
       }),
     });
     await expect(page.getByText("Guest 차례입니다.")).toBeVisible();
+
+    await emitWs(page, {
+      type: "roomState",
+      room: room({
+        gameState: gameState({
+          currentPlayerIndex: 0,
+          bigBlindIndex: 0,
+          waitingForHuman: true,
+          currentBet: 5000,
+          players: [
+            tablePlayer("host", { name: "Host", isHuman: true, stateIndex: 0, streetContribution: 5000, totalContribution: 5000 }),
+            tablePlayer("guest", { name: "Guest", isHuman: true, stateIndex: 1, streetContribution: 5000, totalContribution: 5000, cards: [card("KS"), card("KH")] }),
+          ],
+        }),
+      }),
+    });
+    await expect(page.getByText("빅 블라인드는 추가로 맞출 금액이 없으면 체크하거나 레이즈할 수 있습니다.")).toBeVisible();
+
+    await emitWs(page, {
+      type: "roomState",
+      room: room({
+        gameState: gameState({
+          currentPlayerIndex: 0,
+          bigBlindIndex: 0,
+          waitingForHuman: true,
+          currentBet: 15000,
+          players: [
+            tablePlayer("host", { name: "Host", isHuman: true, stateIndex: 0, streetContribution: 15000, totalContribution: 15000 }),
+            tablePlayer("guest", { name: "Guest", isHuman: true, stateIndex: 1, streetContribution: 15000, totalContribution: 15000, cards: [card("KS"), card("KH")] }),
+          ],
+        }),
+      }),
+    });
+    await expect(page.getByText("빅 블라인드는 체크 가능 상태입니다. 현재 단계 최대 베팅에 도달해 추가 레이즈가 불가능합니다.")).toBeVisible();
+
+    await emitWs(page, {
+      type: "roomState",
+      room: room({
+        gameState: gameState({
+          streetIndex: 1,
+          currentPlayerIndex: 0,
+          waitingForHuman: true,
+          currentBet: 0,
+          players: [
+            tablePlayer("host", { name: "Host", isHuman: true, stateIndex: 0, streetContribution: 0, totalContribution: 100000, chipBalance: 5000 }),
+            tablePlayer("guest", { name: "Guest", isHuman: true, stateIndex: 1, streetContribution: 0, totalContribution: 0, cards: [card("KS"), card("KH")] }),
+          ],
+        }),
+      }),
+    });
+    await expect(page.getByText("1인 기준 최대 베팅 ₩100,000에 도달해 추가 베팅이 불가능합니다.")).toBeVisible();
 
     await emitWs(page, {
       type: "roomState",
@@ -490,5 +549,6 @@ test.describe("mocked multiplayer protocol rendering", () => {
     await expect(page.getByText("엔들리스 참가 대기 중입니다.")).toBeVisible();
     await page.getByRole("button", { name: "자리 예약 취소" }).click();
     await expectSentMessage(page, "reserveEndlessSeat");
+    await recordMeaningfulCoverage("mock.active-status-hints");
   });
 });

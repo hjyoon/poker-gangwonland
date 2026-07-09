@@ -24,6 +24,7 @@ import {
   shuffleDeck,
   startNewHand,
 } from "../lib/poker.js";
+import { recordMeaningfulCoverage } from "./e2e-meaningful-coverage.mjs";
 
 function assert(condition, message) {
   if (!condition) {
@@ -1429,9 +1430,13 @@ exerciseBasics();
 exercisePreflop();
 exerciseHandEvaluation();
 exerciseWinRate();
+await recordMeaningfulCoverage("poker.preflop-evaluation-winrate", { script: "exercise-poker-coverage.mjs" });
 exerciseActions();
 exerciseShowdown();
+await recordMeaningfulCoverage("poker.actions-showdown-settlement", { script: "exercise-poker-coverage.mjs" });
 exerciseComputerDecisions();
+await recordMeaningfulCoverage("poker.computer-decisions", { script: "exercise-poker-coverage.mjs" });
 exerciseHandLifecycle();
+await recordMeaningfulCoverage("poker.hand-lifecycle-endless", { script: "exercise-poker-coverage.mjs" });
 
 console.log("포커 authored-code coverage exercise 통과");

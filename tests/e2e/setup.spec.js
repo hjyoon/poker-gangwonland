@@ -1,5 +1,6 @@
 import { expect, test } from "./fixtures/coverage.js";
 import { dragSetupCardAfter, expectSetupCardOrder, gotoRoot, openSetupTab, setFastDelays, setupCard } from "./helpers/poker-app";
+import { recordMeaningfulCoverage } from "../../scripts/e2e-meaningful-coverage.mjs";
 
 test.describe("root setup shell", () => {
   test("switches setup modes and preserves the route tree from root", async ({ page }) => {
@@ -28,6 +29,7 @@ test.describe("root setup shell", () => {
     await expect(page.getByRole("tab", { name: "게임 설정" })).toBeVisible();
     await openSetupTab(page, "게임 설정");
     await expect(page.getByLabel("멀티플레이 제한 시간(ms)")).toBeVisible();
+    await recordMeaningfulCoverage("setup.mode-switch-route");
   });
 
   test("covers deterministic game setup controls and disabled start state", async ({ page }) => {
@@ -56,6 +58,7 @@ test.describe("root setup shell", () => {
 
     await expect(page.getByRole("button", { name: "게임 시작" })).toBeDisabled();
     await expect(page.getByText("진행 가능한 플레이어가 2명 이상 필요합니다.")).toBeVisible();
+    await recordMeaningfulCoverage("setup.deterministic-controls-disabled-start");
   });
 
   test("covers multiplayer setup limits, human slot conversion, and timeout clamps", async ({ page }) => {
@@ -81,6 +84,7 @@ test.describe("root setup shell", () => {
     await expect(setupCard(page, "빈 자리 3")).toBeVisible();
     await expectSetupCardOrder(page, ["컴퓨터 1", "컴퓨터 2", "컴퓨터 3", "빈 자리 1", "빈 자리 2", "컴퓨터 4", "컴퓨터 5", "빈 자리 3"]);
     await expect(setupCard(page, "빈 자리 1").getByRole("button", { name: "빈 자리 1 제거" })).toBeVisible();
+    await recordMeaningfulCoverage("setup.multiplayer-limits-timeout");
   });
 
   test("reorders setup cards by drag handle and starts with selected computer profile", async ({ page }) => {
@@ -98,6 +102,7 @@ test.describe("root setup shell", () => {
     await expect(page.getByText("먹(Pot)")).toBeVisible();
     await expect(page.locator(".seat header strong")).toHaveText(["플레이어", "컴퓨터 3", "컴퓨터 1", "컴퓨터 2", "빈 자리", "빈 자리", "빈 자리", "빈 자리"]);
     await expect(page.locator(".seat").filter({ hasText: "컴퓨터 3" }).getByText("공격형 · 고급")).toBeVisible();
+    await recordMeaningfulCoverage("setup.drag-reorder-computer-profile");
   });
 
   test("enforces max setup cards, singleplay human uniqueness, type conversion, and input clamps", async ({ page }) => {
@@ -137,6 +142,7 @@ test.describe("root setup shell", () => {
 
     await page.getByLabel("모든 플레이어 랜덤 배치").check();
     await expect(page.getByText("게임 시작 시 모든 플레이어 순서가 랜덤으로 확정됩니다.")).toBeVisible();
+    await recordMeaningfulCoverage("setup.max-cards-human-uniqueness-clamps");
   });
 
   test("covers personal settings and rules summary tabs", async ({ page }) => {
@@ -157,5 +163,6 @@ test.describe("root setup shell", () => {
     await expect(page.getByText("빅 블라인드 (Big Blind): ₩5,000")).toBeVisible();
     await expect(page.getByRole("cell", { name: "프리 플랍 (Pre-flop)" })).toBeVisible();
     await expect(page.getByText("승자는 정산 대상 금액에서 수수료 5%를 제외한 칩스를 가져갑니다.")).toBeVisible();
+    await recordMeaningfulCoverage("setup.personal-rules-tabs");
   });
 });

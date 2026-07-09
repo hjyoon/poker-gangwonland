@@ -10,6 +10,7 @@ import {
   setupCard,
   startSingleGame,
 } from "./helpers/poker-app";
+import { recordMeaningfulCoverage } from "../../scripts/e2e-meaningful-coverage.mjs";
 
 const PASSIVE_ACTION_ORDER = [/^체크$/, /^콜/, /^오픈$/, /^머크$/, /^베팅/, /^레이즈/, /^폴드$/];
 
@@ -84,6 +85,7 @@ test.describe("root singleplay table", () => {
     await page.getByRole("tab", { name: "진행 로그" }).click();
     await expect(page.getByText("이전 핸드 기록")).toBeVisible();
     await expect(page.locator(".history-list details")).toHaveCount(1);
+    await recordMeaningfulCoverage("singleplay.start-menu-history");
   });
 
   test("covers street progression, showdown controls, fee display, and final-hand overlay", async ({ page }) => {
@@ -103,6 +105,7 @@ test.describe("root singleplay table", () => {
     const showdownCardPair = page.locator(".seat-card-pair[tabindex='0']").first();
     await showdownCardPair.focus();
     await expect(page.getByText("최종 패")).toBeVisible();
+    await recordMeaningfulCoverage("singleplay.street-showdown-fees-overlay");
   });
 
   test("covers explicit fold and active reset back to setup", async ({ page }) => {
@@ -127,6 +130,7 @@ test.describe("root singleplay table", () => {
     await page.getByRole("button", { name: "새 게임 설정" }).click();
     await expect(page.getByRole("heading", { name: "게임 시작 설정" })).toBeVisible();
     await expect(page.getByRole("button", { name: "게임 시작" })).toBeVisible();
+    await recordMeaningfulCoverage("singleplay.fold-reset");
   });
 
   test("applies active game settings changes to the running table", async ({ page }) => {
@@ -164,6 +168,7 @@ test.describe("root singleplay table", () => {
     await openActiveMenuItem(page, "게임 테이블");
     await expect(page.getByText("설정 비공개").first()).toBeVisible();
     await expect(page.locator(".seat").first().getByText("누적 승리")).toHaveCount(0);
+    await recordMeaningfulCoverage("singleplay.active-settings-clamps");
   });
 
   test("covers active personal settings and empty history info states", async ({ page }) => {
@@ -200,6 +205,7 @@ test.describe("root singleplay table", () => {
     await expect(page.getByRole("heading", { name: "강원랜드 기준 요약" })).toBeVisible();
     await page.getByRole("tab", { name: "플레이 안내" }).click();
     await expect(page.getByText("엔들리스 게임 모드를 켜면 탈락 좌석에 새 컴퓨터 플레이어가 입장합니다.")).toBeVisible();
+    await recordMeaningfulCoverage("singleplay.personal-settings-empty-history");
   });
 
   test("shows short-stack call as all-in and locks the player action", async ({ page }) => {
@@ -217,6 +223,7 @@ test.describe("root singleplay table", () => {
     const humanSeat = page.locator(".seat").filter({ hasText: "플레이어" });
     await expect(humanSeat.getByText("올인")).toBeVisible();
     await expect(humanSeat.getByText(/콜|베팅|레이즈/)).toBeVisible();
+    await recordMeaningfulCoverage("singleplay.short-stack-all-in-lock");
   });
 
   test("ends the game when fewer than two players are playable on the next hand", async ({ page }) => {
@@ -237,6 +244,7 @@ test.describe("root singleplay table", () => {
     await openActiveMenuItem(page, "보조 정보");
     await page.getByRole("tab", { name: "진행 로그" }).click();
     await expect(page.getByText("게임 종료: 진행 가능한 플레이어가 2명 미만입니다.")).toBeVisible();
+    await recordMeaningfulCoverage("singleplay.game-over-too-few");
   });
 
   test("starts computer-only, random-order, and endless setup branches", async ({ page }) => {
@@ -245,5 +253,6 @@ test.describe("root singleplay table", () => {
     await expect(page.getByText("컴퓨터 플레이어만으로 자동 진행 중입니다.").or(page.getByText("컴퓨터 진행 중입니다."))).toBeVisible();
     await expect(page.getByText("먹(Pot)")).toBeVisible();
     await expect(page.locator(".seat")).toHaveCount(8);
+    await recordMeaningfulCoverage("singleplay.computer-only-random-endless");
   });
 });

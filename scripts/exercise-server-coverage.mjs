@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import net from "node:net";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { recordMeaningfulCoverage } from "./e2e-meaningful-coverage.mjs";
 
 const coverageDir = "coverage/e2e/raw/server-v8";
 
@@ -941,6 +942,11 @@ try {
       (message.room.gameState?.handNumber === 2 || message.room.gameState?.gameOver),
     12_000,
   );
+
+  await recordMeaningfulCoverage("server.websocket-handshake-protocol", { script: "exercise-server-coverage.mjs" });
+  await recordMeaningfulCoverage("server.room-lifecycle-settings", { script: "exercise-server-coverage.mjs" });
+  await recordMeaningfulCoverage("server.seat-reservations-missed-blinds", { script: "exercise-server-coverage.mjs" });
+  await recordMeaningfulCoverage("server.game-actions-next-hand", { script: "exercise-server-coverage.mjs" });
 
   probe.close();
   duplicate.close();

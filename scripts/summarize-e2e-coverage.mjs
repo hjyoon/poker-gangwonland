@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { summarizeMeaningfulCoverage } from "./e2e-meaningful-coverage.mjs";
 
 const require = createRequire(import.meta.url);
 const v8ToIstanbul = require("v8-to-istanbul");
@@ -223,16 +224,6 @@ function localPathFromFileUrl(url) {
   }
 }
 
-async function readSourceMapForPath(filePath) {
-  const mapPath = `${filePath}.map`;
-  if (!existsSync(mapPath)) {
-    return null;
-  }
-
-  const sourceMap = JSON.parse(await readFile(mapPath, "utf8"));
-  return sourceMap.sections ? FlattenMap(sourceMap) : sourceMap;
-}
-
 function mergeV8FunctionCoverage(entries) {
   const functions = new Map();
 
@@ -267,7 +258,17 @@ function mergeV8FunctionCoverage(entries) {
   return [...functions.values()];
 }
 
-function mergeIstanbulCoverage(target, source) {
+async function readSourceMapForPath(filePath) {
+  const mapPath = `${filePath}.map`;
+  if (!existsSync(mapPath)) {
+    return null;
+  }
+
+  const sourceMap = JSON.parse(await readFile(mapPath, "utf8"));
+  return sourceMap.sections ? FlattenMap(sourceMap) : sourceMap;
+}
+
+function mergeIstanbulCoverage(target, source, { addMissingKeys = true } = {}) {
   for (const [filePath, coverage] of Object.entries(source)) {
     if (!isAuthoredSource(filePath)) {
       continue;
@@ -280,12 +281,21 @@ function mergeIstanbulCoverage(target, source) {
 
     const existing = target[filePath];
     for (const [key, count] of Object.entries(coverage.s || {})) {
+      if (!addMissingKeys && !(key in (existing.s || {}))) {
+        continue;
+      }
       existing.s[key] = Math.max(Number(existing.s[key]) || 0, Number(count) || 0);
     }
     for (const [key, count] of Object.entries(coverage.f || {})) {
+      if (!addMissingKeys && !(key in (existing.f || {}))) {
+        continue;
+      }
       existing.f[key] = Math.max(Number(existing.f[key]) || 0, Number(count) || 0);
     }
     for (const [key, counts] of Object.entries(coverage.b || {})) {
+      if (!addMissingKeys && !(key in (existing.b || {}))) {
+        continue;
+      }
       existing.b[key] = (counts || []).map((count, index) => Math.max(Number(existing.b[key]?.[index]) || 0, Number(count) || 0));
     }
   }
@@ -373,7 +383,14 @@ async function convertEntriesToIstanbul(groups) {
       const converter = v8ToIstanbul(filePath, 0, sources);
       await converter.load();
       converter.applyCoverage(mergeV8FunctionCoverage(entries));
-      mergeIstanbulCoverage(coverageMap, converter.toIstanbul());
+      const fileCoverage = converter.toIstanbul();
+
+      const rawConverter = v8ToIstanbul(filePath, 0, sources);
+      await rawConverter.load();
+      rawConverter.applyCoverage(entries.flatMap((entry) => entry.functions || []));
+      mergeIstanbulCoverage(fileCoverage, rawConverter.toIstanbul(), { addMissingKeys: false });
+
+      mergeIstanbulCoverage(coverageMap, fileCoverage);
     } catch (error) {
       console.warn(`[e2e coverage] skipped Istanbul conversion for ${relativeRepoPath(filePath)}: ${error.message}`);
     }
@@ -525,11 +542,16 @@ function printMetric(label, metric) {
   );
 }
 
+function rawMetricFailure(label, metric) {
+  return metric.percentage === 100 ? "" : `${label} is ${metric.percentage}% (${metric.coveredBytes}/${metric.totalBytes} bytes)`;
+}
+
 const clientFiles = await jsonFiles(clientRawDir);
 const serverFiles = await waitForJsonFiles(serverRawDir);
 const client = await summarizeClientCoverage(clientFiles);
 const serverNodeV8 = await summarizeServerCoverage(serverFiles);
 const istanbul = await summarizeIstanbul(clientFiles, serverFiles);
+const meaningful = await summarizeMeaningfulCoverage();
 
 const summary = {
   generatedAt: new Date().toISOString(),
@@ -566,6 +588,13 @@ const summary = {
       resources: serverNodeV8.resources,
     },
   },
+  meaningful: {
+    covered: meaningful.covered,
+    total: meaningful.total,
+    percentage: meaningful.percentage,
+    coveredTargets: meaningful.coveredTargets,
+    missingTargets: meaningful.missingTargets,
+  },
   limitations: [
     "Chromium-only browser coverage.",
     "Byte/range coverage, not statement/branch/function/line coverage.",
@@ -573,7 +602,7 @@ const summary = {
     "Client JS is measured as browser-executed Next.js/dev bundled code, not clean authored component line coverage.",
     "CSS headline percentage is normalized to Playwright-reported used ranges; emitted source bytes are also recorded.",
     "Server coverage includes raw Node V8 coverage from the custom server and dev-server behavior.",
-    "No thresholds are enforced.",
+    "Raw byte coverage and meaningful e2e scenario coverage are enforced at 100%; Istanbul authored JS remains diagnostic.",
   ],
 };
 
@@ -605,8 +634,24 @@ console.log(`Raw server V8 files: ${serverFiles.length}`);
 printMetric("Client JS", client.js);
 printMetric("Client CSS", client.css);
 printMetric("Server Node raw V8", serverNodeV8);
+console.log(`Meaningful e2e scenarios: ${meaningful.covered}/${meaningful.total} (${meaningful.percentage}%)`);
 console.log(
   `Istanbul authored JS diagnostics: client ${istanbul.client.summary.files} files, ` +
     `server ${istanbul.server.summary.files} files, combined ${istanbul.combined.summary.files} files`,
 );
 console.log(`Wrote ${path.relative(process.cwd(), path.join(coverageRoot, "summary.json"))}`);
+
+const failures = [
+  rawMetricFailure("Client JS", client.js),
+  rawMetricFailure("Client CSS", client.css),
+  rawMetricFailure("Server Node raw V8", serverNodeV8),
+  meaningful.missingTargets.length > 0
+    ? `Meaningful e2e scenarios missing ${meaningful.missingTargets.length}: ${meaningful.missingTargets.map((target) => target.id).join(", ")}`
+    : "",
+].filter(Boolean);
+
+if (failures.length > 0) {
+  console.error("E2E coverage threshold failed");
+  failures.forEach((failure) => console.error(`- ${failure}`));
+  process.exitCode = 1;
+}
