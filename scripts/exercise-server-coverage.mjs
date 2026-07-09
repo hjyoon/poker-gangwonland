@@ -418,6 +418,32 @@ try {
   assert(normalizedDefaults.room.settings.computerPlayers[0].computerStyle === "random", "invalid computer style should fall back");
   assert(normalizedDefaults.room.settings.computerPlayers[0].computerLevel === "random", "invalid computer level should fall back");
 
+  defaultsHost.send({
+    type: "updateRoomSettings",
+    settings: {
+      humanPlayers: [
+        { name: "Alpha", startingBalance: 25000 },
+        { name: "Beta", startingBalance: 25000 },
+      ],
+      removedHumanSlotIds: ["human-slot-3"],
+      computerPlayers: [],
+    },
+  });
+  await defaultsHost.waitFor((message) => message.type === "roomState" && message.room?.humanSlots === 2);
+  defaultsHost.send({
+    type: "updateRoomSettings",
+    settings: {
+      humanPlayers: [
+        { name: "Alpha", startingBalance: 25000 },
+        { name: "Beta", startingBalance: 25000 },
+        { name: "Gamma", startingBalance: 25000 },
+        { name: "Delta", startingBalance: 25000 },
+      ],
+      computerPlayers: [],
+    },
+  });
+  await defaultsHost.waitFor((message) => message.type === "roomState" && message.room?.humanSlots === 4 && message.room?.seats?.length === 4);
+
   defaultsHost.close();
 
   const tooFewHost = await new WsClient(port, "too-few-host").connect();
@@ -464,9 +490,15 @@ try {
       computerPlayers: [{ name: "Leave Computer", startingBalance: 100000 }],
     },
   });
-  await leaveHost.waitFor((message) => message.type === "joinedRoom");
+  const leaveJoined = await leaveHost.waitFor((message) => message.type === "joinedRoom");
   leaveHost.send({ type: "leaveRoom" });
   await leaveHost.waitFor((message) => message.type === "leftRoom");
+  await delay(50);
+  const cleanupJoiner = await new WsClient(port, "cleanup-joiner").connect();
+  clients.push(cleanupJoiner);
+  cleanupJoiner.send({ type: "joinRoom", roomId: leaveJoined.roomId, playerName: "Cleanup Joiner" });
+  await cleanupJoiner.waitFor((message) => message.type === "joinedRoom");
+  cleanupJoiner.close();
   leaveHost.close();
 
   const seatHost = await new WsClient(port, "seat-host").connect();
@@ -639,6 +671,14 @@ try {
   await lateReconnect.waitFor((message) => message.type === "roomState" && message.room?.waitingParticipants?.some((participant) => participant.name === "Late Renamed"));
   await expectError(lateReconnect, { type: "setSeatAway", away: true }, "참가자 자리를 찾을 수 없습니다.");
   await expectError(lateReconnect, { type: "standUpFromGame" }, "현재 게임 좌석에 앉아 있지 않습니다.");
+  const lateLeave = await new WsClient(port, "late-leave").connect();
+  clients.push(lateLeave);
+  lateLeave.send({ type: "joinRoom", roomId, playerName: "Late Leave" });
+  const joinedLateLeave = await lateLeave.waitFor((message) => message.type === "joinedRoom");
+  assert(joinedLateLeave.playerId, "late leave participant should get a waiting id");
+  lateLeave.send({ type: "leaveRoom" });
+  await lateLeave.waitFor((message) => message.type === "leftRoom");
+  lateLeave.close();
   lateReconnect.send({ type: "reserveEndlessSeat", playerName: "Late" });
   await lateReconnect.waitFor((message) => message.type === "roomState" && message.room?.waitingParticipants?.some((participant) => participant.pendingEndlessJoin));
   lateReconnect.send({ type: "reserveEndlessSeat", cancel: true });
