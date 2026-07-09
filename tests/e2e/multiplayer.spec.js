@@ -1,5 +1,6 @@
 import { expect, test } from "./fixtures/coverage.js";
 import {
+  activeGameSettingsPanel,
   clickIfEnabledAction,
   createRoom,
   expectActiveGameSettingsEditable,
@@ -215,6 +216,41 @@ test.describe("root multiplayer flows", () => {
 
     await startMultiplayerGame(hostPage, [guestPage]);
     await expect(guestPage.locator(".seat").first().getByText("누적 승리")).toHaveCount(0);
+
+    await hostContext.close();
+    await guestContext.close();
+  });
+
+  test("covers active multiplayer info tabs, endless settings, and menu leave", async ({ browser }) => {
+    const hostContext = await browser.newContext();
+    const guestContext = await browser.newContext();
+    const hostPage = await hostContext.newPage();
+    const roomCode = await createRoom(hostPage, { name: "Host", autoNext: true, endless: true, computerCount: 0 });
+    const guestPage = await joinRoomInContext(guestContext, roomCode, { name: "Guest", viaDeepLink: true });
+
+    await startMultiplayerGame(hostPage, [guestPage]);
+
+    await openActiveMenuItem(hostPage, "보조 정보");
+    await expect(hostPage.getByRole("heading", { name: "보조 정보" })).toBeVisible();
+    await hostPage.getByRole("tab", { name: "규칙 요약" }).click();
+    await expect(hostPage.getByRole("heading", { name: "강원랜드 기준 요약" })).toBeVisible();
+    await hostPage.getByRole("tab", { name: "플레이 안내" }).click();
+    await expect(hostPage.getByText("엔들리스 게임 모드를 켜면 탈락 좌석에 새 컴퓨터 플레이어가 입장합니다.")).toBeVisible();
+
+    await openActiveMenuItem(hostPage, "게임 설정");
+    const settings = activeGameSettingsPanel(hostPage);
+    await expect(settings.getByLabel("다음 핸드 자동 진행")).toBeChecked();
+    await expect(settings.getByLabel("엔들리스 게임 모드")).toBeChecked();
+    await settings.getByLabel("엔들리스 신규 컴퓨터 성향").selectOption({ label: "공격형" });
+    await settings.getByLabel("엔들리스 신규 컴퓨터 수준").selectOption({ label: "고급" });
+    await settings.getByLabel("엔들리스 신규 시작 금액").fill("160000");
+    await expect(settings.getByLabel("엔들리스 신규 시작 금액")).toHaveValue("160000");
+
+    await openActiveMenuItem(hostPage, "게임 테이블");
+    await hostPage.getByRole("button", { name: "게임 진행 메뉴 열기" }).click();
+    await expect(hostPage.getByRole("menuitem", { name: "룸 나가기" })).toBeVisible();
+    await hostPage.getByRole("menuitem", { name: "룸 나가기" }).click();
+    await expect(hostPage.getByRole("heading", { name: "게임 시작 설정" })).toBeVisible();
 
     await hostContext.close();
     await guestContext.close();
