@@ -21,6 +21,14 @@ npm run dev:local
 PORT=3100 npm run dev:local
 ```
 
+E2E 검사는 Playwright로 실행합니다.
+
+```bash
+npm run test:e2e
+```
+
+Playwright 실행 시 포커 로직의 랜덤 요소는 테스트 seed로 고정됩니다.
+
 ## 구현 범위
 
 - `git init` 완료

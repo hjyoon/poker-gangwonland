@@ -9,6 +9,7 @@
     "dev:local": "scripts/run-dev.sh",
     "build": "next build",
     "start": "NODE_ENV=production node server.mjs",
+    "test:e2e": "playwright test",
     "test:preflop-ranking": "node scripts/validate-preflop-ranking.mjs",
     "test:showdown-settlement": "node scripts/validate-showdown-settlement.mjs"
   },
@@ -19,5 +20,8 @@
     "next": "^16.2.3",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
   }
 }

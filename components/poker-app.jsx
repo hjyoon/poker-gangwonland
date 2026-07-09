@@ -17,6 +17,7 @@ import {
   formatCard,
   formatMoney,
   getAvailableActions,
+  randomIndex,
   resolveComputerLevelKey,
   resolveComputerStyleKey,
   startNewHand,
@@ -195,7 +196,7 @@ function normalizeSetupPlayerOrder(order, players) {
 function shuffleSetupPlayers(players) {
   const shuffledPlayers = [...players];
   for (let index = shuffledPlayers.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
+    const swapIndex = randomIndex(index + 1);
     [shuffledPlayers[index], shuffledPlayers[swapIndex]] = [shuffledPlayers[swapIndex], shuffledPlayers[index]];
   }
   return shuffledPlayers;
