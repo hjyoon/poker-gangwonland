@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = 3100;
+const PORT = Number(process.env.PORT || 3100);
 const baseURL = `http://127.0.0.1:${PORT}`;
 const e2eRandomSeed = "playwright-e2e";
 const e2eCoverage = process.env.E2E_COVERAGE === "1";

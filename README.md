@@ -1,4 +1,4 @@
-# 강원랜드 텍사스 홀덤 Next.js 프로젝트
+# 강원랜드 텍사스 홀덤 React 프로젝트
 
 이 프로젝트는 `AGENTS.md` 기준을 따라 강원랜드 텍사스 홀덤 규칙을 초보자도 확인할 수 있게 정리하고, 웹 시뮬레이터로 구성했습니다.
 
@@ -20,6 +20,17 @@ npm run dev:local
 ```bash
 PORT=3100 npm run dev:local
 ```
+
+## Docker
+
+Docker 이미지는 Bun으로 React/Vite 정적 프론트엔드를 빌드하고, Go 서버를 정적 바이너리로 컴파일한 뒤, `gcr.io/distroless/static-debian12:nonroot` 런타임에서 실행합니다.
+
+```bash
+docker build -t poker-gangwonland:latest .
+docker run --rm -p 3000:3000 poker-gangwonland:latest
+```
+
+Docker 런타임은 Vite 정적 빌드를 Go 서버가 서빙하는 구조입니다. `npm run dev`의 `server.mjs` 멀티플레이 게임 엔진은 Node 개발 런타임에 남아 있으며, Docker Go 런타임은 `/ws` 연결과 룸 대기실 기본 동작까지만 제공합니다.
 
 E2E 검사는 Playwright로 실행합니다.
 
@@ -49,15 +60,15 @@ npm run test:e2e:coverage
 - Chromium 전용 브라우저 커버리지입니다.
 - 기본 요약은 byte/range 커버리지입니다.
 - JS 원본 파일 진단용으로 `v8-to-istanbul` 변환 결과를 별도 JSON artifact에 저장하며, `istanbul-summary.json`에는 client/server/combined 작성 코드 요약을 함께 기록합니다.
-- 클라이언트 JS의 기본 커버리지는 원본 `components/poker-app.jsx`의 line coverage가 아니라 브라우저에서 실행된 Next.js 개발 번들 기준으로 측정됩니다.
-- `v8-to-istanbul` 작성 코드 요약은 source map과 Next.js 개발 번들 특성상 진단용 artifact이며 threshold로 강제하지 않습니다.
+- 클라이언트 JS의 기본 커버리지는 원본 `components/poker-app.jsx`의 line coverage가 아니라 브라우저에서 실행된 Vite 번들 기준으로 측정됩니다.
+- `v8-to-istanbul` 작성 코드 요약은 source map과 Vite 번들 특성상 진단용 artifact이며 threshold로 강제하지 않습니다.
 - CSS headline percentage는 Playwright가 보고한 used range 기준이며, emitted source byte 수를 함께 기록합니다.
 - 서버 커버리지는 custom server와 dev-server 동작이 포함된 Node V8 raw coverage입니다.
 
 ## 구현 범위
 
 - `git init` 완료
-- Next.js App Router 구조
+- React 19 + Vite 단일 페이지 앱 구조
 - 앱 진행용 상대 선택 UI. 이 값은 강원랜드 좌석 수 규정이 아닙니다.
 - 프리 플랍 (Pre-flop) → 플랍 (Flop) → 턴 (Turn) → 리버 (River)
 - 스몰 블라인드 2,000원 / 빅 블라인드 5,000원

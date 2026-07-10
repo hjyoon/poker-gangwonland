@@ -15,7 +15,7 @@ const coverageRoot = path.join(process.cwd(), "coverage", "e2e");
 const clientRawDir = path.join(coverageRoot, "raw", "client");
 const serverRawDir = path.join(coverageRoot, "raw", "server-v8");
 const repoRoot = process.cwd();
-const authoredSourcePatterns = [/^app\/.+\.js$/, /^components\/.+\.jsx$/, /^lib\/.+\.js$/, /^server\.mjs$/];
+const authoredSourcePatterns = [/^src\/.+\.jsx$/, /^components\/.+\.jsx$/, /^lib\/.+\.js$/, /^server\.mjs$/];
 
 function percent(covered, total) {
   return total > 0 ? Number(((covered / total) * 100).toFixed(2)) : 0;
@@ -203,11 +203,10 @@ function isLocalProjectSource(filePath) {
 function localPathFromClientUrl(url) {
   try {
     const parsedUrl = new URL(url);
-    if (!parsedUrl.pathname.startsWith("/_next/static/")) {
+    if (!parsedUrl.pathname.startsWith("/assets/")) {
       return "";
     }
-    const staticPath = decodeURIComponent(parsedUrl.pathname.slice("/_next/static/".length));
-    return path.join(repoRoot, ".next", "dev", "static", staticPath);
+    return path.join(repoRoot, "dist", decodeURIComponent(parsedUrl.pathname.slice(1)));
   } catch {
     return "";
   }
@@ -433,7 +432,7 @@ async function summarizeIstanbul(clientFiles, serverFiles) {
         continue;
       }
       const relativePath = relativeRepoPath(filePath);
-      if (!isAuthoredSource(filePath) && !relativePath.startsWith(".next/dev/server/")) {
+      if (!isAuthoredSource(filePath)) {
         continue;
       }
       if (!serverGroups.has(filePath)) {
@@ -599,7 +598,7 @@ const summary = {
     "Chromium-only browser coverage.",
     "Byte/range coverage, not statement/branch/function/line coverage.",
     "v8-to-istanbul JS conversion is emitted as a diagnostic artifact for authored files.",
-    "Client JS is measured as browser-executed Next.js/dev bundled code, not clean authored component line coverage.",
+    "Client JS is measured as browser-executed Vite bundled code, with authored source conversion emitted as diagnostic output.",
     "CSS headline percentage is normalized to Playwright-reported used ranges; emitted source bytes are also recorded.",
     "Server coverage includes raw Node V8 coverage from the custom server and dev-server behavior.",
     "Raw byte coverage and meaningful e2e scenario coverage are enforced at 100%; Istanbul authored JS remains diagnostic.",

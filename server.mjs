@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import http from "node:http";
-import next from "next";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   COMPUTER_LEVEL_OPTIONS,
   COMPUTER_STYLE_OPTIONS,
@@ -42,11 +44,26 @@ if (process.env.E2E_RANDOM_SEED) {
 
 startPeriodicV8CoverageFlush();
 
-const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "0.0.0.0";
 const port = Number(process.env.PORT || 3000);
-const app = next({ dev, hostname, port });
-const handle = app.getRequestHandler();
+const rootDir = path.dirname(fileURLToPath(import.meta.url));
+const staticDir = path.resolve(process.env.STATIC_DIR || path.join(rootDir, "dist"));
+const indexHtmlPath = path.join(staticDir, "index.html");
+const contentTypes = {
+  ".css": "text/css; charset=utf-8",
+  ".gif": "image/gif",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".txt": "text/plain; charset=utf-8",
+  ".webp": "image/webp",
+};
 
 const MIN_HUMAN_SLOTS = MIN_MULTIPLAYER_HUMAN_SLOTS;
 const MAX_HUMAN_SLOTS = MAX_MULTIPLAYER_HUMAN_SLOTS;
@@ -2630,16 +2647,103 @@ function upgradeWebSocket(req, socket, head = Buffer.alloc(0)) {
   send(socket, { type: "connected" });
 }
 
-await app.prepare();
+function sendText(res, statusCode, text) {
+  res.writeHead(statusCode, {
+    "Content-Type": "text/plain; charset=utf-8",
+    "Content-Length": Buffer.byteLength(text),
+  });
+  res.end(text);
+}
 
-const handleUpgrade = app.getUpgradeHandler();
-const server = http.createServer((req, res) => handle(req, res));
+function safeStaticPath(urlPathname) {
+  let decodedPath;
+  try {
+    decodedPath = decodeURIComponent(urlPathname);
+  } catch {
+    return null;
+  }
+
+  const resolvedPath = path.resolve(staticDir, `.${decodedPath}`);
+  if (resolvedPath !== staticDir && !resolvedPath.startsWith(`${staticDir}${path.sep}`)) {
+    return null;
+  }
+  return resolvedPath;
+}
+
+function serveFile(req, res, filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  const headers = {
+    "Content-Type": contentTypes[extension] || "application/octet-stream",
+  };
+  if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+    headers["Cache-Control"] = "public, max-age=31536000, immutable";
+  }
+
+  fs.stat(filePath, (statError, stats) => {
+    if (statError || !stats.isFile()) {
+      sendText(res, 404, "Not found\n");
+      return;
+    }
+
+    res.writeHead(200, {
+      ...headers,
+      "Content-Length": stats.size,
+      "Last-Modified": stats.mtime.toUTCString(),
+    });
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    fs.createReadStream(filePath).pipe(res);
+  });
+}
+
+function serveStatic(req, res) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendText(res, 405, "Method not allowed\n");
+    return;
+  }
+
+  const requestUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+  if (requestUrl.pathname === "/healthz") {
+    sendText(res, 200, "ok\n");
+    return;
+  }
+
+  const requestedPath = safeStaticPath(requestUrl.pathname);
+  if (!requestedPath) {
+    sendText(res, 400, "Bad request\n");
+    return;
+  }
+
+  fs.stat(requestedPath, (statError, stats) => {
+    if (!statError && stats.isDirectory()) {
+      serveFile(req, res, path.join(requestedPath, "index.html"));
+      return;
+    }
+    if (!statError && stats.isFile()) {
+      serveFile(req, res, requestedPath);
+      return;
+    }
+    if (path.extname(requestedPath)) {
+      sendText(res, 404, "Not found\n");
+      return;
+    }
+    if (!fs.existsSync(indexHtmlPath)) {
+      sendText(res, 503, "Frontend build not found. Run npm run build.\n");
+      return;
+    }
+    serveFile(req, res, indexHtmlPath);
+  });
+}
+
+const server = http.createServer((req, res) => serveStatic(req, res));
 server.on("upgrade", (req, socket, head) => {
   if (req.url === "/ws") {
     upgradeWebSocket(req, socket, head);
     return;
   }
-  handleUpgrade(req, socket, head);
+  socket.destroy();
 });
 
 server.listen(port, hostname, () => {

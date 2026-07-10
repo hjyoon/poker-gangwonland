@@ -489,7 +489,7 @@ function websocketUrl() {
 }
 
 function createAppWebSocket(url) {
-  // Lets e2e tests mock only the app protocol socket without replacing Next dev HMR.
+  // Lets e2e tests mock only the app protocol socket without replacing tool/runtime sockets.
   const WebSocketConstructor = globalThis.__POKER_E2E_WEBSOCKET__ ?? WebSocket;
   return new WebSocketConstructor(url);
 }

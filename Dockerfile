@@ -1,35 +1,34 @@
-FROM node:22-alpine AS deps
+FROM oven/bun:1.3-alpine AS frontend
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN bun install
 
-FROM node:22-alpine AS builder
+COPY index.html vite.config.mjs jsconfig.json ./
+COPY src ./src
+COPY components ./components
+COPY lib ./lib
+COPY public ./public
+RUN bun run build
+
+FROM golang:1.25-alpine3.23 AS backend
+WORKDIR /src/backend
+
+COPY backend/go.mod ./
+COPY backend ./
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/poker-gangwonland .
+
+FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 
-ENV NEXT_TELEMETRY_DISABLED=1
-
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN mkdir -p public && npm run build -- --webpack
-
-FROM node:22-alpine AS runner
-WORKDIR /app
-
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
+ENV STATIC_DIR=/app/public
 
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/package-lock.json ./package-lock.json
-COPY --from=builder /app/server.mjs ./server.mjs
-COPY --from=builder /app/next.config.mjs ./next.config.mjs
-COPY --from=builder /app/lib ./lib
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
+COPY --from=frontend --chown=65532:65532 /app/dist ./public
+COPY --from=backend --chown=65532:65532 /out/poker-gangwonland /app/poker-gangwonland
 
 EXPOSE 3000
 
-CMD ["npm", "run", "start"]
+USER nonroot:nonroot
+ENTRYPOINT ["/app/poker-gangwonland"]

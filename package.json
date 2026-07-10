@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "type": "module",
   "private": true,
-  "description": "강원랜드 기준 텍사스 홀덤 Next.js 프로젝트",
+  "description": "강원랜드 기준 텍사스 홀덤 React 프로젝트",
   "scripts": {
-    "dev": "node server.mjs",
+    "dev": "npm run build && node server.mjs",
     "dev:local": "scripts/run-dev.sh",
-    "build": "next build",
-    "start": "NODE_ENV=production node server.mjs",
+    "build": "vite build",
+    "start": "node server.mjs",
     "test:e2e": "playwright test",
     "test:e2e:coverage": "node scripts/clean-e2e-coverage.mjs && E2E_COVERAGE=1 playwright test && E2E_COVERAGE=1 node scripts/exercise-server-coverage.mjs && E2E_COVERAGE=1 NODE_V8_COVERAGE=coverage/e2e/raw/server-v8 node scripts/exercise-poker-coverage.mjs && node scripts/summarize-e2e-coverage.mjs",
     "test:preflop-ranking": "node scripts/validate-preflop-ranking.mjs",
@@ -18,12 +18,12 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "next": "^16.2.3",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
+    "vite": "^8.1.4",
     "v8-to-istanbul": "^9.3.0"
   }
 }
