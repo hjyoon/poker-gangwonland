@@ -25,26 +25,12 @@ import {
   startNewHand,
 } from "../lib/poker.js";
 import { recordMeaningfulCoverage } from "./e2e-meaningful-coverage.mjs";
+import { createSeededRandom } from "../lib/infrastructure/seeded-random.js";
 
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
-}
-
-function createSeededRandom(seed) {
-  let state = 2166136261;
-  for (const char of String(seed)) {
-    state ^= char.charCodeAt(0);
-    state = Math.imul(state, 16777619);
-  }
-  return () => {
-    state += 0x6d2b79f5;
-    let value = state;
-    value = Math.imul(value ^ (value >>> 15), value | 1);
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-  };
 }
 
 globalThis.__POKER_TEST_RANDOM__ = createSeededRandom("exercise-poker-coverage");

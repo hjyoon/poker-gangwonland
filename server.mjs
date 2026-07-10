@@ -1,11 +1,9 @@
 import crypto from "node:crypto";
 import http from "node:http";
-import v8 from "node:v8";
 import next from "next";
 import {
   COMPUTER_LEVEL_OPTIONS,
   COMPUTER_STYLE_OPTIONS,
-  MIN_PLAYABLE_BALANCE,
   applyAction,
   chooseComputerAction,
   computerCardPeekPlan,
@@ -16,37 +14,33 @@ import {
   resolveComputerStyleKey,
   startNewHand,
 } from "./lib/poker.js";
-
-function createSeededRandom(seed) {
-  let state = 2166136261;
-  const seedText = String(seed || "poker-e2e");
-  for (let index = 0; index < seedText.length; index += 1) {
-    state ^= seedText.charCodeAt(index);
-    state = Math.imul(state, 16777619);
-  }
-
-  return () => {
-    state += 0x6d2b79f5;
-    let value = state;
-    value = Math.imul(value ^ (value >>> 15), value | 1);
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-  };
-}
+import {
+  BIG_BLIND_AMOUNT,
+  DEFAULT_COMPUTER_ACTION_DELAY_MS,
+  DEFAULT_HUMAN_ACTION_TIMEOUT_MS,
+  DEFAULT_NEXT_HAND_DELAY_MS,
+  DEFAULT_STARTING_BALANCE,
+  MAX_COMPUTER_ACTION_DELAY_MS,
+  MAX_HUMAN_ACTION_TIMEOUT_MS,
+  MAX_MULTIPLAYER_HUMAN_SLOTS,
+  MAX_NEXT_HAND_DELAY_MS,
+  MAX_TOTAL_PLAYERS,
+  MIN_COMPUTER_ACTION_DELAY_MS,
+  MIN_HUMAN_ACTION_TIMEOUT_MS,
+  MIN_MULTIPLAYER_HUMAN_SLOTS,
+  MIN_NEXT_HAND_DELAY_MS,
+  MIN_PLAYABLE_BALANCE,
+  SMALL_BLIND_AMOUNT,
+} from "./lib/domain/game-rules.js";
+import { createSeededRandom } from "./lib/infrastructure/seeded-random.js";
+import { flushV8Coverage, startPeriodicV8CoverageFlush } from "./lib/infrastructure/v8-coverage.js";
+import { makeWebSocketFrame, parseWebSocketFrames, webSocketHandshakeResponse } from "./lib/infrastructure/websocket-frames.js";
 
 if (process.env.E2E_RANDOM_SEED) {
   globalThis.__POKER_TEST_RANDOM__ = createSeededRandom(process.env.E2E_RANDOM_SEED);
 }
 
-function flushV8Coverage() {
-  if (process.env.NODE_V8_COVERAGE) {
-    v8.takeCoverage();
-  }
-}
-
-if (process.env.NODE_V8_COVERAGE) {
-  setInterval(flushV8Coverage, 1_000).unref();
-}
+startPeriodicV8CoverageFlush();
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOSTNAME || "0.0.0.0";
@@ -54,21 +48,8 @@ const port = Number(process.env.PORT || 3000);
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-const MAX_TOTAL_PLAYERS = 8;
-const MIN_HUMAN_SLOTS = 1;
-const MAX_HUMAN_SLOTS = MAX_TOTAL_PLAYERS;
-const DEFAULT_STARTING_BALANCE = 100000;
-const DEFAULT_COMPUTER_ACTION_DELAY_MS = 700;
-const DEFAULT_NEXT_HAND_DELAY_MS = 1800;
-const DEFAULT_HUMAN_ACTION_TIMEOUT_MS = 15000;
-const SMALL_BLIND_AMOUNT = 2000;
-const BIG_BLIND_AMOUNT = 5000;
-const MIN_COMPUTER_ACTION_DELAY_MS = 100;
-const MAX_COMPUTER_ACTION_DELAY_MS = 3000;
-const MIN_NEXT_HAND_DELAY_MS = 500;
-const MAX_NEXT_HAND_DELAY_MS = 10000;
-const MIN_HUMAN_ACTION_TIMEOUT_MS = 3000;
-const MAX_HUMAN_ACTION_TIMEOUT_MS = 60000;
+const MIN_HUMAN_SLOTS = MIN_MULTIPLAYER_HUMAN_SLOTS;
+const MAX_HUMAN_SLOTS = MAX_MULTIPLAYER_HUMAN_SLOTS;
 const MAX_FRAME_BUFFER_BYTES = 128 * 1024;
 const EMPTY_ROOM_TTL_MS = 5 * 60 * 1000;
 
@@ -650,28 +631,11 @@ function publicRoom(room, socket) {
   };
 }
 
-function makeFrame(payload, opcode = 0x1) {
-  const body = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
-  const firstByte = 0x80 | opcode;
-  const header =
-    body.length < 126
-      ? Buffer.from([firstByte, body.length])
-      : body.length < 65536
-        ? Buffer.from([firstByte, 126, body.length >> 8, body.length & 0xff])
-        : null;
-
-  if (!header) {
-    throw new Error("WebSocket frame too large");
-  }
-
-  return Buffer.concat([header, body]);
-}
-
 function send(socket, message) {
   if (socket.destroyed) {
     return;
   }
-  socket.write(makeFrame(JSON.stringify(message)));
+  socket.write(makeWebSocketFrame(JSON.stringify(message)));
 }
 
 function sendError(socket, message) {
@@ -2616,56 +2580,6 @@ function handleMessage(socket, message) {
   sendError(socket, "알 수 없는 메시지입니다.");
 }
 
-function parseFrames(buffer) {
-  const frames = [];
-  let offset = 0;
-
-  while (offset + 2 <= buffer.length) {
-    const first = buffer[offset];
-    const second = buffer[offset + 1];
-    const opcode = first & 0x0f;
-    const masked = (second & 0x80) !== 0;
-    let length = second & 0x7f;
-    let headerLength = 2;
-
-    if (length === 126) {
-      if (offset + 4 > buffer.length) break;
-      length = buffer.readUInt16BE(offset + 2);
-      headerLength = 4;
-    }
-    if (length === 127) {
-      break;
-    }
-
-    const maskLength = masked ? 4 : 0;
-    const frameLength = headerLength + maskLength + length;
-    if (offset + frameLength > buffer.length) {
-      break;
-    }
-
-    const mask = masked ? buffer.subarray(offset + headerLength, offset + headerLength + 4) : null;
-    const dataStart = offset + headerLength + maskLength;
-    const payload = Buffer.from(buffer.subarray(dataStart, dataStart + length));
-    if (mask) {
-      for (let index = 0; index < payload.length; index += 1) {
-        payload[index] ^= mask[index % 4];
-      }
-    }
-
-    if (opcode === 0x8) {
-      frames.push({ type: "close" });
-    } else if (opcode === 0x9) {
-      frames.push({ type: "ping", payload });
-    } else if (opcode === 0x1) {
-      frames.push({ type: "text", payload: payload.toString("utf8") });
-    }
-
-    offset += frameLength;
-  }
-
-  return { frames, remaining: buffer.subarray(offset) };
-}
-
 function upgradeWebSocket(req, socket, head = Buffer.alloc(0)) {
   const key = req.headers["sec-websocket-key"];
   if (!key) {
@@ -2673,17 +2587,7 @@ function upgradeWebSocket(req, socket, head = Buffer.alloc(0)) {
     return;
   }
 
-  const accept = crypto.createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
-  socket.write(
-    [
-      "HTTP/1.1 101 Switching Protocols",
-      "Upgrade: websocket",
-      "Connection: Upgrade",
-      `Sec-WebSocket-Accept: ${accept}`,
-      "",
-      "",
-    ].join("\r\n"),
-  );
+  socket.write(webSocketHandshakeResponse(key));
 
   socket.frameBuffer = Buffer.alloc(0);
   if (head.length > 0) {
@@ -2697,7 +2601,7 @@ function upgradeWebSocket(req, socket, head = Buffer.alloc(0)) {
       return;
     }
 
-    const parsed = parseFrames(socket.frameBuffer);
+    const parsed = parseWebSocketFrames(socket.frameBuffer);
     socket.frameBuffer = parsed.remaining;
     for (const frame of parsed.frames) {
       if (frame.type === "close") {
@@ -2705,7 +2609,7 @@ function upgradeWebSocket(req, socket, head = Buffer.alloc(0)) {
         return;
       }
       if (frame.type === "ping") {
-        socket.write(makeFrame(frame.payload, 0x0a));
+        socket.write(makeWebSocketFrame(frame.payload, 0x0a));
         continue;
       }
       try {
