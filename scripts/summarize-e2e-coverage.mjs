@@ -13,9 +13,9 @@ const { FlattenMap } = require("@jridgewell/trace-mapping");
 
 const coverageRoot = path.join(process.cwd(), "coverage", "e2e");
 const clientRawDir = path.join(coverageRoot, "raw", "client");
-const serverRawDir = path.join(coverageRoot, "raw", "server-v8");
+const engineRawDir = path.join(coverageRoot, "raw", "engine-v8");
 const repoRoot = process.cwd();
-const authoredSourcePatterns = [/^src\/.+\.jsx$/, /^components\/.+\.jsx$/, /^lib\/.+\.js$/, /^server\.mjs$/];
+const authoredSourcePatterns = [/^src\/.+\.jsx$/, /^components\/.+\.jsx$/, /^lib\/.+\.js$/];
 
 function percent(covered, total) {
   return total > 0 ? Number(((covered / total) * 100).toFixed(2)) : 0;
@@ -398,9 +398,9 @@ async function convertEntriesToIstanbul(groups) {
   return coverageMap;
 }
 
-async function summarizeIstanbul(clientFiles, serverFiles) {
+async function summarizeIstanbul(clientFiles, engineFiles) {
   const clientGroups = new Map();
-  const serverGroups = new Map();
+  const engineGroups = new Map();
 
   for (const file of clientFiles) {
     const artifact = JSON.parse(await readFile(file, "utf8"));
@@ -424,7 +424,7 @@ async function summarizeIstanbul(clientFiles, serverFiles) {
     }
   }
 
-  for (const file of serverFiles) {
+  for (const file of engineFiles) {
     const artifact = JSON.parse(await readFile(file, "utf8"));
     for (const entry of artifact.result || []) {
       const filePath = localPathFromFileUrl(entry.url || "");
@@ -435,27 +435,27 @@ async function summarizeIstanbul(clientFiles, serverFiles) {
       if (!isAuthoredSource(filePath)) {
         continue;
       }
-      if (!serverGroups.has(filePath)) {
-        serverGroups.set(filePath, { filePath, entries: [] });
+      if (!engineGroups.has(filePath)) {
+        engineGroups.set(filePath, { filePath, entries: [] });
       }
-      serverGroups.get(filePath).entries.push(entry);
+      engineGroups.get(filePath).entries.push(entry);
     }
   }
 
   const clientCoverage = await convertEntriesToIstanbul(clientGroups);
-  const serverCoverage = await convertEntriesToIstanbul(serverGroups);
+  const engineCoverage = await convertEntriesToIstanbul(engineGroups);
   const combinedCoverage = {};
   mergeIstanbulCoverage(combinedCoverage, clientCoverage);
-  mergeIstanbulCoverage(combinedCoverage, serverCoverage);
+  mergeIstanbulCoverage(combinedCoverage, engineCoverage);
 
   return {
     client: {
       coverage: clientCoverage,
       summary: summarizeIstanbulCoverage(clientCoverage),
     },
-    server: {
-      coverage: serverCoverage,
-      summary: summarizeIstanbulCoverage(serverCoverage),
+    engine: {
+      coverage: engineCoverage,
+      summary: summarizeIstanbulCoverage(engineCoverage),
     },
     combined: {
       coverage: combinedCoverage,
@@ -546,17 +546,17 @@ function rawMetricFailure(label, metric) {
 }
 
 const clientFiles = await jsonFiles(clientRawDir);
-const serverFiles = await waitForJsonFiles(serverRawDir);
+const engineFiles = await waitForJsonFiles(engineRawDir);
 const client = await summarizeClientCoverage(clientFiles);
-const serverNodeV8 = await summarizeServerCoverage(serverFiles);
-const istanbul = await summarizeIstanbul(clientFiles, serverFiles);
+const engineNodeV8 = await summarizeServerCoverage(engineFiles);
+const istanbul = await summarizeIstanbul(clientFiles, engineFiles);
 const meaningful = await summarizeMeaningfulCoverage();
 
 const summary = {
   generatedAt: new Date().toISOString(),
   rawFiles: {
     client: clientFiles.map((file) => path.relative(process.cwd(), file)),
-    serverV8: serverFiles.map((file) => path.relative(process.cwd(), file)),
+    engineV8: engineFiles.map((file) => path.relative(process.cwd(), file)),
   },
   client: {
     js: {
@@ -577,14 +577,14 @@ const summary = {
       resources: client.css.resources,
     },
   },
-  server: {
+  engine: {
     nodeV8: {
-      coveredBytes: serverNodeV8.coveredBytes,
-      totalBytes: serverNodeV8.totalBytes,
-      percentage: serverNodeV8.percentage,
-      coveredRanges: serverNodeV8.coveredRanges,
-      totalRanges: serverNodeV8.totalRanges,
-      resources: serverNodeV8.resources,
+      coveredBytes: engineNodeV8.coveredBytes,
+      totalBytes: engineNodeV8.totalBytes,
+      percentage: engineNodeV8.percentage,
+      coveredRanges: engineNodeV8.coveredRanges,
+      totalRanges: engineNodeV8.totalRanges,
+      resources: engineNodeV8.resources,
     },
   },
   meaningful: {
@@ -600,8 +600,8 @@ const summary = {
     "v8-to-istanbul JS conversion is emitted as a diagnostic artifact for authored files.",
     "Client JS is measured as browser-executed Vite bundled code, with authored source conversion emitted as diagnostic output.",
     "CSS headline percentage is normalized to Playwright-reported used ranges; emitted source bytes are also recorded.",
-    "Server coverage includes raw Node V8 coverage from the custom server and dev-server behavior.",
-    "Raw byte coverage and meaningful e2e scenario coverage are enforced at 100%; Istanbul authored JS remains diagnostic.",
+    "Poker rule engine V8 coverage is collected from the dedicated JS harness; the Go server is validated through raw WebSocket scenarios.",
+    "Raw client/engine byte coverage and meaningful e2e scenario coverage are enforced at 100%; Istanbul authored JS remains diagnostic.",
   ],
 };
 
@@ -613,7 +613,7 @@ await writeFile(
 await writeFile(
   path.join(coverageRoot, "istanbul-coverage.json"),
   `${JSON.stringify(
-    { generatedAt: summary.generatedAt, client: istanbul.client.coverage, server: istanbul.server.coverage, combined: istanbul.combined.coverage },
+    { generatedAt: summary.generatedAt, client: istanbul.client.coverage, engine: istanbul.engine.coverage, combined: istanbul.combined.coverage },
     null,
     2,
   )}\n`,
@@ -621,7 +621,7 @@ await writeFile(
 await writeFile(
   path.join(coverageRoot, "istanbul-summary.json"),
   `${JSON.stringify(
-    { generatedAt: summary.generatedAt, client: istanbul.client.summary, server: istanbul.server.summary, combined: istanbul.combined.summary },
+    { generatedAt: summary.generatedAt, client: istanbul.client.summary, engine: istanbul.engine.summary, combined: istanbul.combined.summary },
     null,
     2,
   )}\n`,
@@ -629,21 +629,21 @@ await writeFile(
 
 console.log("E2E coverage summary");
 console.log(`Raw client files: ${clientFiles.length}`);
-console.log(`Raw server V8 files: ${serverFiles.length}`);
+console.log(`Raw engine V8 files: ${engineFiles.length}`);
 printMetric("Client JS", client.js);
 printMetric("Client CSS", client.css);
-printMetric("Server Node raw V8", serverNodeV8);
+printMetric("Poker engine Node raw V8", engineNodeV8);
 console.log(`Meaningful e2e scenarios: ${meaningful.covered}/${meaningful.total} (${meaningful.percentage}%)`);
 console.log(
   `Istanbul authored JS diagnostics: client ${istanbul.client.summary.files} files, ` +
-    `server ${istanbul.server.summary.files} files, combined ${istanbul.combined.summary.files} files`,
+    `engine ${istanbul.engine.summary.files} files, combined ${istanbul.combined.summary.files} files`,
 );
 console.log(`Wrote ${path.relative(process.cwd(), path.join(coverageRoot, "summary.json"))}`);
 
 const failures = [
   rawMetricFailure("Client JS", client.js),
   rawMetricFailure("Client CSS", client.css),
-  rawMetricFailure("Server Node raw V8", serverNodeV8),
+  rawMetricFailure("Poker engine Node raw V8", engineNodeV8),
   meaningful.missingTargets.length > 0
     ? `Meaningful e2e scenarios missing ${meaningful.missingTargets.length}: ${meaningful.missingTargets.map((target) => target.id).join(", ")}`
     : "",

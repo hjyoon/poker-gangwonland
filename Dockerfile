@@ -24,8 +24,10 @@ WORKDIR /app
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 ENV STATIC_DIR=/app/public
+ENV POKER_JS_DIR=/app/lib
 
 COPY --from=frontend --chown=65532:65532 /app/dist ./public
+COPY --from=frontend --chown=65532:65532 /app/lib ./lib
 COPY --from=backend --chown=65532:65532 /out/poker-gangwonland /app/poker-gangwonland
 
 EXPOSE 3000

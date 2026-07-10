@@ -30,7 +30,7 @@ docker build -t poker-gangwonland:latest .
 docker run --rm -p 3000:3000 poker-gangwonland:latest
 ```
 
-Docker 런타임은 Vite 정적 빌드를 Go 서버가 서빙하는 구조입니다. `npm run dev`의 `server.mjs` 멀티플레이 게임 엔진은 Node 개발 런타임에 남아 있으며, Docker Go 런타임은 `/ws` 연결과 룸 대기실 기본 동작까지만 제공합니다.
+개발 실행과 Docker 런타임 모두 Vite 정적 빌드를 Go 서버가 서빙합니다. 같은 Go 서버가 `/ws` 멀티플레이 룸, 좌석 예약, 게임 액션, 다음 핸드 진행까지 처리합니다.
 
 E2E 검사는 Playwright로 실행합니다.
 
@@ -46,24 +46,24 @@ E2E 커버리지 수집은 별도 명령으로 실행합니다.
 npm run test:e2e:coverage
 ```
 
-이 명령은 기존 E2E와 같은 `E2E_RANDOM_SEED=playwright-e2e` seed를 유지하면서 Chromium 브라우저 JS/CSS 커버리지와 `server.mjs` Node V8 raw 커버리지를 수집합니다. 추가로 raw WebSocket 서버 integration harness와 포커 판정/액션 로직 coverage harness를 실행해 작성 코드 V8 coverage를 보강합니다. 결과는 `coverage/e2e/summary.json`, `coverage/e2e/client-coverage.json`, `coverage/e2e/istanbul-summary.json`, `coverage/e2e/istanbul-coverage.json`에 JSON으로 저장되고, 원본 브라우저 커버리지는 `coverage/e2e/raw/client/`, 서버 V8 raw 파일은 `coverage/e2e/raw/server-v8/`, 의미 있는 E2E 시나리오 기록은 `coverage/e2e/meaningful/` 아래에 생성됩니다. `coverage/` 디렉터리는 git 추적 대상에서 제외됩니다.
+이 명령은 기존 E2E와 같은 `E2E_RANDOM_SEED=playwright-e2e` seed를 유지하면서 Chromium 브라우저 JS/CSS 커버리지를 수집합니다. 추가로 Go WebSocket 서버 integration harness와 포커 판정/액션 로직 coverage harness를 실행합니다. 결과는 `coverage/e2e/summary.json`, `coverage/e2e/client-coverage.json`, `coverage/e2e/istanbul-summary.json`, `coverage/e2e/istanbul-coverage.json`에 JSON으로 저장되고, 원본 브라우저 커버리지는 `coverage/e2e/raw/client/`, 포커 엔진 V8 raw 파일은 `coverage/e2e/raw/engine-v8/`, 의미 있는 E2E 시나리오 기록은 `coverage/e2e/meaningful/` 아래에 생성됩니다. `coverage/` 디렉터리는 git 추적 대상에서 제외됩니다.
 
 커버리지 명령은 다음 조건을 100% threshold로 강제합니다.
 
 - Chromium client JS byte coverage
 - Chromium client CSS used-range byte coverage
-- Server Node raw V8 byte coverage
+- Poker engine Node raw V8 byte coverage
 - 명시된 의미 있는 E2E 시나리오 coverage (`summary.json`의 `meaningful`)
 
 커버리지 수집의 알려진 제한은 다음과 같습니다.
 
 - Chromium 전용 브라우저 커버리지입니다.
 - 기본 요약은 byte/range 커버리지입니다.
-- JS 원본 파일 진단용으로 `v8-to-istanbul` 변환 결과를 별도 JSON artifact에 저장하며, `istanbul-summary.json`에는 client/server/combined 작성 코드 요약을 함께 기록합니다.
+- JS 원본 파일 진단용으로 `v8-to-istanbul` 변환 결과를 별도 JSON artifact에 저장하며, `istanbul-summary.json`에는 client/engine/combined 작성 코드 요약을 함께 기록합니다.
 - 클라이언트 JS의 기본 커버리지는 원본 `components/poker-app.jsx`의 line coverage가 아니라 브라우저에서 실행된 Vite 번들 기준으로 측정됩니다.
 - `v8-to-istanbul` 작성 코드 요약은 source map과 Vite 번들 특성상 진단용 artifact이며 threshold로 강제하지 않습니다.
 - CSS headline percentage는 Playwright가 보고한 used range 기준이며, emitted source byte 수를 함께 기록합니다.
-- 서버 커버리지는 custom server와 dev-server 동작이 포함된 Node V8 raw coverage입니다.
+- Go 서버는 raw WebSocket integration harness로 검증하고, 포커 룰 엔진은 별도 JS harness의 V8 raw coverage로 측정합니다.
 
 ## 구현 범위
 

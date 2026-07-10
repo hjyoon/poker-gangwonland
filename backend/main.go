@@ -22,13 +22,29 @@ import (
 )
 
 const (
-	defaultPort       = "3000"
-	defaultStaticDir  = "/app/public"
-	maxHumanSlots     = 8
-	minHumanSlots     = 1
-	maxFrameBytes     = 128 * 1024
-	webSocketGUID     = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-	defaultPlayerName = "참가자"
+	defaultPort                  = "3000"
+	defaultStaticDir             = "/app/public"
+	defaultPokerSourceDir        = "./lib"
+	defaultComputerActionDelayMs = 700
+	defaultNextHandDelayMs       = 1800
+	defaultHumanActionTimeoutMs  = 15000
+	defaultStartingBalance       = 100000
+	minPlayableBalance           = 1
+	smallBlindAmount             = 2000
+	bigBlindAmount               = 5000
+	maxTotalPlayers              = 8
+	maxHumanSlots                = maxTotalPlayers
+	minHumanSlots                = 1
+	minComputerActionDelayMs     = 100
+	maxComputerActionDelayMs     = 3000
+	minNextHandDelayMs           = 500
+	maxNextHandDelayMs           = 10000
+	minHumanActionTimeoutMs      = 3000
+	maxHumanActionTimeoutMs      = 60000
+	maxFrameBytes                = 128 * 1024
+	emptyRoomTTL                 = 5 * time.Minute
+	webSocketGUID                = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+	defaultPlayerName            = "참가자"
 )
 
 type server struct {
@@ -37,8 +53,9 @@ type server struct {
 }
 
 type roomHub struct {
-	mu    sync.Mutex
-	rooms map[string]*room
+	mu     sync.Mutex
+	rooms  map[string]*room
+	engine *pokerEngine
 }
 
 type room struct {
@@ -59,6 +76,46 @@ type room struct {
 	Timer               any                    `json:"timer"`
 	GameState           any                    `json:"gameState"`
 	clients             map[*wsClient]struct{} `json:"-"`
+	Game                *roomGame              `json:"-"`
+	CleanupTimer        *time.Timer            `json:"-"`
+	AutomationTimer     *time.Timer            `json:"-"`
+	ComputerPeekTimer   *time.Timer            `json:"-"`
+}
+
+type roomGame struct {
+	PlayerConfigs                     []map[string]any
+	AllPlayerConfigs                  []map[string]any
+	CPUCount                          int
+	ComputerStyles                    map[string]any
+	ComputerLevels                    map[string]any
+	State                             map[string]any
+	TableSeatOrder                    []map[string]any
+	ChipTotals                        map[string]any
+	AutoNextHand                      bool
+	EndlessMode                       bool
+	EndlessReplacementComputerStyle   string
+	EndlessReplacementComputerLevel   string
+	EndlessReplacementStartingBalance int
+	ShowComputerStyles                bool
+	ShowCumulativeWins                bool
+	ComputerActionDelayMs             int
+	NextHandDelayMs                   int
+	HumanActionTimeoutMs              int
+	NextHandReadyPlayerIDs            map[string]bool
+	CardPeekPlayerIDs                 map[string]bool
+	ComputerCardCheckedPlayerIDs      map[string]bool
+	Timer                             *roomTimer
+	TimerID                           int
+}
+
+type roomTimer struct {
+	ID         int    `json:"id"`
+	Phase      string `json:"phase"`
+	PlayerID   string `json:"playerId"`
+	PlayerName string `json:"playerName"`
+	StartedAt  int64  `json:"startedAt"`
+	ExpiresAt  int64  `json:"expiresAt"`
+	DurationMs int    `json:"durationMs"`
 }
 
 type seat struct {
@@ -95,25 +152,51 @@ type wsClient struct {
 }
 
 type clientMessage struct {
-	Type        string         `json:"type"`
-	RoomID      string         `json:"roomId"`
-	PlayerID    string         `json:"playerId"`
-	PlayerName  string         `json:"playerName"`
-	HumanSlots  int            `json:"humanSlots"`
-	Settings    map[string]any `json:"settings"`
-	AutoNext    any            `json:"autoNextHand"`
-	EndlessMode any            `json:"endlessMode"`
+	Type           string         `json:"type"`
+	RoomID         string         `json:"roomId"`
+	PlayerID       string         `json:"playerId"`
+	PlayerName     string         `json:"playerName"`
+	HumanSlots     int            `json:"humanSlots"`
+	Settings       map[string]any `json:"settings"`
+	Action         string         `json:"action"`
+	Away           bool           `json:"away"`
+	Cancel         bool           `json:"cancel"`
+	Peeking        bool           `json:"peeking"`
+	TableSeatIndex int            `json:"tableSeatIndex"`
+	Raw            map[string]any `json:"-"`
+}
+
+func (m *clientMessage) UnmarshalJSON(data []byte) error {
+	type alias clientMessage
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*m = clientMessage(decoded)
+	m.Raw = raw
+	return nil
 }
 
 func main() {
 	port := env("PORT", defaultPort)
 	host := env("HOSTNAME", "0.0.0.0")
 	staticDir := env("STATIC_DIR", defaultStaticDir)
+	pokerSourceDir := env("POKER_JS_DIR", defaultPokerSourceDir)
+
+	engine, err := newPokerEngine(pokerSourceDir)
+	if err != nil {
+		log.Fatalf("load poker engine: %v", err)
+	}
 
 	app := &server{
 		staticDir: staticDir,
 		hub: &roomHub{
-			rooms: map[string]*room{},
+			rooms:  map[string]*room{},
+			engine: engine,
 		},
 	}
 
@@ -337,8 +420,24 @@ func (c *wsClient) handleText(payload []byte) {
 	case "leaveRoom":
 		c.hub.leaveRoom(c, true)
 		c.send(map[string]any{"type": "leftRoom"})
-	case "startGame", "gameAction", "requestNextHand", "setSeatAway", "standUpFromGame", "reserveEndlessSeat", "joinGameSeat", "cardPeekState", "updateGameOptions":
-		c.sendError("현재 Docker Go 런타임은 정적 프론트엔드와 룸 대기실만 제공합니다. 멀티플레이 게임 엔진은 Go로 추가 포팅이 필요합니다.")
+	case "startGame":
+		c.hub.startRoomGame(c, message)
+	case "gameAction":
+		c.hub.handleGameAction(c, message)
+	case "requestNextHand":
+		c.hub.requestNextHand(c)
+	case "setSeatAway":
+		c.hub.setSeatAway(c, message)
+	case "standUpFromGame":
+		c.hub.standUpFromGame(c, message)
+	case "reserveEndlessSeat":
+		c.hub.reserveEndlessSeat(c, message)
+	case "joinGameSeat":
+		c.hub.joinGameSeat(c, message)
+	case "cardPeekState":
+		c.hub.cardPeekState(c, message)
+	case "updateGameOptions":
+		c.hub.updateGameOptions(c, message)
 	default:
 		c.sendError("알 수 없는 메시지입니다.")
 	}
@@ -351,7 +450,6 @@ func (h *roomHub) createRoom(client *wsClient, message clientMessage) {
 	playerID := newID()
 	humanSlots := clamp(message.HumanSlots, minHumanSlots, maxHumanSlots, minHumanSlots)
 	now := time.Now().UnixMilli()
-	settings := normalizeSettings(message.Settings)
 	room := &room{
 		ID:                  roomID,
 		HumanSlots:          humanSlots,
@@ -359,9 +457,9 @@ func (h *roomHub) createRoom(client *wsClient, message clientMessage) {
 		Seats:               make([]seat, humanSlots),
 		WaitingParticipants: []waitingParticipant{},
 		CreatedAt:           now,
-		Settings:            settings,
-		ShowComputerStyles:  boolSetting(settings, "showComputerStyles", true),
-		ShowCumulativeWins:  boolSetting(settings, "showCumulativeWins", true),
+		Settings:            map[string]any{},
+		ShowComputerStyles:  true,
+		ShowCumulativeWins:  true,
 		RequiredPlayerIDs:   []string{},
 		ReadyPlayerIDs:      []string{},
 		CardPeekPlayerIDs:   []string{},
@@ -375,6 +473,9 @@ func (h *roomHub) createRoom(client *wsClient, message clientMessage) {
 	room.Seats[0].PlayerID = playerID
 	room.Seats[0].Name = sanitizeName(message.PlayerName, "방장")
 	room.Seats[0].Connected = true
+	room.Settings = normalizeRoomSettingsFor(room, message.Settings)
+	room.ShowComputerStyles = boolValueDefault(room.Settings["showComputerStyles"], true)
+	room.ShowCumulativeWins = boolValueDefault(room.Settings["showCumulativeWins"], true)
 
 	h.mu.Lock()
 	h.rooms[room.ID] = room
@@ -395,9 +496,14 @@ func (h *roomHub) joinRoom(client *wsClient, message clientMessage) {
 		client.sendError("룸을 찾을 수 없습니다.")
 		return
 	}
+	if room.CleanupTimer != nil {
+		room.CleanupTimer.Stop()
+		room.CleanupTimer = nil
+	}
 
 	requestedPlayerID := strings.TrimSpace(message.PlayerID)
 	targetIndex := -1
+	waitingIndex := -1
 	if requestedPlayerID != "" {
 		for index := range room.Seats {
 			if room.Seats[index].PlayerID == requestedPlayerID {
@@ -405,10 +511,36 @@ func (h *roomHub) joinRoom(client *wsClient, message clientMessage) {
 				break
 			}
 		}
+		for index := range room.WaitingParticipants {
+			if room.WaitingParticipants[index].PlayerID == requestedPlayerID {
+				waitingIndex = index
+				break
+			}
+		}
 	}
 	if targetIndex >= 0 && room.Seats[targetIndex].Connected {
 		h.mu.Unlock()
 		client.sendError("이미 연결된 참가자입니다.")
+		return
+	}
+	if waitingIndex >= 0 && room.WaitingParticipants[waitingIndex].Connected {
+		h.mu.Unlock()
+		client.sendError("이미 연결된 참가자입니다.")
+		return
+	}
+	if waitingIndex >= 0 {
+		h.detachLocked(client, true)
+		participant := &room.WaitingParticipants[waitingIndex]
+		participant.Name = sanitizeName(message.PlayerName, participant.Name)
+		participant.Connected = true
+		participant.PendingEndlessJoin = true
+		room.clients[client] = struct{}{}
+		client.roomID = room.ID
+		client.playerID = participant.PlayerID
+		h.mu.Unlock()
+
+		client.send(map[string]any{"type": "joinedRoom", "roomId": room.ID, "playerId": participant.PlayerID})
+		h.broadcast(room)
 		return
 	}
 	if targetIndex < 0 {
@@ -420,8 +552,28 @@ func (h *roomHub) joinRoom(client *wsClient, message clientMessage) {
 		}
 	}
 	if targetIndex < 0 {
+		if room.Game == nil || !room.Game.EndlessMode || gameStateOver(room) {
+			h.mu.Unlock()
+			client.sendError("빈 자리가 없습니다.")
+			return
+		}
+		h.detachLocked(client, true)
+		playerID := newID()
+		name := sanitizeName(message.PlayerName, defaultPlayerName)
+		room.WaitingParticipants = append(room.WaitingParticipants, waitingParticipant{
+			PlayerID:           playerID,
+			Name:               name,
+			Connected:          true,
+			PendingEndlessJoin: true,
+			CreatedAt:          time.Now().UnixMilli(),
+		})
+		room.clients[client] = struct{}{}
+		client.roomID = room.ID
+		client.playerID = playerID
 		h.mu.Unlock()
-		client.sendError("빈 자리가 없습니다.")
+
+		client.send(map[string]any{"type": "joinedRoom", "roomId": room.ID, "playerId": playerID})
+		h.broadcast(room)
 		return
 	}
 
@@ -457,8 +609,40 @@ func (h *roomHub) updatePlayerName(client *wsClient, playerName string) {
 			break
 		}
 	}
+	for index := range room.WaitingParticipants {
+		if room.WaitingParticipants[index].PlayerID == client.playerID {
+			room.WaitingParticipants[index].Name = nextName
+			break
+		}
+	}
+	if room.Game != nil {
+		for index := range room.Game.PlayerConfigs {
+			if stringValue(room.Game.PlayerConfigs[index]["id"]) == client.playerID {
+				room.Game.PlayerConfigs[index]["name"] = nextName
+			}
+		}
+		for index := range room.Game.AllPlayerConfigs {
+			if stringValue(room.Game.AllPlayerConfigs[index]["id"]) == client.playerID {
+				room.Game.AllPlayerConfigs[index]["name"] = nextName
+			}
+		}
+		if room.Game.State != nil {
+			updateNamedEntries(anySlice(room.Game.State["playerConfigs"]), client.playerID, nextName)
+			updateNamedEntries(anySlice(room.Game.State["players"]), client.playerID, nextName)
+			updateNamedEntries(anySlice(room.Game.State["showdownResults"]), client.playerID, nextName)
+		}
+	}
 	h.mu.Unlock()
 	h.broadcast(room)
+}
+
+func updateNamedEntries(entries []any, playerID string, name string) {
+	for _, entry := range entries {
+		value := anyMap(entry)
+		if stringValue(value["id"]) == playerID {
+			value["name"] = name
+		}
+	}
 }
 
 func (h *roomHub) updateRoomSettings(client *wsClient, settings map[string]any) {
@@ -469,9 +653,29 @@ func (h *roomHub) updateRoomSettings(client *wsClient, settings map[string]any) 
 		client.sendError("방장만 게임 설정을 변경할 수 있습니다.")
 		return
 	}
-	room.Settings = normalizeSettings(settings)
-	room.ShowComputerStyles = boolSetting(room.Settings, "showComputerStyles", true)
-	room.ShowCumulativeWins = boolSetting(room.Settings, "showCumulativeWins", true)
+	if room.Game != nil {
+		h.mu.Unlock()
+		client.sendError("진행 중인 게임의 시작 설정은 변경할 수 없습니다.")
+		return
+	}
+	if settings == nil {
+		settings = map[string]any{}
+	}
+	if players := anySlice(settings["humanPlayers"]); len(players) > 0 {
+		if len(players) < len(room.Seats) {
+			for index := len(players); index < len(room.Seats); index++ {
+				if room.Seats[index].PlayerID != "" {
+					h.mu.Unlock()
+					client.sendError("참가자가 있는 인간 플레이어는 컴퓨터로 변경하거나 삭제할 수 없습니다.")
+					return
+				}
+			}
+		}
+		room.HumanSlots = clamp(len(players), minHumanSlots, maxHumanSlots, room.HumanSlots)
+	}
+	room.Settings = normalizeRoomSettingsFor(room, mergeSettings(room.Settings, settings))
+	room.ShowComputerStyles = boolValueDefault(room.Settings["showComputerStyles"], true)
+	room.ShowCumulativeWins = boolValueDefault(room.Settings["showCumulativeWins"], true)
 	h.syncSeatsToSettings(room)
 	h.mu.Unlock()
 	h.broadcast(room)
@@ -506,11 +710,38 @@ func (h *roomHub) detachLocked(client *wsClient, clearSeat bool) {
 		}
 		break
 	}
+	nextWaiting := room.WaitingParticipants[:0]
+	for _, participant := range room.WaitingParticipants {
+		if participant.PlayerID != client.playerID {
+			nextWaiting = append(nextWaiting, participant)
+			continue
+		}
+		if !clearSeat {
+			participant.Connected = false
+			nextWaiting = append(nextWaiting, participant)
+		}
+	}
+	room.WaitingParticipants = nextWaiting
 	if len(room.clients) == 0 {
-		delete(h.rooms, room.ID)
+		h.scheduleEmptyRoomCleanupLocked(room)
 	}
 	client.roomID = ""
 	client.playerID = ""
+}
+
+func (h *roomHub) scheduleEmptyRoomCleanupLocked(room *room) {
+	if room.CleanupTimer != nil {
+		room.CleanupTimer.Stop()
+	}
+	roomID := room.ID
+	room.CleanupTimer = time.AfterFunc(emptyRoomTTL, func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		room := h.rooms[roomID]
+		if room != nil && len(room.clients) == 0 {
+			delete(h.rooms, roomID)
+		}
+	})
 }
 
 func (h *roomHub) broadcast(room *room) {
@@ -522,7 +753,7 @@ func (h *roomHub) broadcast(room *room) {
 	h.mu.Unlock()
 
 	for _, client := range clients {
-		client.send(map[string]any{"type": "roomState", "room": room})
+		client.send(map[string]any{"type": "roomState", "room": h.publicRoom(room, client)})
 	}
 }
 

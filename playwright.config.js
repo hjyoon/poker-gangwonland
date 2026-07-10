@@ -3,11 +3,15 @@ import { defineConfig, devices } from "@playwright/test";
 const PORT = Number(process.env.PORT || 3100);
 const baseURL = `http://127.0.0.1:${PORT}`;
 const e2eRandomSeed = "playwright-e2e";
-const e2eCoverage = process.env.E2E_COVERAGE === "1";
-const nodeV8CoverageEnv = e2eCoverage ? "NODE_V8_COVERAGE=coverage/e2e/raw/server-v8 " : "";
-const webServerCommand = e2eCoverage
-  ? `${nodeV8CoverageEnv}E2E_RANDOM_SEED=${e2eRandomSeed} HOSTNAME=127.0.0.1 PORT=${PORT} exec node server.mjs`
-  : `E2E_RANDOM_SEED=${e2eRandomSeed} HOSTNAME=127.0.0.1 PORT=${PORT} npm run dev`;
+const goServerEnv = [
+  `GOCACHE=${process.env.GOCACHE || "/tmp/go-build-cache"}`,
+  `E2E_RANDOM_SEED=${e2eRandomSeed}`,
+  "HOSTNAME=127.0.0.1",
+  `PORT=${PORT}`,
+  "STATIC_DIR=../dist",
+  "POKER_JS_DIR=../lib",
+].join(" ");
+const webServerCommand = `npm run build && cd backend && ${goServerEnv} go run .`;
 
 export default defineConfig({
   testDir: "./tests/e2e",

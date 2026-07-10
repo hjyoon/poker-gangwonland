@@ -1,10 +1,9 @@
 import crypto from "node:crypto";
 import net from "node:net";
+import path from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { recordMeaningfulCoverage } from "./e2e-meaningful-coverage.mjs";
-
-const coverageDir = "coverage/e2e/raw/server-v8";
 
 function assert(condition, message) {
   if (!condition) {
@@ -198,16 +197,19 @@ class WsClient {
 }
 
 async function startCoverageServer(port) {
-  const child = spawn(process.execPath, ["server.mjs"], {
-    cwd: process.cwd(),
+  const child = spawn("go", ["run", "."], {
+    cwd: path.join(process.cwd(), "backend"),
     env: {
       ...process.env,
+      GOCACHE: process.env.GOCACHE || "/tmp/go-build-cache",
       HOSTNAME: "127.0.0.1",
       PORT: String(port),
+      STATIC_DIR: "../dist",
+      POKER_JS_DIR: "../lib",
       E2E_RANDOM_SEED: "playwright-e2e",
-      NODE_V8_COVERAGE: coverageDir,
     },
     stdio: ["ignore", "pipe", "pipe"],
+    detached: process.platform !== "win32",
   });
 
   let output = "";
@@ -219,7 +221,7 @@ async function startCoverageServer(port) {
   });
 
   const deadline = Date.now() + 30_000;
-  while (!output.includes(`Ready on http://127.0.0.1:${port}`)) {
+  while (!output.toLowerCase().includes(`ready on http://127.0.0.1:${port}`)) {
     if (child.exitCode !== null) {
       throw new Error(`coverage server exited early:\n${output}`);
     }
@@ -237,10 +239,22 @@ async function stopCoverageServer(child) {
   if (!child || child.exitCode !== null) {
     return;
   }
-  child.kill("SIGTERM");
-  const timeout = setTimeout(() => child.kill("SIGKILL"), 8_000);
+  killServerProcess(child, "SIGTERM");
+  const timeout = setTimeout(() => killServerProcess(child, "SIGKILL"), 8_000);
   await once(child, "exit");
   clearTimeout(timeout);
+}
+
+function killServerProcess(child, signal) {
+  try {
+    if (process.platform !== "win32") {
+      process.kill(-child.pid, signal);
+      return;
+    }
+  } catch {
+    // Fall back to killing the direct child below.
+  }
+  child.kill(signal);
 }
 
 async function waitForSocketToSettle(socket, timeoutMs = 500) {
