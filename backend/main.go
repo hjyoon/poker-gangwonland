@@ -22,32 +22,32 @@ import (
 )
 
 const (
-	defaultPort                  = "3000"
-	defaultStaticDir             = "/app/public"
-	defaultPokerSourceDir        = "./lib"
-	defaultComputerActionDelayMs = 700
-	defaultNextHandDelayMs       = 1800
-	defaultHumanActionTimeoutMs  = 15000
-	defaultStartingBalance       = 100000
-	minPlayableBalance           = 1
-	maxPlayerTotalBet            = 100000
-	smallBlindAmount             = 2000
-	bigBlindAmount               = 5000
-	maxTournamentBlindLevel      = maxPlayerTotalBet / bigBlindAmount
-	maxTotalPlayers              = 8
-	maxTournamentPlayers         = 128
-	maxHumanSlots                = maxTotalPlayers
-	minHumanSlots                = 1
-	minComputerActionDelayMs     = 100
-	maxComputerActionDelayMs     = 3000
-	minNextHandDelayMs           = 500
-	maxNextHandDelayMs           = 10000
-	minHumanActionTimeoutMs      = 3000
-	maxHumanActionTimeoutMs      = 60000
-	maxFrameBytes                = 128 * 1024
-	emptyRoomTTL                 = 5 * time.Minute
-	webSocketGUID                = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-	defaultPlayerName            = "참가자"
+	defaultPort                   = "3000"
+	defaultStaticDir              = "/app/public"
+	defaultPokerSourceDir         = "./lib"
+	defaultComputerActionDelayMs  = 700
+	defaultNextHandDelayMs        = 1800
+	defaultHumanActionTimeoutMs   = 15000
+	defaultStartingBalance        = 100000
+	minPlayableBalance            = 1
+	smallBlindAmount              = 2000
+	bigBlindAmount                = 5000
+	tournamentRoundsPerBlindLevel = 10
+	maxTournamentBlindLevel       = 26
+	maxTotalPlayers               = 8
+	maxTournamentPlayers          = 128
+	maxHumanSlots                 = maxTotalPlayers
+	minHumanSlots                 = 1
+	minComputerActionDelayMs      = 100
+	maxComputerActionDelayMs      = 3000
+	minNextHandDelayMs            = 500
+	maxNextHandDelayMs            = 10000
+	minHumanActionTimeoutMs       = 3000
+	maxHumanActionTimeoutMs       = 60000
+	maxFrameBytes                 = 128 * 1024
+	emptyRoomTTL                  = 5 * time.Minute
+	webSocketGUID                 = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+	defaultPlayerName             = "참가자"
 )
 
 type server struct {

@@ -17,6 +17,7 @@ import {
   formatCard,
   formatMoney,
   getAvailableActions,
+  getStreetConfig,
   pokerRandom,
   randomIndex,
   resolveComputerLevelKey,
@@ -1324,6 +1325,26 @@ function exerciseComputerDecisions() {
 function exerciseHandLifecycle() {
   assert(createInitialState(1, 100000, true).players.length === 2, "initial state should create players");
   assert(startNewHand({ cpuCount: 1, includeHuman: true, dealerIndex: 0 }).gameOver, "missing chip ledger should eliminate players");
+  const doubledLevelState = startNewHand({
+    cpuCount: 1,
+    includeHuman: true,
+    dealerIndex: 0,
+    chipTotals: {
+      human: { chipBalance: 1_000_000, chipsWon: 0 },
+      "cpu-1": { chipBalance: 1_000_000, chipsWon: 0 },
+    },
+    smallBlindAmount: 4_000,
+    bigBlindAmount: 10_000,
+    bettingScale: 2,
+  });
+  assert(doubledLevelState.pot === 14_000, "doubled level should post doubled blinds");
+  assert(doubledLevelState.maxPlayerTotalBet === 200_000, "doubled level should double the hand contribution cap");
+  assert(getStreetConfig(doubledLevelState, 0).firstBet === 10_000, "doubled level should double preflop bets");
+  assert(getStreetConfig(doubledLevelState, 1).maxBet === 30_000, "doubled level should double the flop cap");
+  assert(getStreetConfig(doubledLevelState, 2).firstBet === 20_000, "doubled level should double turn bets");
+  assert(getStreetConfig(doubledLevelState, 3).maxBet === 80_000, "doubled level should double the river cap");
+  const doubledRaise = getAvailableActions(doubledLevelState, doubledLevelState.currentPlayerIndex).find((action) => action.key === "raise");
+  assert(doubledRaise?.enabled && doubledRaise.label === "레이즈(₩20,000)", "doubled level should offer a doubled raise");
   assert(
     startNewHand({
       cpuCount: 1,

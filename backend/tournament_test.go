@@ -39,34 +39,120 @@ func TestBalancedTableSizes(t *testing.T) {
 
 func TestBlindLevelForTournamentRound(t *testing.T) {
 	tests := []struct {
-		round     int
-		wantLevel int
-		wantSmall int
-		wantBig   int
+		round       int
+		wantLevel   int
+		wantRoundIn int
+		wantScale   int
+		wantSmall   int
+		wantBig     int
 	}{
-		{round: 0, wantLevel: 1, wantSmall: 2_000, wantBig: 5_000},
-		{round: 1, wantLevel: 1, wantSmall: 2_000, wantBig: 5_000},
-		{round: 2, wantLevel: 2, wantSmall: 4_000, wantBig: 10_000},
-		{round: 20, wantLevel: 20, wantSmall: 40_000, wantBig: 100_000},
-		{round: 21, wantLevel: 20, wantSmall: 40_000, wantBig: 100_000},
+		{round: 0, wantLevel: 1, wantRoundIn: 1, wantScale: 1, wantSmall: 2_000, wantBig: 5_000},
+		{round: 1, wantLevel: 1, wantRoundIn: 1, wantScale: 1, wantSmall: 2_000, wantBig: 5_000},
+		{round: 10, wantLevel: 1, wantRoundIn: 10, wantScale: 1, wantSmall: 2_000, wantBig: 5_000},
+		{round: 11, wantLevel: 2, wantRoundIn: 1, wantScale: 2, wantSmall: 4_000, wantBig: 10_000},
+		{round: 20, wantLevel: 2, wantRoundIn: 10, wantScale: 2, wantSmall: 4_000, wantBig: 10_000},
+		{round: 21, wantLevel: 3, wantRoundIn: 1, wantScale: 4, wantSmall: 8_000, wantBig: 20_000},
 	}
 
 	for _, test := range tests {
 		t.Run(strconvItoa(test.round), func(t *testing.T) {
 			got := blindLevelForTournamentRound(test.round)
-			if got.Number != test.wantLevel || got.SmallBlindAmount != test.wantSmall || got.BigBlindAmount != test.wantBig {
+			if got.Number != test.wantLevel || got.RoundInLevel != test.wantRoundIn || got.BettingScale != test.wantScale || got.SmallBlindAmount != test.wantSmall || got.BigBlindAmount != test.wantBig {
 				t.Fatalf(
-					"blindLevelForTournamentRound(%d) = level %d, %d/%d; want level %d, %d/%d",
+					"blindLevelForTournamentRound(%d) = level %d round %d scale %d, %d/%d; want level %d round %d scale %d, %d/%d",
 					test.round,
 					got.Number,
+					got.RoundInLevel,
+					got.BettingScale,
 					got.SmallBlindAmount,
 					got.BigBlindAmount,
 					test.wantLevel,
+					test.wantRoundIn,
+					test.wantScale,
 					test.wantSmall,
 					test.wantBig,
 				)
 			}
 		})
+	}
+}
+
+func TestTournamentBlindLevelScalesWagerStructure(t *testing.T) {
+	engine, err := newPokerEngine("../lib")
+	if err != nil {
+		t.Fatalf("load poker engine: %v", err)
+	}
+	settings := normalizeTournamentSettings(map[string]any{
+		"initialParticipantCount":   2,
+		"humanParticipantCount":     1,
+		"tournamentStartingBalance": 1_000_000,
+	}, nil)
+	value := newTournament("ABC123", "human-1", settings)
+	value.Status = tournamentStatusRunning
+	value.Round = 11
+	participants := []*tournamentParticipant{
+		{
+			ID:              "cpu-1",
+			Name:            "Computer 1",
+			StartingBalance: 1_000_000,
+			ChipBalance:     1_000_000,
+			ComputerStyle:   "balanced",
+			ComputerLevel:   "intermediate",
+		},
+		{
+			ID:              "cpu-2",
+			Name:            "Computer 2",
+			StartingBalance: 1_000_000,
+			ChipBalance:     1_000_000,
+			ComputerStyle:   "balanced",
+			ComputerLevel:   "intermediate",
+		},
+	}
+	tableRoom := &room{
+		ID:          value.ID,
+		Settings:    settings,
+		Tournament:  value,
+		TableNumber: 1,
+	}
+	hub := &roomHub{engine: engine}
+	game, err := hub.buildTournamentGameLocked(tableRoom, participants, value.Round, "")
+	if err != nil {
+		t.Fatalf("build level 2 tournament game: %v", err)
+	}
+	if got := intValue(game.State["smallBlindAmount"]); got != 4_000 {
+		t.Fatalf("level 2 small blind = %d, want 4000", got)
+	}
+	if got := intValue(game.State["bigBlindAmount"]); got != 10_000 {
+		t.Fatalf("level 2 big blind = %d, want 10000", got)
+	}
+	if got := intValue(game.State["bettingScale"]); got != 2 {
+		t.Fatalf("level 2 betting scale = %d, want 2", got)
+	}
+	if got := intValue(game.State["maxPlayerTotalBet"]); got != 200_000 {
+		t.Fatalf("level 2 hand contribution cap = %d, want 200000", got)
+	}
+
+	actorIndex := intValue(game.State["currentPlayerIndex"])
+	actions, err := engine.getAvailableActions(game.State, actorIndex)
+	if err != nil {
+		t.Fatalf("get level 2 actions: %v", err)
+	}
+	var raiseAction map[string]any
+	for _, action := range actions {
+		if stringValue(action["key"]) == "raise" {
+			raiseAction = action
+			break
+		}
+	}
+	if raiseAction == nil || !boolValue(raiseAction["enabled"]) || stringValue(raiseAction["label"]) != "레이즈(₩20,000)" {
+		t.Fatalf("level 2 raise action = %#v, want enabled raise to 20000", raiseAction)
+	}
+	nextState, changed, err := engine.applyAction(game.State, "raise", actorIndex)
+	if err != nil || !changed {
+		t.Fatalf("apply level 2 raise: changed=%v err=%v", changed, err)
+	}
+	if got := intValue(nextState["currentBet"]); got != 20_000 {
+		t.Fatalf("level 2 raised current bet = %d, want 20000", got)
 	}
 }
 
@@ -372,15 +458,18 @@ func TestTournamentWaitsForEveryTableThenRebalancesBetweenHands(t *testing.T) {
 	if got := len(finalTable.Game.PlayerConfigs); got != 8 {
 		t.Fatalf("rebalanced table participant count = %d, want 8", got)
 	}
-	if got := intValue(finalTable.Game.State["smallBlindAmount"]); got != 4_000 {
-		t.Fatalf("round 2 small blind = %d, want 4000", got)
+	if got := intValue(finalTable.Game.State["smallBlindAmount"]); got != 2_000 {
+		t.Fatalf("round 2 small blind = %d, want 2000", got)
 	}
-	if got := intValue(finalTable.Game.State["bigBlindAmount"]); got != 10_000 {
-		t.Fatalf("round 2 big blind = %d, want 10000", got)
+	if got := intValue(finalTable.Game.State["bigBlindAmount"]); got != 5_000 {
+		t.Fatalf("round 2 big blind = %d, want 5000", got)
 	}
 	publicTournament := hub.publicTournament(finalTable).(map[string]any)
-	if got := intValue(publicTournament["blindLevel"]); got != 2 {
-		t.Fatalf("public blind level = %d, want 2", got)
+	if got := intValue(publicTournament["blindLevel"]); got != 1 {
+		t.Fatalf("public blind level = %d, want 1", got)
+	}
+	if got := intValue(publicTournament["roundInBlindLevel"]); got != 2 {
+		t.Fatalf("public round in blind level = %d, want 2", got)
 	}
 	if finalTable.AutomationTimer != nil {
 		finalTable.AutomationTimer.Stop()

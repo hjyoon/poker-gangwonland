@@ -32,22 +32,32 @@ type tournamentParticipant struct {
 
 type tournamentBlindLevel struct {
 	Number           int
+	RoundInLevel     int
+	RoundsPerLevel   int
+	BettingScale     int
 	SmallBlindAmount int
 	BigBlindAmount   int
 }
 
 func blindLevelForTournamentRound(round int) tournamentBlindLevel {
-	level := round
-	if level < 1 {
-		level = 1
+	normalizedRound := round
+	if normalizedRound < 1 {
+		normalizedRound = 1
 	}
+	level := ((normalizedRound - 1) / tournamentRoundsPerBlindLevel) + 1
+	roundInLevel := ((normalizedRound - 1) % tournamentRoundsPerBlindLevel) + 1
 	if level > maxTournamentBlindLevel {
 		level = maxTournamentBlindLevel
+		roundInLevel = tournamentRoundsPerBlindLevel
 	}
+	bettingScale := 1 << (level - 1)
 	return tournamentBlindLevel{
 		Number:           level,
-		SmallBlindAmount: smallBlindAmount * level,
-		BigBlindAmount:   bigBlindAmount * level,
+		RoundInLevel:     roundInLevel,
+		RoundsPerLevel:   tournamentRoundsPerBlindLevel,
+		BettingScale:     bettingScale,
+		SmallBlindAmount: smallBlindAmount * bettingScale,
+		BigBlindAmount:   bigBlindAmount * bettingScale,
 	}
 }
 
@@ -480,6 +490,7 @@ func (h *roomHub) buildTournamentGameLocked(room *room, participants []*tourname
 		"handNumber":       handNumber,
 		"smallBlindAmount": blindLevel.SmallBlindAmount,
 		"bigBlindAmount":   blindLevel.BigBlindAmount,
+		"bettingScale":     blindLevel.BettingScale,
 		"computerStyles":   computerStyles,
 		"computerLevels":   computerLevels,
 		"endlessMode":      false,
@@ -961,6 +972,9 @@ func (h *roomHub) publicTournament(room *room) any {
 		"maxPlayersPerTable":       maxTotalPlayers,
 		"round":                    value.Round,
 		"blindLevel":               blindLevel.Number,
+		"roundInBlindLevel":        blindLevel.RoundInLevel,
+		"roundsPerBlindLevel":      blindLevel.RoundsPerLevel,
+		"bettingMultiplier":        blindLevel.BettingScale,
 		"smallBlindAmount":         blindLevel.SmallBlindAmount,
 		"bigBlindAmount":           blindLevel.BigBlindAmount,
 		"maxBlindLevel":            maxTournamentBlindLevel,

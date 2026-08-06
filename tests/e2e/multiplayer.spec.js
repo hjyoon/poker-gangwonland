@@ -343,7 +343,8 @@ test.describe("root multiplayer flows", () => {
       await expect(page.getByRole("region", { name: "토너먼트 현황" })).toBeVisible();
       await expect(page.locator(".tournament-overview h2")).toContainText(/라운드 1 · 테이블 [12]\/2/);
       await expect(page.locator(".tournament-metrics")).toContainText("생존 9");
-      await expect(page.locator(".tournament-metrics")).toContainText("블라인드 레벨 1 · SB ₩2,000 / BB ₩5,000");
+      await expect(page.locator(".tournament-metrics")).toContainText("블라인드 레벨 1 · 1/10라운드 · SB ₩2,000 / BB ₩5,000");
+      await expect(page.locator(".tournament-metrics")).toContainText("베팅 배수 ×1 · 한 핸드 상한 ₩100,000");
       await expect(page.getByRole("group", { name: "토너먼트 테이블 선택" }).getByRole("button")).toHaveCount(2);
       await expect(page.locator(".seat")).toHaveCount(8);
       await page.getByText("전체 순위 및 배치").click();

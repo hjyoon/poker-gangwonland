@@ -17,6 +17,7 @@ import {
   formatCard,
   formatMoney,
   getAvailableActions,
+  getStreetConfig,
   randomIndex,
   resolveComputerLevelKey,
   resolveComputerStyleKey,
@@ -33,7 +34,6 @@ import {
   MAX_MULTIPLAYER_HUMAN_SLOTS,
   MAX_NEXT_HAND_DELAY_MS,
   MAX_PLAYER_TOTAL_BET,
-  MAX_TOURNAMENT_BLIND_LEVEL,
   MAX_TOURNAMENT_PARTICIPANTS,
   MAX_TOTAL_PLAYERS,
   MIN_COMPUTER_ACTION_DELAY_MS,
@@ -42,6 +42,7 @@ import {
   MIN_NEXT_HAND_DELAY_MS,
   MULTIPLAYER_RECONNECT_DELAY_MS,
   SMALL_BLIND_AMOUNT,
+  TOURNAMENT_ROUNDS_PER_BLIND_LEVEL,
 } from "../lib/domain/game-rules";
 
 const SETUP_MODE_OPTIONS = [
@@ -162,14 +163,15 @@ function buildHumanActionHint(state, playerIndex, actions) {
     return "";
   }
 
-  const street = STREETS[state.streetIndex];
+  const street = getStreetConfig(state);
   const wagerSubject = wagerAction.key === "bet" ? "베팅이" : "레이즈가";
   const reachedStreetMax = state.currentBet >= street.maxBet;
-  const reachedPlayerLimit = player.totalContribution >= MAX_PLAYER_TOTAL_BET;
+  const maxPlayerTotalBet = state.maxPlayerTotalBet ?? MAX_PLAYER_TOTAL_BET;
+  const reachedPlayerLimit = player.totalContribution >= maxPlayerTotalBet;
   const disabledWagerHint = reachedStreetMax
     ? `현재 단계 최대 베팅에 도달해 추가 ${wagerSubject} 불가능합니다.`
     : reachedPlayerLimit
-      ? `1인 기준 최대 베팅 ${formatMoney(MAX_PLAYER_TOTAL_BET)}에 도달해 추가 ${wagerSubject} 불가능합니다.`
+      ? `1인 기준 최대 베팅 ${formatMoney(maxPlayerTotalBet)}에 도달해 추가 ${wagerSubject} 불가능합니다.`
       : `현재 조건에서는 추가 ${wagerSubject} 불가능합니다.`;
   const isBigBlindPreflopSpot = state.streetIndex === 0 && playerIndex === state.bigBlindIndex && toCall === 0;
   if (isBigBlindPreflopSpot) {
@@ -3014,7 +3016,7 @@ export default function PokerApp() {
                     참가자는 무작위로 섞은 뒤 테이블당 최대 {MAX_TOTAL_PLAYERS}명, 테이블별 인원 차이 1명 이하로 배치됩니다. 토너먼트 시작 후 신규 참가와 엔들리스 교체는 허용되지 않습니다.
                   </p>
                   <p className="note">
-                    블라인드는 라운드마다 SB {formatMoney(SMALL_BLIND_AMOUNT)}, BB {formatMoney(BIG_BLIND_AMOUNT)}씩 상승하며 최대 레벨 {MAX_TOURNAMENT_BLIND_LEVEL}의 SB {formatMoney(SMALL_BLIND_AMOUNT * MAX_TOURNAMENT_BLIND_LEVEL)} / BB {formatMoney(BIG_BLIND_AMOUNT * MAX_TOURNAMENT_BLIND_LEVEL)}까지 적용됩니다.
+                    블라인드 레벨은 {TOURNAMENT_ROUNDS_PER_BLIND_LEVEL}라운드 동안 유지됩니다. 다음 레벨부터 SB/BB, 베팅·레이즈 단위, 스트리트 상한과 한 핸드 최대 총베팅이 모두 이전 레벨의 정확히 2배로 상승합니다.
                   </p>
                   {isSingleplayerTournamentSetup ? (
                     <p className="note">다른 테이블은 서버에서 자동 진행되며, 로컬 인간 참가자의 차례에는 멀티플레이 제한 시간을 적용하지 않습니다.</p>
@@ -3343,7 +3345,7 @@ export default function PokerApp() {
   }
 
   const tableSeatPlayers = buildTableSeatPlayers(state);
-  const activeStreet = STREETS[state.streetIndex];
+  const activeStreet = getStreetConfig(state);
   const controlledPlayerId = multiplayerGameActive ? multiplayerPlayerId : null;
   const humanIndex = multiplayerGameActive
     ? state.players.findIndex((player) => player.id === controlledPlayerId && player.isHuman)
@@ -3658,8 +3660,9 @@ export default function PokerApp() {
                 <span>전체 <strong>{activeTournament.initialParticipantCount}</strong></span>
                 <span>테이블 <strong>{activeTournament.tableCount}</strong></span>
                 <span>
-                  블라인드 <strong>레벨 {activeTournament.blindLevel}</strong> · SB {formatMoney(activeTournament.smallBlindAmount)} / BB {formatMoney(activeTournament.bigBlindAmount)}
+                  블라인드 <strong>레벨 {activeTournament.blindLevel}</strong> · {activeTournament.roundInBlindLevel}/{activeTournament.roundsPerBlindLevel}라운드 · SB {formatMoney(activeTournament.smallBlindAmount)} / BB {formatMoney(activeTournament.bigBlindAmount)}
                 </span>
+                <span>베팅 배수 <strong>×{activeTournament.bettingMultiplier}</strong> · 한 핸드 상한 {formatMoney(state.maxPlayerTotalBet ?? MAX_PLAYER_TOTAL_BET)}</span>
               </div>
             </div>
             <div className="tournament-table-watch">
