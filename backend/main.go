@@ -33,7 +33,7 @@ const (
 	smallBlindAmount             = 2000
 	bigBlindAmount               = 5000
 	maxTotalPlayers              = 8
-	maxTournamentPlayers         = 64
+	maxTournamentPlayers         = 128
 	maxHumanSlots                = maxTotalPlayers
 	minHumanSlots                = 1
 	minComputerActionDelayMs     = 100
@@ -148,11 +148,12 @@ type waitingParticipant struct {
 }
 
 type wsClient struct {
-	conn     net.Conn
-	writerMu sync.Mutex
-	hub      *roomHub
-	roomID   string
-	playerID string
+	conn                         net.Conn
+	writerMu                     sync.Mutex
+	hub                          *roomHub
+	roomID                       string
+	playerID                     string
+	viewingTournamentTableNumber int
 }
 
 type clientMessage struct {
@@ -166,6 +167,7 @@ type clientMessage struct {
 	Away           bool           `json:"away"`
 	Cancel         bool           `json:"cancel"`
 	Peeking        bool           `json:"peeking"`
+	TableNumber    int            `json:"tableNumber"`
 	TableSeatIndex int            `json:"tableSeatIndex"`
 	Raw            map[string]any `json:"-"`
 }
@@ -441,6 +443,8 @@ func (c *wsClient) handleText(payload []byte) {
 		c.hub.joinGameSeat(c, message)
 	case "cardPeekState":
 		c.hub.cardPeekState(c, message)
+	case "watchTournamentTable":
+		c.hub.watchTournamentTable(c, message.TableNumber)
 	case "updateGameOptions":
 		c.hub.updateGameOptions(c, message)
 	default:
@@ -779,6 +783,7 @@ func (h *roomHub) leaveRoom(client *wsClient, clearSeat bool) {
 }
 
 func (h *roomHub) detachLocked(client *wsClient, clearSeat bool) {
+	client.viewingTournamentTableNumber = 0
 	room := h.rooms[client.roomID]
 	if room == nil {
 		client.roomID = ""
@@ -872,7 +877,32 @@ func (h *roomHub) scheduleEmptyRoomCleanupLocked(room *room) {
 }
 
 func (h *roomHub) broadcast(room *room) {
+	if room == nil {
+		return
+	}
 	h.mu.Lock()
+	if room.Tournament != nil {
+		clients := map[*wsClient]struct{}{}
+		for client := range room.clients {
+			clients[client] = struct{}{}
+		}
+		for _, tableRoomID := range room.Tournament.TableRoomIDs {
+			tableRoom := h.rooms[tableRoomID]
+			if tableRoom == nil {
+				continue
+			}
+			for client := range tableRoom.clients {
+				if client.viewingTournamentTableNumber == room.TableNumber {
+					clients[client] = struct{}{}
+				}
+			}
+		}
+		h.mu.Unlock()
+		for client := range clients {
+			h.sendRoomState(client)
+		}
+		return
+	}
 	clients := make([]*wsClient, 0, len(room.clients))
 	for client := range room.clients {
 		clients = append(clients, client)
@@ -880,7 +910,7 @@ func (h *roomHub) broadcast(room *room) {
 	h.mu.Unlock()
 
 	for _, client := range clients {
-		client.send(map[string]any{"type": "roomState", "room": h.publicRoom(room, client)})
+		client.send(map[string]any{"type": "roomState", "room": h.publicRoom(room, room, client)})
 	}
 }
 

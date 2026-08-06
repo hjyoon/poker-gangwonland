@@ -270,6 +270,83 @@ func (h *roomHub) joinRunningTournament(client *wsClient, message clientMessage,
 	return true
 }
 
+func (h *roomHub) watchTournamentTable(client *wsClient, tableNumber int) {
+	h.mu.Lock()
+	homeRoom := h.rooms[client.roomID]
+	if homeRoom == nil || homeRoom.Tournament == nil || homeRoom.Tournament.Status == tournamentStatusRegistering {
+		h.mu.Unlock()
+		client.sendError("진행 중인 토너먼트에 참가해야 다른 테이블을 관전할 수 있습니다.")
+		return
+	}
+	targetRoom := h.tournamentTableRoomLocked(homeRoom.Tournament, tableNumber)
+	if targetRoom == nil {
+		h.mu.Unlock()
+		client.sendError("관전할 토너먼트 테이블을 찾을 수 없습니다.")
+		return
+	}
+	if targetRoom.ID == homeRoom.ID {
+		client.viewingTournamentTableNumber = 0
+	} else {
+		client.viewingTournamentTableNumber = targetRoom.TableNumber
+	}
+	if tournamentRoomWaitingForPlayer(homeRoom, client.playerID) {
+		client.viewingTournamentTableNumber = 0
+	}
+	h.mu.Unlock()
+	h.sendRoomState(client)
+}
+
+func (h *roomHub) tournamentTableRoomLocked(value *tournament, tableNumber int) *room {
+	if value == nil || tableNumber < 1 {
+		return nil
+	}
+	for _, roomID := range value.TableRoomIDs {
+		room := h.rooms[roomID]
+		if room != nil && room.TableNumber == tableNumber {
+			return room
+		}
+	}
+	return nil
+}
+
+func tournamentRoomWaitingForPlayer(room *room, participantID string) bool {
+	if room == nil || room.Game == nil || room.Game.State == nil || participantID == "" || boolValue(room.Game.State["finished"]) {
+		return false
+	}
+	state := room.Game.State
+	actor := playerAt(state, intValue(state["currentPlayerIndex"]))
+	return boolValue(state["waitingForHuman"]) && playerID(actor) == participantID
+}
+
+func (h *roomHub) tournamentViewRoomLocked(homeRoom *room, client *wsClient) *room {
+	if homeRoom == nil || homeRoom.Tournament == nil || client == nil {
+		return homeRoom
+	}
+	if tournamentRoomWaitingForPlayer(homeRoom, client.playerID) {
+		client.viewingTournamentTableNumber = 0
+		return homeRoom
+	}
+	if client.viewingTournamentTableNumber <= 0 {
+		return homeRoom
+	}
+	viewRoom := h.tournamentTableRoomLocked(homeRoom.Tournament, client.viewingTournamentTableNumber)
+	if viewRoom == nil {
+		client.viewingTournamentTableNumber = 0
+		return homeRoom
+	}
+	return viewRoom
+}
+
+func (h *roomHub) sendRoomState(client *wsClient) {
+	h.mu.Lock()
+	homeRoom := h.rooms[client.roomID]
+	viewRoom := h.tournamentViewRoomLocked(homeRoom, client)
+	h.mu.Unlock()
+	if homeRoom != nil {
+		client.send(map[string]any{"type": "roomState", "room": h.publicRoom(homeRoom, viewRoom, client)})
+	}
+}
+
 func (h *roomHub) startTournamentLocked(lobby *room, settings map[string]any) ([]string, error) {
 	value := lobby.Tournament
 	if value == nil || value.Status != tournamentStatusRegistering {
@@ -529,6 +606,9 @@ func (h *roomHub) rebuildTournamentTablesLocked(value *tournament, lobby *room, 
 		}
 		rooms[targetIndex].clients[client] = struct{}{}
 		client.roomID = rooms[targetIndex].ID
+		if client.viewingTournamentTableNumber > len(rooms) {
+			client.viewingTournamentTableNumber = 0
+		}
 	}
 	for roomID, existing := range oldRooms {
 		if !containsString(roomIDs, roomID) {
@@ -762,13 +842,19 @@ func (h *roomHub) advanceTournamentRound(tournamentID string) {
 func (h *roomHub) broadcastTournament(tournamentID string) {
 	h.mu.Lock()
 	value := h.tournaments[tournamentID]
-	roomIDs := []string{}
+	clients := map[*wsClient]struct{}{}
 	if value != nil {
-		roomIDs = append(roomIDs, value.TableRoomIDs...)
+		for _, roomID := range value.TableRoomIDs {
+			if room := h.rooms[roomID]; room != nil {
+				for client := range room.clients {
+					clients[client] = struct{}{}
+				}
+			}
+		}
 	}
 	h.mu.Unlock()
-	for _, roomID := range roomIDs {
-		h.broadcastByID(roomID)
+	for client := range clients {
+		h.sendRoomState(client)
 	}
 }
 
@@ -818,6 +904,25 @@ func (h *roomHub) publicTournament(room *room) any {
 	if winner := value.Participants[value.WinnerID]; winner != nil {
 		winnerName = winner.Name
 	}
+	tables := make([]map[string]any, 0, len(value.TableRoomIDs))
+	for index, roomID := range value.TableRoomIDs {
+		tableRoom := h.rooms[roomID]
+		participantCount := 0
+		finished := false
+		if tableRoom != nil && tableRoom.Game != nil && tableRoom.Game.State != nil {
+			participantCount = len(statePlayers(tableRoom.Game.State))
+			finished = boolValue(tableRoom.Game.State["finished"])
+		}
+		tableNumber := index + 1
+		if tableRoom != nil && tableRoom.TableNumber > 0 {
+			tableNumber = tableRoom.TableNumber
+		}
+		tables = append(tables, map[string]any{
+			"tableNumber":      tableNumber,
+			"participantCount": participantCount,
+			"finished":         finished,
+		})
+	}
 	return map[string]any{
 		"id":                       value.ID,
 		"status":                   value.Status,
@@ -830,6 +935,7 @@ func (h *roomHub) publicTournament(room *room) any {
 		"tableNumber":              room.TableNumber,
 		"maxPlayersPerTable":       maxTotalPlayers,
 		"round":                    value.Round,
+		"tables":                   tables,
 		"winnerId":                 value.WinnerID,
 		"winnerName":               winnerName,
 		"advanceScheduledAt":       value.AdvanceScheduledAt,

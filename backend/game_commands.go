@@ -277,7 +277,7 @@ func (h *roomHub) cardPeekState(client *wsClient, message clientMessage) {
 		delete(room.Game.CardPeekPlayerIDs, client.playerID)
 	}
 	h.mu.Unlock()
-	h.broadcast(room)
+	h.broadcastByID(room.ID)
 }
 
 func (h *roomHub) updateGameOptions(client *wsClient, message clientMessage) {

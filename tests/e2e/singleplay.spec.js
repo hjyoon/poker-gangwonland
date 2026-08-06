@@ -256,12 +256,15 @@ test.describe("root singleplay table", () => {
     await recordMeaningfulCoverage("singleplay.computer-only-random-endless");
   });
 
-  test("starts a single-player multi-table tournament without a human action timer", async ({ page }) => {
+  test("starts and spectates a 128-cap single-player multi-table tournament without a human action timer", async ({ page }) => {
     await gotoRoot(page);
     await page.getByLabel("멀티 테이블 토너먼트").check();
     await page.getByLabel("표시 이름").fill("Solo Player");
+    await page.getByLabel("전체 참가자 수").fill("129");
+    await expect(page.getByLabel("전체 참가자 수")).toHaveValue("128");
     await page.getByLabel("전체 참가자 수").fill("9");
-    await page.getByLabel("컴퓨터 행동 딜레이(ms)").fill("100");
+    await page.getByLabel("공통 시작 금액").fill("1000000");
+    await page.getByLabel("컴퓨터 행동 딜레이(ms)").fill("500");
     await page.getByLabel("다음 핸드 딜레이(ms)").fill("500");
 
     await expect(page.getByLabel("인간 참가자 수")).toHaveValue("1");
@@ -274,6 +277,22 @@ test.describe("root singleplay table", () => {
     await expect(page.getByText("싱글플레이 멀티 테이블 토너먼트")).toBeVisible();
     await expect(page.locator(".tournament-overview h2")).toContainText(/라운드 1 · 테이블 [12]\/2/);
     await expect(page.locator(".tournament-metrics")).toContainText("생존 9");
+    const ownTableMatch = /테이블 (\d+)\/2/.exec(await page.locator(".tournament-overview h2").innerText());
+    const ownTableNumber = Number(ownTableMatch?.[1]);
+    const watchedTableNumber = ownTableNumber === 1 ? 2 : 1;
+    expect(ownTableNumber).toBeGreaterThan(0);
+    const foldButton = page.getByRole("button", { name: "폴드", exact: true });
+    if (await foldButton.isVisible()) {
+      await foldButton.click();
+    }
+    const tableSelector = page.getByRole("group", { name: "토너먼트 테이블 선택" });
+    await tableSelector.getByRole("button", { name: new RegExp(`^테이블 ${watchedTableNumber}\\b`) }).click();
+    await expect(page.locator(".tournament-overview h2")).toContainText(`테이블 ${watchedTableNumber}/2`);
+    await expect(page.getByText(`테이블 ${watchedTableNumber} 관전 중`, { exact: false }).first()).toBeVisible();
+    await expect(tableSelector.getByRole("button", { name: new RegExp(`^테이블 ${watchedTableNumber}\\b`) })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByLabel("개인 카드 확인")).toHaveCount(0);
+    await tableSelector.getByRole("button", { name: new RegExp(`^내 테이블 ${ownTableNumber}\\b`) }).click();
+    await expect(page.locator(".tournament-overview h2")).toContainText(`테이블 ${ownTableNumber}/2`);
     await page.getByText("전체 순위 및 배치").click();
     await expect(page.locator(".tournament-standing")).toHaveCount(9);
     await expect(page.locator(".tournament-standing").filter({ hasText: "Solo Player" })).toBeVisible();

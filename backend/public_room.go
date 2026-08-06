@@ -2,30 +2,39 @@ package main
 
 import "strings"
 
-func (h *roomHub) publicRoom(room *room, client *wsClient) map[string]any {
-	settings := publicRoomSettings(room)
-	publicID := room.ID
-	if room.Tournament != nil {
-		publicID = room.Tournament.ID
+func (h *roomHub) publicRoom(homeRoom *room, viewRoom *room, client *wsClient) map[string]any {
+	if viewRoom == nil {
+		viewRoom = homeRoom
+	}
+	settings := publicRoomSettings(viewRoom)
+	publicID := homeRoom.ID
+	if homeRoom.Tournament != nil {
+		publicID = homeRoom.Tournament.ID
+	}
+	tournament := h.publicTournament(viewRoom)
+	if public, ok := tournament.(map[string]any); ok {
+		public["homeTableNumber"] = homeRoom.TableNumber
+		public["viewingTableNumber"] = viewRoom.TableNumber
+		public["spectating"] = homeRoom.ID != viewRoom.ID
 	}
 	return map[string]any{
 		"id":                        publicID,
-		"humanSlots":                room.HumanSlots,
-		"hostPlayerId":              room.HostPlayerID,
-		"seats":                     publicSeats(room),
-		"waitingParticipants":       room.WaitingParticipants,
-		"createdAt":                 room.CreatedAt,
+		"humanSlots":                homeRoom.HumanSlots,
+		"hostPlayerId":              homeRoom.HostPlayerID,
+		"seats":                     publicSeats(homeRoom),
+		"waitingParticipants":       homeRoom.WaitingParticipants,
+		"createdAt":                 homeRoom.CreatedAt,
 		"settings":                  settings,
 		"showComputerStyles":        boolValueDefault(settings["showComputerStyles"], true),
 		"showCumulativeWins":        boolValueDefault(settings["showCumulativeWins"], true),
-		"nextHandRequiredPlayerIds": h.nextHandRequiredPlayerIDs(room),
-		"nextHandReadyPlayerIds":    h.nextHandReadyPlayerIDs(room),
+		"nextHandRequiredPlayerIds": h.nextHandRequiredPlayerIDs(homeRoom),
+		"nextHandReadyPlayerIds":    h.nextHandReadyPlayerIDs(homeRoom),
 		"nextHandDealerPlayerId":    nil,
-		"canReserveStandUpFromGame": room.Tournament == nil && room.Game != nil && room.Game.State != nil && client != nil && client.playerID != "",
-		"cardPeekPlayerIds":         publicCardPeekPlayerIDs(room),
-		"timer":                     publicRoomTimer(room),
-		"gameState":                 h.publicGameState(room, client),
-		"tournament":                h.publicTournament(room),
+		"canReserveStandUpFromGame": homeRoom.Tournament == nil && homeRoom.Game != nil && homeRoom.Game.State != nil && client != nil && client.playerID != "",
+		"cardPeekPlayerIds":         publicCardPeekPlayerIDs(viewRoom),
+		"timer":                     publicRoomTimer(viewRoom),
+		"gameState":                 h.publicGameState(viewRoom, client),
+		"tournament":                tournament,
 	}
 }
 

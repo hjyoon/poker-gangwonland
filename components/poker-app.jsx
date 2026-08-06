@@ -1570,6 +1570,8 @@ export default function PokerApp() {
   const hasConfirmedMultiplayerNextHand = Boolean(multiplayerPlayerId && multiplayerNextHandReadyIds.includes(multiplayerPlayerId));
   const ownMultiplayerSeat = multiplayerRoom?.seats.find((seat) => seat.playerId === multiplayerPlayerId) ?? null;
   const ownTournamentParticipant = activeTournament?.participants?.find((participant) => participant.id === multiplayerPlayerId) ?? null;
+  const viewingTournamentTableNumber = activeTournament?.viewingTableNumber ?? activeTournament?.tableNumber ?? 0;
+  const isWatchingOtherTournamentTable = Boolean(activeTournament?.spectating);
   const ownEndlessWaitingParticipant =
     multiplayerRoom?.waitingParticipants?.find((participant) => participant.playerId === multiplayerPlayerId && participant.pendingEndlessJoin) ?? null;
   const ownMultiplayerTableSeat = state?.tableSeats?.find((player) => player.id === multiplayerPlayerId) ?? null;
@@ -2304,6 +2306,20 @@ export default function PokerApp() {
     }
   }
 
+  function watchTournamentTable(tableNumber) {
+    if (!activeTournament || tableNumber === viewingTournamentTableNumber) {
+      return;
+    }
+    const emptyPrivatePeekIds = new Set();
+    privateCardPeekedIdsRef.current = emptyPrivatePeekIds;
+    setPrivateCardPeekedIds(emptyPrivatePeekIds);
+    setCardInfoOverlay({ playerId: "", position: null });
+    if (multiplayerPlayerId) {
+      sendMultiplayerMessage({ type: "cardPeekState", peeking: false });
+    }
+    sendMultiplayerMessage({ type: "watchTournamentTable", tableNumber });
+  }
+
   function setComputerCardPeekState(playerId, peeking) {
     setComputerCardPeekedIds((current) => {
       if (!playerId || current.has(playerId) === peeking) {
@@ -2671,7 +2687,7 @@ export default function PokerApp() {
   }, [state]);
 
   useEffect(() => {
-    if (!state?.finished) {
+    if (!state?.finished || isWatchingOtherTournamentTable) {
       return;
     }
     const handId = state.handId ?? state.log[0] ?? `${state.streetIndex}-${state.log.length}`;
@@ -2696,7 +2712,7 @@ export default function PokerApp() {
 
     setHandHistory((current) => [entry, ...current]);
     setArchivedHandIds((current) => new Set(current).add(handId));
-  }, [archivedHandIds, handHistory.length, state]);
+  }, [archivedHandIds, handHistory.length, isWatchingOtherTournamentTable, state]);
 
   if (!state) {
     return (
@@ -3346,6 +3362,8 @@ export default function PokerApp() {
   let statusText = "컴퓨터 진행 중입니다.";
   if (activeTournament?.status === "finished") {
     statusText = activeTournament.winnerName ? `토너먼트 우승: ${activeTournament.winnerName}` : "토너먼트가 종료되었습니다.";
+  } else if (isWatchingOtherTournamentTable) {
+    statusText = `테이블 ${viewingTournamentTableNumber}을 관전 중입니다.`;
   } else if (ownTournamentParticipant?.eliminated) {
     statusText = `토너먼트에서 ${ownTournamentParticipant.placement || "-"}위로 탈락했습니다. 현재 테이블을 관전 중입니다.`;
   } else if (state.finished && activeTournament) {
@@ -3633,6 +3651,36 @@ export default function PokerApp() {
                 <span>생존 <strong>{activeTournament.activeParticipantCount}</strong></span>
                 <span>전체 <strong>{activeTournament.initialParticipantCount}</strong></span>
                 <span>테이블 <strong>{activeTournament.tableCount}</strong></span>
+              </div>
+            </div>
+            <div className="tournament-table-watch">
+              <div>
+                <strong>테이블 관전</strong>
+                <p className="note">
+                  {isWatchingOtherTournamentTable
+                    ? ownTournamentParticipant && !ownTournamentParticipant.eliminated
+                      ? `테이블 ${viewingTournamentTableNumber} 관전 중 · 내 차례가 되면 테이블 ${ownTournamentParticipant.tableNumber}로 자동 복귀합니다.`
+                      : `테이블 ${viewingTournamentTableNumber}을 관전 중입니다.`
+                    : "다른 테이블을 선택하면 공개된 게임 상황을 실시간으로 관전할 수 있습니다."}
+                </p>
+              </div>
+              <div className="tournament-table-buttons" role="group" aria-label="토너먼트 테이블 선택">
+                {(activeTournament.tables ?? []).map((table) => {
+                  const isViewing = table.tableNumber === viewingTournamentTableNumber;
+                  const isOwnTable = !ownTournamentParticipant?.eliminated && table.tableNumber === ownTournamentParticipant?.tableNumber;
+                  return (
+                    <button
+                      aria-pressed={isViewing}
+                      className={isViewing ? "is-active" : "secondary"}
+                      key={table.tableNumber}
+                      onClick={() => watchTournamentTable(table.tableNumber)}
+                      type="button"
+                    >
+                      <span>{isOwnTable ? `내 테이블 ${table.tableNumber}` : `테이블 ${table.tableNumber}`}</span>
+                      <small>{table.participantCount}명{table.finished ? " · 종료" : ""}</small>
+                    </button>
+                  );
+                })}
               </div>
             </div>
             <details>

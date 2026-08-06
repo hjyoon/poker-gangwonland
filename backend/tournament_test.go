@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"reflect"
 	"sort"
 	"testing"
@@ -18,6 +19,7 @@ func TestBalancedTableSizes(t *testing.T) {
 		{participants: 16, want: []int{8, 8}},
 		{participants: 17, want: []int{6, 6, 5}},
 		{participants: 64, want: []int{8, 8, 8, 8, 8, 8, 8, 8}},
+		{participants: 128, want: []int{8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8}},
 	}
 
 	for _, test := range tests {
@@ -108,6 +110,13 @@ func TestNormalizeTournamentSettingsCountsHumansAndComputersTogether(t *testing.
 	if got := intValue(singlePlayerSettings["computerParticipantCount"]); got != 11 {
 		t.Fatalf("single-player tournament computer count = %d, want 11", got)
 	}
+	maximumSettings := normalizeTournamentSettings(map[string]any{
+		"initialParticipantCount": 999,
+		"humanParticipantCount":   1,
+	}, nil)
+	if got := intValue(maximumSettings["initialParticipantCount"]); got != 128 {
+		t.Fatalf("maximum tournament participant count = %d, want 128", got)
+	}
 }
 
 func TestStartTournamentBuildsBalancedTables(t *testing.T) {
@@ -182,6 +191,58 @@ func TestStartTournamentBuildsBalancedTables(t *testing.T) {
 		if playerIDs[index] == playerIDs[index-1] {
 			t.Fatalf("participant %q appears at more than one table", playerIDs[index])
 		}
+	}
+}
+
+func TestMaximumTournamentBuildsSixteenTablesWithinFrameLimit(t *testing.T) {
+	engine, err := newPokerEngine("../lib")
+	if err != nil {
+		t.Fatalf("load poker engine: %v", err)
+	}
+	settings := normalizeTournamentSettings(map[string]any{
+		"singlePlayerTournament":    true,
+		"initialParticipantCount":   128,
+		"humanParticipantCount":     1,
+		"tournamentStartingBalance": 1_000_000,
+	}, nil)
+	value := newTournament("ABC123", "human-1", settings)
+	client := &wsClient{roomID: value.ID, playerID: "human-1"}
+	lobby := &room{
+		ID:           value.ID,
+		HumanSlots:   1,
+		HostPlayerID: value.HostPlayerID,
+		Seats: []seat{{
+			ID:        humanSlotID(0),
+			PlayerID:  client.playerID,
+			Name:      "Player",
+			Connected: true,
+		}},
+		Settings:   settings,
+		clients:    map[*wsClient]struct{}{client: {}},
+		Tournament: value,
+	}
+	hub := &roomHub{
+		rooms:       map[string]*room{value.ID: lobby},
+		tournaments: map[string]*tournament{value.ID: value},
+		engine:      engine,
+	}
+	roomIDs, err := hub.startTournamentLocked(lobby, settings)
+	if err != nil {
+		t.Fatalf("start maximum tournament: %v", err)
+	}
+	if got := len(roomIDs); got != 16 {
+		t.Fatalf("maximum tournament table count = %d, want 16", got)
+	}
+	if got := len(value.Participants); got != 128 {
+		t.Fatalf("maximum tournament participant count = %d, want 128", got)
+	}
+	homeRoom := hub.rooms[client.roomID]
+	body, err := json.Marshal(map[string]any{"type": "roomState", "room": hub.publicRoom(homeRoom, homeRoom, client)})
+	if err != nil {
+		t.Fatalf("marshal maximum tournament room state: %v", err)
+	}
+	if len(body) > 65_535 {
+		t.Fatalf("maximum tournament room state is %d bytes, exceeds WebSocket frame limit", len(body))
 	}
 }
 
@@ -473,6 +534,109 @@ func TestConnectedSinglePlayerTournamentHumanHasNoActionTimer(t *testing.T) {
 	}
 	if tableRoom.Game.Timer != nil || tableRoom.AutomationTimer != nil {
 		t.Fatal("single-player tournament scheduled a human action timeout")
+	}
+}
+
+func TestTournamentTableViewHidesCardsAndReturnsForOwnTurn(t *testing.T) {
+	engine, err := newPokerEngine("../lib")
+	if err != nil {
+		t.Fatalf("load poker engine: %v", err)
+	}
+	settings := normalizeTournamentSettings(map[string]any{
+		"singlePlayerTournament":    true,
+		"initialParticipantCount":   9,
+		"humanParticipantCount":     1,
+		"tournamentStartingBalance": 1_000_000,
+	}, nil)
+	value := newTournament("ABC123", "human-1", settings)
+	client := &wsClient{roomID: value.ID, playerID: "human-1"}
+	lobby := &room{
+		ID:           value.ID,
+		HumanSlots:   1,
+		HostPlayerID: value.HostPlayerID,
+		Seats: []seat{{
+			ID:        humanSlotID(0),
+			PlayerID:  client.playerID,
+			Name:      "Player",
+			Connected: true,
+		}},
+		Settings:   settings,
+		clients:    map[*wsClient]struct{}{client: {}},
+		Tournament: value,
+	}
+	hub := &roomHub{
+		rooms:       map[string]*room{value.ID: lobby},
+		tournaments: map[string]*tournament{value.ID: value},
+		engine:      engine,
+	}
+	roomIDs, err := hub.startTournamentLocked(lobby, settings)
+	if err != nil {
+		t.Fatalf("start tournament: %v", err)
+	}
+	if len(roomIDs) != 2 {
+		t.Fatalf("table count = %d, want 2", len(roomIDs))
+	}
+	homeRoom := hub.rooms[client.roomID]
+	if homeRoom == nil {
+		t.Fatal("client home table was not assigned")
+	}
+	var watchedRoom *room
+	for _, roomID := range roomIDs {
+		if roomID != homeRoom.ID {
+			watchedRoom = hub.rooms[roomID]
+		}
+	}
+	if watchedRoom == nil {
+		t.Fatal("another tournament table was not found")
+	}
+	computerIndex := -1
+	for index, entry := range statePlayers(homeRoom.Game.State) {
+		if playerID(anyMap(entry)) != client.playerID {
+			computerIndex = index
+			break
+		}
+	}
+	if computerIndex < 0 {
+		t.Fatal("computer participant was not found at the home table")
+	}
+	homeRoom.Game.State["currentPlayerIndex"] = computerIndex
+	homeRoom.Game.State["waitingForHuman"] = false
+	client.viewingTournamentTableNumber = watchedRoom.TableNumber
+	viewRoom := hub.tournamentViewRoomLocked(homeRoom, client)
+	if viewRoom != watchedRoom {
+		t.Fatalf("view table = %v, want table %d", viewRoom, watchedRoom.TableNumber)
+	}
+	public := hub.publicRoom(homeRoom, viewRoom, client)
+	publicTournament := anyMap(public["tournament"])
+	if !boolValue(publicTournament["spectating"]) || intValue(publicTournament["viewingTableNumber"]) != watchedRoom.TableNumber {
+		t.Fatalf("unexpected tournament view metadata: %#v", publicTournament)
+	}
+	publicTables, ok := publicTournament["tables"].([]map[string]any)
+	if !ok {
+		t.Fatalf("unexpected public table summary type: %T", publicTournament["tables"])
+	}
+	if got := len(publicTables); got != 2 {
+		t.Fatalf("public table summaries = %d, want 2", got)
+	}
+	publicState := anyMap(public["gameState"])
+	for _, entry := range statePlayers(publicState) {
+		for _, card := range anySlice(anyMap(entry)["cards"]) {
+			if card != nil {
+				t.Fatalf("spectator received a private card: %#v", card)
+			}
+		}
+	}
+
+	humanIndex := statePlayerIndexByID(homeRoom.Game.State, client.playerID)
+	if humanIndex < 0 {
+		t.Fatal("human participant was not found at the home table")
+	}
+	homeRoom.Game.State["currentPlayerIndex"] = humanIndex
+	homeRoom.Game.State["waitingForHuman"] = true
+	homeRoom.Game.State["finished"] = false
+	viewRoom = hub.tournamentViewRoomLocked(homeRoom, client)
+	if viewRoom != homeRoom || client.viewingTournamentTableNumber != 0 {
+		t.Fatal("spectator was not returned to the home table for their turn")
 	}
 }
 

@@ -343,6 +343,7 @@ test.describe("root multiplayer flows", () => {
       await expect(page.getByRole("region", { name: "토너먼트 현황" })).toBeVisible();
       await expect(page.locator(".tournament-overview h2")).toContainText(/라운드 1 · 테이블 [12]\/2/);
       await expect(page.locator(".tournament-metrics")).toContainText("생존 9");
+      await expect(page.getByRole("group", { name: "토너먼트 테이블 선택" }).getByRole("button")).toHaveCount(2);
       await expect(page.locator(".seat")).toHaveCount(8);
       await page.getByText("전체 순위 및 배치").click();
       await expect(page.locator(".tournament-standing")).toHaveCount(9);
