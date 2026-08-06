@@ -1486,6 +1486,14 @@ export default function PokerApp() {
   );
   const activeTournament = multiplayerRoom?.tournament ?? null;
   const isSingleplayerTournamentRoom = Boolean(multiplayerRoom?.settings?.singlePlayerTournament || activeTournament?.singlePlayer);
+  const tournamentTableCount = activeTournament?.tables?.length ?? 0;
+  const tournamentFinishedTableCount = activeTournament?.finishedTableCount ?? activeTournament?.tables?.filter((table) => table.finished).length ?? 0;
+  const allTournamentTablesFinished = Boolean(
+    activeTournament?.allTablesFinished ?? (tournamentTableCount > 0 && tournamentFinishedTableCount === tournamentTableCount),
+  );
+  const isManualSingleplayerTournamentRound = Boolean(
+    activeTournament?.status === "running" && isSingleplayerTournamentRoom && !autoNextHand,
+  );
   const isMultiplayerSetup = setupMode === "multiplayer" || (Boolean(multiplayerRoom) && !isSingleplayerTournamentRoom);
   const isTournamentSetup = Boolean(tournamentMode || activeTournament);
   const isSingleplayerTournamentSetup = isTournamentSetup && !isMultiplayerSetup;
@@ -1564,6 +1572,10 @@ export default function PokerApp() {
       : "게임 시작";
   const canEditMultiplayerSettings = !isMultiplayerSetup || (isMultiplayerCreateFlow && (!multiplayerRoom || isMultiplayerHost));
   const canEditActiveGameSettings = !activeTournament && (!multiplayerGameActive || isMultiplayerHost);
+  const canEditTournamentAdvanceSettings = Boolean(
+    activeTournament?.status === "running" && isSingleplayerTournamentRoom && isMultiplayerHost,
+  );
+  const canEditAutoNextHandSetting = canEditActiveGameSettings || canEditTournamentAdvanceSettings;
   const showSetupStartAction = !isMultiplayerSetup || (isMultiplayerCreateFlow && (multiplayerRoom || setupTab !== "multiplayer"));
   const multiplayerTimer = multiplayerRoom?.timer ?? null;
   const multiplayerJoinUrl = useMemo(() => multiplayerRoomJoinUrl(multiplayerRoom?.id), [multiplayerRoom?.id]);
@@ -1645,7 +1657,7 @@ export default function PokerApp() {
           tournamentStartingBalance: Math.max(MIN_PLAYABLE_BALANCE, Number(tournamentStartingBalance) || DEFAULT_STARTING_BALANCE),
           computerStyle: getComputerStyleSelection(tournamentComputerStyle).key,
           computerLevel: getComputerLevelSelection(tournamentComputerLevel).key,
-          autoNextHand: true,
+          autoNextHand: isSingleplayerTournamentSetup ? autoNextHand : true,
           endlessMode: false,
           showComputerStyles: showComputerStylesInGame,
           showCumulativeWins: showCumulativeWinsInGame,
@@ -1737,7 +1749,7 @@ export default function PokerApp() {
       setMultiplayerSlots(humanCount);
       setCpuCount(initialCount - humanCount);
       setRandomizePlayerOrder(true);
-      setAutoNextHand(true);
+      setAutoNextHand(Boolean(settings.autoNextHand));
       setEndlessMode(false);
       setShowComputerStylesInGame(settings.showComputerStyles !== false);
       setShowCumulativeWinsInGame(settings.showCumulativeWins !== false);
@@ -1825,6 +1837,9 @@ export default function PokerApp() {
 
     setSetupMode(resolvedMode);
     setSetupTab(resolvedMode === "multiplayer" ? "multiplayer" : "game");
+    if (tournamentMode) {
+      setAutoNextHand(resolvedMode === "multiplayer");
+    }
     if (resolvedMode === "single") {
       setMultiplayerLobbyMode("");
     }
@@ -2599,6 +2614,13 @@ export default function PokerApp() {
 
   function nextHand() {
     if (multiplayerGameActive) {
+      if (activeTournament) {
+        if (!isManualSingleplayerTournamentRound || !allTournamentTablesFinished) {
+          return;
+        }
+        sendMultiplayerMessage({ type: "requestNextHand" });
+        return;
+      }
       if (!state?.finished || state.gameOver) {
         return;
       }
@@ -2771,7 +2793,7 @@ export default function PokerApp() {
                       const enabled = event.target.checked;
                       setTournamentMode(enabled);
                       if (enabled) {
-                        setAutoNextHand(true);
+                        setAutoNextHand(isMultiplayerSetup);
                         setEndlessMode(false);
                         setRandomizePlayerOrder(true);
                         if (!isMultiplayerSetup) {
@@ -2887,11 +2909,11 @@ export default function PokerApp() {
                 <label className="toggle-input">
                   <input
                     type="checkbox"
-                    checked={isTournamentSetup || autoNextHand}
+                    checked={(isTournamentSetup && !isSingleplayerTournamentSetup) || autoNextHand}
                     onChange={(event) => updateAutoNextHand(event.target.checked)}
-                    disabled={!canEditMultiplayerSettings || isTournamentSetup}
+                    disabled={!canEditMultiplayerSettings || (isTournamentSetup && !isSingleplayerTournamentSetup)}
                   />
-                  다음 핸드 자동 진행
+                  {isTournamentSetup ? "다음 라운드 자동 진행" : "다음 핸드 자동 진행"}
                 </label>
                 {!isTournamentSetup ? (
                   <label className="toggle-input">
@@ -2978,7 +3000,7 @@ export default function PokerApp() {
                   />
                 </label>
                 <label className="delay-input">
-                  다음 핸드 딜레이(ms)
+                  {isTournamentSetup ? "다음 라운드 딜레이(ms)" : "다음 핸드 딜레이(ms)"}
                   <input
                     min={MIN_NEXT_HAND_DELAY_MS}
                     max={MAX_NEXT_HAND_DELAY_MS}
@@ -3019,7 +3041,9 @@ export default function PokerApp() {
                     블라인드 레벨은 {TOURNAMENT_ROUNDS_PER_BLIND_LEVEL}라운드 동안 유지됩니다. 다음 레벨부터 SB/BB, 베팅·레이즈 단위, 스트리트 상한과 한 핸드 최대 총베팅이 모두 이전 레벨의 정확히 2배로 상승합니다.
                   </p>
                   {isSingleplayerTournamentSetup ? (
-                    <p className="note">다른 테이블은 서버에서 자동 진행되며, 로컬 인간 참가자의 차례에는 멀티플레이 제한 시간을 적용하지 않습니다.</p>
+                    <p className="note">
+                      다른 테이블은 서버에서 자동 진행됩니다. 다음 라운드 자동 진행을 끄면 모든 테이블이 끝난 뒤 승부 결과를 원하는 만큼 확인하고 직접 다음 라운드를 시작할 수 있으며, 로컬 인간 참가자의 차례에는 멀티플레이 제한 시간을 적용하지 않습니다.
+                    </p>
                   ) : (
                     <p className="note">연결이 끊긴 인간 참가자는 좌석과 칩을 유지하며, 재접속 전까지 자신의 차례마다 자동 폴드됩니다.</p>
                   )}
@@ -3375,7 +3399,11 @@ export default function PokerApp() {
   } else if (ownTournamentParticipant?.eliminated) {
     statusText = `토너먼트에서 ${ownTournamentParticipant.placement || "-"}위로 탈락했습니다. 현재 테이블을 관전 중입니다.`;
   } else if (state.finished && activeTournament) {
-    statusText = "현재 테이블의 핸드가 끝났습니다. 다른 테이블 종료 후 자동으로 재배치됩니다.";
+    statusText = isManualSingleplayerTournamentRound
+      ? allTournamentTablesFinished
+        ? "모든 테이블의 핸드가 끝났습니다. 승부 결과를 확인한 뒤 다음 라운드를 눌러 진행하세요."
+        : `현재 테이블의 핸드가 끝났습니다. 다른 테이블 종료를 기다리는 중입니다. (${tournamentFinishedTableCount}/${tournamentTableCount})`
+      : "현재 테이블의 핸드가 끝났습니다. 다른 테이블 종료 후 자동으로 재배치됩니다.";
   } else if (state.gameOver) {
     statusText = "게임이 종료되었습니다.";
   } else if (state.finished && multiplayerGameActive && !hasRequiredMultiplayerNextHandConfirmation) {
@@ -3421,6 +3449,9 @@ export default function PokerApp() {
   const handFeeLabel = state.finished ? "이번 핸드 수수료" : "이번 핸드 예상 수수료";
   const cumulativeFee = state.feeTotal ?? 0;
   const isNextHandReadyPhase = state.finished && !state.gameOver && !activeTournament;
+  const isManualTournamentRoundPhase = Boolean(
+    isManualSingleplayerTournamentRound && (state.finished || allTournamentTablesFinished),
+  );
   const nextHandButtonDisabled = multiplayerGameActive && (!canConfirmMultiplayerNextHand || hasConfirmedMultiplayerNextHand);
   const nextHandButtonLabel =
     multiplayerGameActive && !hasRequiredMultiplayerNextHandConfirmation
@@ -3428,6 +3459,9 @@ export default function PokerApp() {
       : multiplayerGameActive && hasConfirmedMultiplayerNextHand
         ? "다음 핸드 준비 완료"
         : "다음 핸드";
+  const nextTournamentRoundButtonLabel = allTournamentTablesFinished
+    ? "다음 라운드"
+    : `다른 테이블 진행 중 (${tournamentFinishedTableCount}/${tournamentTableCount})`;
   const activeCardInfoPlayer = cardInfoOverlay.playerId ? state.players.find((player) => player.id === cardInfoOverlay.playerId) : null;
   const activePocketInsight = cardInfoOverlay.playerId ? pocketInsightMap[cardInfoOverlay.playerId] : null;
   const activeShowdownLabel = cardInfoOverlay.playerId ? showdownMap[cardInfoOverlay.playerId] ?? "" : "";
@@ -3499,7 +3533,9 @@ export default function PokerApp() {
             <h2>게임 진행 설정</h2>
             <p className="note">
               {activeTournament
-                ? "토너먼트 진행 중에는 자동 진행, 엔들리스 교체, 행동 딜레이 설정을 변경할 수 없습니다."
+                ? isSingleplayerTournamentRoom
+                  ? "싱글플레이 토너먼트에서는 다음 라운드 자동 진행과 딜레이를 변경할 수 있습니다. 수동 진행 중에는 승부 결과가 다음 라운드를 누를 때까지 유지됩니다."
+                  : "멀티플레이 토너먼트 진행 중에는 자동 진행, 엔들리스 교체, 행동 딜레이 설정을 변경할 수 없습니다."
                 : "진행 상태에 영향을 주는 앱 옵션입니다. 멀티플레이에서는 방장만 변경할 수 있습니다."}
             </p>
           </div>
@@ -3509,9 +3545,9 @@ export default function PokerApp() {
                 type="checkbox"
                 checked={autoNextHand}
                 onChange={(event) => updateAutoNextHand(event.target.checked)}
-                disabled={!canEditActiveGameSettings}
+                disabled={!canEditAutoNextHandSetting}
               />
-              다음 핸드 자동 진행
+              {activeTournament ? "다음 라운드 자동 진행" : "다음 핸드 자동 진행"}
             </label>
             {!activeTournament ? (
               <label className="toggle-input">
@@ -3598,7 +3634,7 @@ export default function PokerApp() {
               />
             </label>
             <label>
-              다음 핸드 딜레이(ms)
+              {activeTournament ? "다음 라운드 딜레이(ms)" : "다음 핸드 딜레이(ms)"}
               <input
                 min={MIN_NEXT_HAND_DELAY_MS}
                 max={MAX_NEXT_HAND_DELAY_MS}
@@ -3606,7 +3642,7 @@ export default function PokerApp() {
                 type="number"
                 value={nextHandDelayMs}
                 onChange={(event) => updateNextHandDelay(event.target.value)}
-                disabled={!canEditActiveGameSettings || !autoNextHand}
+                disabled={!canEditAutoNextHandSetting || !autoNextHand}
               />
             </label>
             {!isSingleplayerTournamentRoom ? (
@@ -3659,6 +3695,7 @@ export default function PokerApp() {
                 <span>생존 <strong>{activeTournament.activeParticipantCount}</strong></span>
                 <span>전체 <strong>{activeTournament.initialParticipantCount}</strong></span>
                 <span>테이블 <strong>{activeTournament.tableCount}</strong></span>
+                <span>현재 라운드 완료 <strong>{tournamentFinishedTableCount}/{tournamentTableCount}</strong></span>
                 <span>
                   블라인드 <strong>레벨 {activeTournament.blindLevel}</strong> · {activeTournament.roundInBlindLevel}/{activeTournament.roundsPerBlindLevel}라운드 · SB {formatMoney(activeTournament.smallBlindAmount)} / BB {formatMoney(activeTournament.bigBlindAmount)}
                 </span>
@@ -3851,7 +3888,13 @@ export default function PokerApp() {
               </button>
             </div>
           ) : null}
-          {isNextHandReadyPhase ? (
+          {isManualTournamentRoundPhase ? (
+            <div className="action-row">
+              <button onClick={nextHand} disabled={!allTournamentTablesFinished}>
+                {nextTournamentRoundButtonLabel}
+              </button>
+            </div>
+          ) : isNextHandReadyPhase ? (
             <div className="action-row">
               <button onClick={nextHand} disabled={nextHandButtonDisabled}>
                 {nextHandButtonLabel}
@@ -3871,6 +3914,13 @@ export default function PokerApp() {
             </div>
           ) : null}
           {humanActionHint ? <p className="note">{humanActionHint}</p> : null}
+          {isManualTournamentRoundPhase ? (
+            <p className="note">
+              {allTournamentTablesFinished
+                ? "현재 핸드의 카드와 승부 결과는 다음 라운드를 누를 때까지 유지됩니다."
+                : `다른 테이블이 현재 핸드를 마칠 때까지 기다립니다. 완료 ${tournamentFinishedTableCount}/${tournamentTableCount}`}
+            </p>
+          ) : null}
           {isNextHandReadyPhase && multiplayerGameActive ? (
             <p className="note">
               {!hasRequiredMultiplayerNextHandConfirmation

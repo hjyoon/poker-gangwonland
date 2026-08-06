@@ -305,8 +305,30 @@ func (h *roomHub) requestNextHand(client *wsClient) {
 		return
 	}
 	if room.Tournament != nil {
+		value := room.Tournament
+		if !boolValue(value.Settings["singlePlayerTournament"]) {
+			h.mu.Unlock()
+			client.sendError("토너먼트의 다음 핸드는 모든 테이블이 끝난 뒤 자동으로 시작됩니다.")
+			return
+		}
+		if value.HostPlayerID != client.playerID {
+			h.mu.Unlock()
+			client.sendError("싱글플레이 토너먼트 참가자만 다음 라운드를 시작할 수 있습니다.")
+			return
+		}
+		if boolValue(value.Settings["autoNextHand"]) {
+			h.mu.Unlock()
+			client.sendError("다음 라운드 자동 진행이 활성화되어 있습니다.")
+			return
+		}
+		if value.Status != tournamentStatusRunning || !h.allTournamentTablesFinishedLocked(value) {
+			h.mu.Unlock()
+			client.sendError("모든 토너먼트 테이블의 현재 핸드가 끝난 뒤 다음 라운드를 시작할 수 있습니다.")
+			return
+		}
+		tournamentID := value.ID
 		h.mu.Unlock()
-		client.sendError("토너먼트의 다음 핸드는 모든 테이블이 끝난 뒤 자동으로 시작됩니다.")
+		h.advanceTournamentRoundManually(tournamentID)
 		return
 	}
 	if !boolValue(room.Game.State["finished"]) || boolValue(room.Game.State["gameOver"]) {

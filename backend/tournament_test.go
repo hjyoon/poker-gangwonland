@@ -215,6 +215,9 @@ func TestNormalizeTournamentSettingsCountsHumansAndComputersTogether(t *testing.
 	if boolValue(settings["endlessMode"]) {
 		t.Fatal("tournament settings must always disable endless replacements")
 	}
+	if !boolValue(settings["autoNextHand"]) {
+		t.Fatal("multiplayer tournaments must always advance automatically")
+	}
 	singlePlayerSettings := normalizeTournamentSettings(map[string]any{
 		"singlePlayerTournament":  true,
 		"initialParticipantCount": 12,
@@ -228,6 +231,16 @@ func TestNormalizeTournamentSettingsCountsHumansAndComputersTogether(t *testing.
 	}
 	if got := intValue(singlePlayerSettings["computerParticipantCount"]); got != 11 {
 		t.Fatalf("single-player tournament computer count = %d, want 11", got)
+	}
+	if boolValue(singlePlayerSettings["autoNextHand"]) {
+		t.Fatal("single-player tournaments must default to manual round advancement")
+	}
+	singlePlayerAutoSettings := normalizeTournamentSettings(map[string]any{
+		"singlePlayerTournament": true,
+		"autoNextHand":           true,
+	}, nil)
+	if !boolValue(singlePlayerAutoSettings["autoNextHand"]) {
+		t.Fatal("single-player tournament automatic advancement setting was not preserved")
 	}
 	maximumSettings := normalizeTournamentSettings(map[string]any{
 		"initialParticipantCount": 999,
@@ -481,6 +494,95 @@ func TestTournamentWaitsForEveryTableThenRebalancesBetweenHands(t *testing.T) {
 	}
 }
 
+func TestSinglePlayerTournamentWaitsForManualNextRound(t *testing.T) {
+	engine, err := newPokerEngine("../lib")
+	if err != nil {
+		t.Fatalf("load poker engine: %v", err)
+	}
+	settings := normalizeTournamentSettings(map[string]any{
+		"singlePlayerTournament":    true,
+		"initialParticipantCount":   2,
+		"humanParticipantCount":     1,
+		"tournamentStartingBalance": 1_000_000,
+		"nextHandDelayMs":           minNextHandDelayMs,
+	}, nil)
+	value := newTournament("ABC123", "human-1", settings)
+	client := &wsClient{roomID: value.ID, playerID: "human-1"}
+	lobby := &room{
+		ID:           value.ID,
+		HumanSlots:   1,
+		HostPlayerID: value.HostPlayerID,
+		Seats: []seat{{
+			ID:        humanSlotID(0),
+			PlayerID:  client.playerID,
+			Name:      "Player",
+			Connected: true,
+		}},
+		Settings:   settings,
+		clients:    map[*wsClient]struct{}{client: {}},
+		Tournament: value,
+	}
+	hub := &roomHub{
+		rooms:       map[string]*room{value.ID: lobby},
+		tournaments: map[string]*tournament{value.ID: value},
+		engine:      engine,
+	}
+	roomIDs, err := hub.startTournamentLocked(lobby, settings)
+	if err != nil {
+		t.Fatalf("start single-player tournament: %v", err)
+	}
+	if len(roomIDs) != 1 {
+		t.Fatalf("single-player tournament table count = %d, want 1", len(roomIDs))
+	}
+	tableRoom := hub.rooms[client.roomID]
+	delete(tableRoom.clients, client)
+	if tableRoom.Game.AutoNextHand {
+		t.Fatal("single-player tournament game must start in manual advancement mode")
+	}
+	tableRoom.Game.State["finished"] = true
+
+	hub.scheduleTournamentAdvance(value.ID)
+	if value.AdvanceTimer != nil || value.AdvanceScheduledAt != 0 {
+		if value.AdvanceTimer != nil {
+			value.AdvanceTimer.Stop()
+		}
+		t.Fatal("manual single-player tournament scheduled the next round")
+	}
+	publicTournament := hub.publicTournament(tableRoom).(map[string]any)
+	if !boolValue(publicTournament["allTablesFinished"]) || intValue(publicTournament["finishedTableCount"]) != 1 {
+		t.Fatalf("manual tournament completion summary = %#v", publicTournament)
+	}
+	if boolValue(publicRoomSettings(tableRoom)["autoNextHand"]) {
+		t.Fatal("public single-player tournament settings must report manual advancement")
+	}
+
+	hub.updateGameOptions(client, clientMessage{Raw: map[string]any{"autoNextHand": true}})
+	if !boolValue(value.Settings["autoNextHand"]) || !tableRoom.Game.AutoNextHand || value.AdvanceTimer == nil {
+		t.Fatal("enabling automatic advancement did not schedule the completed round")
+	}
+	hub.updateGameOptions(client, clientMessage{Raw: map[string]any{"autoNextHand": false}})
+	if boolValue(value.Settings["autoNextHand"]) || tableRoom.Game.AutoNextHand || value.AdvanceTimer != nil || value.AdvanceScheduledAt != 0 {
+		t.Fatal("disabling automatic advancement did not restore the manual pause")
+	}
+
+	hub.requestNextHand(client)
+	if value.Round != 2 {
+		t.Fatalf("manual next-round request advanced to round %d, want 2", value.Round)
+	}
+	nextTable := hub.rooms[value.TableRoomIDs[0]]
+	if nextTable == nil || intValue(nextTable.Game.State["handNumber"]) != 2 {
+		t.Fatalf("manual next-round game state = %#v", nextTable)
+	}
+	if nextTable.AutomationTimer != nil {
+		nextTable.AutomationTimer.Stop()
+		nextTable.AutomationTimer = nil
+	}
+	if nextTable.ComputerPeekTimer != nil {
+		nextTable.ComputerPeekTimer.Stop()
+		nextTable.ComputerPeekTimer = nil
+	}
+}
+
 func TestDisconnectKeepsRunningTournamentSeat(t *testing.T) {
 	participant := &tournamentParticipant{ID: "human-1", Name: "Host", IsHuman: true, Connected: true}
 	value := &tournament{
@@ -521,6 +623,7 @@ func TestDisconnectedTournamentHumanPaysBlindAndFoldsWithoutClients(t *testing.T
 		t.Fatalf("load poker engine: %v", err)
 	}
 	settings := normalizeTournamentSettings(map[string]any{
+		"singlePlayerTournament":    true,
 		"initialParticipantCount":   2,
 		"humanParticipantCount":     1,
 		"tournamentStartingBalance": 100_000,
@@ -591,9 +694,17 @@ func TestDisconnectedTournamentHumanPaysBlindAndFoldsWithoutClients(t *testing.T
 	if got := intValue(humanState["chipBalance"]); got != 98_000 {
 		t.Fatalf("disconnected human chip balance = %d, want 98000 after posting the small blind", got)
 	}
-	if value.AdvanceTimer != nil {
-		value.AdvanceTimer.Stop()
-		value.AdvanceTimer = nil
+	if value.AdvanceTimer == nil {
+		t.Fatal("disconnected manual-mode tournament did not continue automatically")
+	}
+	human.Connected = true
+	tableRoom.Seats[0].Connected = true
+	hub.scheduleTournamentAdvance(value.ID)
+	if value.AdvanceTimer != nil || value.AdvanceScheduledAt != 0 {
+		if value.AdvanceTimer != nil {
+			value.AdvanceTimer.Stop()
+		}
+		t.Fatal("reconnecting to a manual-mode tournament did not cancel automatic advancement")
 	}
 }
 

@@ -122,6 +122,10 @@ func normalizeTournamentSettings(settings map[string]any, fallback *tournament) 
 	if singlePlayerTournament {
 		humanCount = 1
 	}
+	autoNextHand := true
+	if singlePlayerTournament {
+		autoNextHand = boolValue(settings["autoNextHand"])
+	}
 	startingBalance := clampInt(settings["tournamentStartingBalance"], minPlayableBalance, 1_000_000_000, defaultBalance)
 	return map[string]any{
 		"tournamentMode":                    true,
@@ -130,7 +134,7 @@ func normalizeTournamentSettings(settings map[string]any, fallback *tournament) 
 		"humanParticipantCount":             humanCount,
 		"computerParticipantCount":          initialCount - humanCount,
 		"tournamentStartingBalance":         startingBalance,
-		"autoNextHand":                      true,
+		"autoNextHand":                      autoNextHand,
 		"endlessMode":                       false,
 		"showComputerStyles":                boolValueDefault(settings["showComputerStyles"], true),
 		"showCumulativeWins":                boolValueDefault(settings["showCumulativeWins"], true),
@@ -523,7 +527,7 @@ func (h *roomHub) buildTournamentGameLocked(room *room, participants []*tourname
 		State:                        state,
 		TableSeatOrder:               tableSeatOrder,
 		ChipTotals:                   anyMap(state["chipTotals"]),
-		AutoNextHand:                 true,
+		AutoNextHand:                 boolValue(settings["autoNextHand"]),
 		EndlessMode:                  false,
 		ShowComputerStyles:           boolValueDefault(settings["showComputerStyles"], true),
 		ShowCumulativeWins:           boolValueDefault(settings["showCumulativeWins"], true),
@@ -740,6 +744,18 @@ func (h *roomHub) allTournamentTablesFinishedLocked(value *tournament) bool {
 	return true
 }
 
+func shouldAutomaticallyAdvanceTournament(value *tournament) bool {
+	if value == nil || !boolValue(value.Settings["singlePlayerTournament"]) || boolValue(value.Settings["autoNextHand"]) {
+		return true
+	}
+	for _, participant := range value.Participants {
+		if participant.IsHuman && participant.Connected {
+			return false
+		}
+	}
+	return true
+}
+
 func (h *roomHub) finishTournamentLocked(value *tournament, active []*tournamentParticipant) {
 	value.Status = tournamentStatusFinished
 	value.AdvanceScheduledAt = 0
@@ -820,7 +836,22 @@ func (h *roomHub) scheduleTournamentAdvance(tournamentID string) {
 		h.broadcastTournament(tournamentID)
 		return
 	}
-	if !h.allTournamentTablesFinishedLocked(value) || value.AdvanceTimer != nil {
+	if !h.allTournamentTablesFinishedLocked(value) {
+		h.mu.Unlock()
+		h.broadcastTournament(tournamentID)
+		return
+	}
+	if !shouldAutomaticallyAdvanceTournament(value) {
+		if value.AdvanceTimer != nil {
+			value.AdvanceTimer.Stop()
+			value.AdvanceTimer = nil
+		}
+		value.AdvanceScheduledAt = 0
+		h.mu.Unlock()
+		h.broadcastTournament(tournamentID)
+		return
+	}
+	if value.AdvanceTimer != nil {
 		h.mu.Unlock()
 		h.broadcastTournament(tournamentID)
 		return
@@ -840,6 +871,14 @@ func (h *roomHub) scheduleTournamentAdvance(tournamentID string) {
 }
 
 func (h *roomHub) advanceTournamentRound(tournamentID string) {
+	h.advanceTournamentRoundWithMode(tournamentID, false)
+}
+
+func (h *roomHub) advanceTournamentRoundManually(tournamentID string) {
+	h.advanceTournamentRoundWithMode(tournamentID, true)
+}
+
+func (h *roomHub) advanceTournamentRoundWithMode(tournamentID string, manual bool) {
 	h.mu.Lock()
 	value := h.tournaments[tournamentID]
 	if value == nil || value.Status != tournamentStatusRunning || !h.allTournamentTablesFinishedLocked(value) {
@@ -848,6 +887,13 @@ func (h *roomHub) advanceTournamentRound(tournamentID string) {
 			value.AdvanceScheduledAt = 0
 		}
 		h.mu.Unlock()
+		return
+	}
+	if !manual && !shouldAutomaticallyAdvanceTournament(value) {
+		value.AdvanceTimer = nil
+		value.AdvanceScheduledAt = 0
+		h.mu.Unlock()
+		h.broadcastTournament(tournamentID)
 		return
 	}
 	value.AdvanceTimer = nil
@@ -940,6 +986,7 @@ func (h *roomHub) publicTournament(room *room) any {
 		winnerName = winner.Name
 	}
 	tables := make([]map[string]any, 0, len(value.TableRoomIDs))
+	finishedTableCount := 0
 	for index, roomID := range value.TableRoomIDs {
 		tableRoom := h.rooms[roomID]
 		participantCount := 0
@@ -947,6 +994,9 @@ func (h *roomHub) publicTournament(room *room) any {
 		if tableRoom != nil && tableRoom.Game != nil && tableRoom.Game.State != nil {
 			participantCount = len(statePlayers(tableRoom.Game.State))
 			finished = boolValue(tableRoom.Game.State["finished"])
+			if finished {
+				finishedTableCount++
+			}
 		}
 		tableNumber := index + 1
 		if tableRoom != nil && tableRoom.TableNumber > 0 {
@@ -968,6 +1018,8 @@ func (h *roomHub) publicTournament(room *room) any {
 		"computerParticipantCount": value.ComputerParticipantCount,
 		"activeParticipantCount":   activeCount,
 		"tableCount":               len(value.TableRoomIDs),
+		"finishedTableCount":       finishedTableCount,
+		"allTablesFinished":        len(value.TableRoomIDs) > 0 && finishedTableCount == len(value.TableRoomIDs),
 		"tableNumber":              room.TableNumber,
 		"maxPlayersPerTable":       maxTotalPlayers,
 		"round":                    value.Round,

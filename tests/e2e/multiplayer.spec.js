@@ -321,10 +321,11 @@ test.describe("root multiplayer flows", () => {
     await hostPage.getByLabel("전체 참가자 수").fill("9");
     await hostPage.getByLabel("인간 참가자 수").fill("2");
     await hostPage.getByLabel("컴퓨터 행동 딜레이(ms)").fill("100");
-    await hostPage.getByLabel("다음 핸드 딜레이(ms)").fill("500");
+    await hostPage.getByLabel("다음 라운드 딜레이(ms)").fill("500");
     await hostPage.getByLabel("멀티플레이 제한 시간(ms)").fill("10000");
     await expect(hostPage.getByLabel("컴퓨터 참가자 수")).toHaveValue("7");
-    await expect(hostPage.getByLabel("다음 핸드 자동 진행")).toBeChecked();
+    await expect(hostPage.getByLabel("다음 라운드 자동 진행")).toBeChecked();
+    await expect(hostPage.getByLabel("다음 라운드 자동 진행")).toBeDisabled();
     await expect(hostPage.getByLabel("엔들리스 게임 모드")).toHaveCount(0);
 
     await openSetupTab(hostPage, "멀티플레이");

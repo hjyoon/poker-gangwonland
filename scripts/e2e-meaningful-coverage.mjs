@@ -30,7 +30,7 @@ export const MEANINGFUL_E2E_TARGETS = [
   { id: "singleplay.short-stack-all-in-lock", area: "singleplay", description: "Short-stack call shown as all-in and locked action." },
   { id: "singleplay.game-over-too-few", area: "singleplay", description: "Game-over path when fewer than two players remain playable." },
   { id: "singleplay.computer-only-random-endless", area: "singleplay", description: "Computer-only, random-order, and endless setup branches." },
-  { id: "singleplay.multi-table-tournament", area: "singleplay", description: "Immediate single-player tournament start, 128-player clamp, cross-table spectating, standings, and timer-free human action." },
+  { id: "singleplay.multi-table-tournament", area: "singleplay", description: "Immediate single-player tournament start, manual next-round controls, result retention, 128-player clamp, cross-table spectating, standings, and timer-free human action." },
   { id: "server.websocket-handshake-protocol", area: "server", description: "WebSocket handshake, malformed frame, ping/pong, and protocol error handling." },
   { id: "server.room-lifecycle-settings", area: "server", description: "Room lifecycle, host settings, lobby synchronization, and reconnection." },
   { id: "server.seat-reservations-missed-blinds", area: "server", description: "Seat reservations, stand-up/away states, endless waiting, and missed blinds." },

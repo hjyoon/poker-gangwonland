@@ -63,7 +63,8 @@ func publicRoomSettings(room *room) map[string]any {
 			"humanParticipantCount":     room.Tournament.HumanParticipantCount,
 			"computerParticipantCount":  room.Tournament.ComputerParticipantCount,
 			"tournamentStartingBalance": room.Tournament.StartingBalance,
-			"autoNextHand":              true,
+			"autoNextHand":              room.Game.AutoNextHand,
+			"nextHandDelayMs":           room.Game.NextHandDelayMs,
 			"endlessMode":               false,
 		})
 	}

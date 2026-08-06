@@ -289,8 +289,55 @@ func (h *roomHub) updateGameOptions(client *wsClient, message clientMessage) {
 		return
 	}
 	if room.Tournament != nil {
+		value := room.Tournament
+		if !boolValue(value.Settings["singlePlayerTournament"]) {
+			h.mu.Unlock()
+			client.sendError("진행 중인 토너먼트 설정은 변경할 수 없습니다.")
+			return
+		}
+		if value.Status != tournamentStatusRunning {
+			h.mu.Unlock()
+			client.sendError("종료된 토너먼트 설정은 변경할 수 없습니다.")
+			return
+		}
+		if value.HostPlayerID != client.playerID {
+			h.mu.Unlock()
+			client.sendError("싱글플레이 토너먼트 참가자만 진행 설정을 변경할 수 있습니다.")
+			return
+		}
+		_, hasAutoNextHand := message.Raw["autoNextHand"]
+		_, hasNextHandDelay := message.Raw["nextHandDelayMs"]
+		if !hasAutoNextHand && !hasNextHandDelay {
+			h.mu.Unlock()
+			client.sendError("싱글플레이 토너먼트에서는 다음 라운드 진행 설정만 변경할 수 있습니다.")
+			return
+		}
+
+		settingsUpdate := map[string]any{}
+		if hasAutoNextHand {
+			settingsUpdate["autoNextHand"] = boolValue(message.Raw["autoNextHand"])
+		}
+		if hasNextHandDelay {
+			settingsUpdate["nextHandDelayMs"] = clampInt(message.Raw["nextHandDelayMs"], minNextHandDelayMs, maxNextHandDelayMs, defaultNextHandDelayMs)
+		}
+		value.Settings = mergeSettings(value.Settings, settingsUpdate)
+		if value.AdvanceTimer != nil {
+			value.AdvanceTimer.Stop()
+			value.AdvanceTimer = nil
+		}
+		value.AdvanceScheduledAt = 0
+		for _, tableRoomID := range value.TableRoomIDs {
+			tableRoom := h.rooms[tableRoomID]
+			if tableRoom == nil || tableRoom.Game == nil {
+				continue
+			}
+			tableRoom.Settings = mergeSettings(tableRoom.Settings, settingsUpdate)
+			tableRoom.Game.AutoNextHand = boolValue(value.Settings["autoNextHand"])
+			tableRoom.Game.NextHandDelayMs = intValue(value.Settings["nextHandDelayMs"])
+		}
+		tournamentID := value.ID
 		h.mu.Unlock()
-		client.sendError("진행 중인 토너먼트 설정은 변경할 수 없습니다.")
+		h.scheduleTournamentAdvance(tournamentID)
 		return
 	}
 	if room.HostPlayerID != client.playerID {

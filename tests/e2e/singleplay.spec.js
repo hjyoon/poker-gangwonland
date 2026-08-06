@@ -259,13 +259,15 @@ test.describe("root singleplay table", () => {
   test("starts and spectates a 128-cap single-player multi-table tournament without a human action timer", async ({ page }) => {
     await gotoRoot(page);
     await page.getByLabel("멀티 테이블 토너먼트").check();
+    await expect(page.getByLabel("다음 라운드 자동 진행")).toBeEnabled();
+    await expect(page.getByLabel("다음 라운드 자동 진행")).not.toBeChecked();
+    await expect(page.getByLabel("다음 라운드 딜레이(ms)")).toBeDisabled();
     await page.getByLabel("표시 이름").fill("Solo Player");
     await page.getByLabel("전체 참가자 수").fill("129");
     await expect(page.getByLabel("전체 참가자 수")).toHaveValue("128");
     await page.getByLabel("전체 참가자 수").fill("9");
     await page.getByLabel("공통 시작 금액").fill("1000000");
     await page.getByLabel("컴퓨터 행동 딜레이(ms)").fill("500");
-    await page.getByLabel("다음 핸드 딜레이(ms)").fill("500");
 
     await expect(page.getByLabel("인간 참가자 수")).toHaveValue("1");
     await expect(page.getByLabel("인간 참가자 수")).toHaveAttribute("readonly", "");
@@ -303,10 +305,44 @@ test.describe("root singleplay table", () => {
     await openActiveMenuItem(page, "게임 설정");
     await expect(page.getByLabel("엔들리스 게임 모드")).toHaveCount(0);
     await expect(page.getByLabel("멀티플레이 제한 시간(ms)")).toHaveCount(0);
+    await expect(page.getByLabel("다음 라운드 자동 진행")).toBeEnabled();
+    await expect(page.getByLabel("다음 라운드 자동 진행")).not.toBeChecked();
+    await expect(page.getByLabel("다음 라운드 딜레이(ms)")).toBeDisabled();
+    await page.getByLabel("다음 라운드 자동 진행").check();
+    await expect(page.getByLabel("다음 라운드 딜레이(ms)")).toBeEnabled();
+    await page.getByLabel("다음 라운드 딜레이(ms)").fill("500");
+    await page.getByLabel("다음 라운드 자동 진행").uncheck();
+    await expect(page.getByLabel("다음 라운드 딜레이(ms)")).toBeDisabled();
     await page.getByRole("button", { name: "새 게임 설정" }).click();
     await expect(page.getByRole("heading", { name: "게임 시작 설정" })).toBeVisible();
     await expect(page.getByRole("radio", { name: "싱글플레이" })).toHaveAttribute("aria-checked", "true");
     await expect(page.getByLabel("멀티 테이블 토너먼트")).toBeChecked();
     await recordMeaningfulCoverage("singleplay.multi-table-tournament");
+  });
+
+  test("keeps single-player tournament results until the user starts the next round", async ({ page }) => {
+    await gotoRoot(page);
+    await page.getByLabel("멀티 테이블 토너먼트").check();
+    await page.getByLabel("전체 참가자 수").fill("2");
+    await page.getByLabel("공통 시작 금액").fill("1000000");
+    await page.getByLabel("컴퓨터 행동 딜레이(ms)").fill("100");
+    await expect(page.getByLabel("다음 라운드 자동 진행")).not.toBeChecked();
+    await page.getByRole("button", { name: "토너먼트 시작" }).click();
+
+    const nextRoundButton = page.getByRole("button", { name: "다음 라운드", exact: true });
+    for (let actionCount = 0; actionCount < 80 && !(await nextRoundButton.isVisible().catch(() => false)); actionCount += 1) {
+      const clicked = await clickIfEnabledAction(page, PASSIVE_ACTION_ORDER);
+      await page.waitForTimeout(clicked ? 100 : 250);
+    }
+
+    await expect(nextRoundButton).toBeVisible();
+    await expect(nextRoundButton).toBeEnabled();
+    await expect(page.getByText("현재 핸드의 카드와 승부 결과는 다음 라운드를 누를 때까지 유지됩니다.")).toBeVisible();
+    await expect(page.locator(".tournament-overview h2")).toContainText("라운드 1");
+    await page.waitForTimeout(2_000);
+    await expect(page.locator(".tournament-overview h2")).toContainText("라운드 1");
+
+    await nextRoundButton.click();
+    await expect(page.locator(".tournament-overview h2")).toContainText("라운드 2");
   });
 });
