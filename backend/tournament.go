@@ -30,6 +30,27 @@ type tournamentParticipant struct {
 	TableRoomID     string
 }
 
+type tournamentBlindLevel struct {
+	Number           int
+	SmallBlindAmount int
+	BigBlindAmount   int
+}
+
+func blindLevelForTournamentRound(round int) tournamentBlindLevel {
+	level := round
+	if level < 1 {
+		level = 1
+	}
+	if level > maxTournamentBlindLevel {
+		level = maxTournamentBlindLevel
+	}
+	return tournamentBlindLevel{
+		Number:           level,
+		SmallBlindAmount: smallBlindAmount * level,
+		BigBlindAmount:   bigBlindAmount * level,
+	}
+}
+
 type tournament struct {
 	ID                       string
 	HostPlayerID             string
@@ -449,18 +470,21 @@ func (h *roomHub) buildTournamentGameLocked(room *room, participants []*tourname
 			"label":         "빈 자리 " + strconvItoa(len(tableSeatOrder)+1),
 		})
 	}
+	blindLevel := blindLevelForTournamentRound(room.Tournament.Round)
 	state, err := h.engine.startNewHand(map[string]any{
-		"cpuCount":       computerCount,
-		"includeHuman":   false,
-		"dealerIndex":    dealerIndex,
-		"chipTotals":     chipTotals,
-		"feeTotal":       room.Tournament.FeeTotal,
-		"handNumber":     handNumber,
-		"computerStyles": computerStyles,
-		"computerLevels": computerLevels,
-		"endlessMode":    false,
-		"playerStats":    room.Tournament.PlayerStats,
-		"playerConfigs":  mapsToAny(playerConfigs),
+		"cpuCount":         computerCount,
+		"includeHuman":     false,
+		"dealerIndex":      dealerIndex,
+		"chipTotals":       chipTotals,
+		"feeTotal":         room.Tournament.FeeTotal,
+		"handNumber":       handNumber,
+		"smallBlindAmount": blindLevel.SmallBlindAmount,
+		"bigBlindAmount":   blindLevel.BigBlindAmount,
+		"computerStyles":   computerStyles,
+		"computerLevels":   computerLevels,
+		"endlessMode":      false,
+		"playerStats":      room.Tournament.PlayerStats,
+		"playerConfigs":    mapsToAny(playerConfigs),
 	})
 	if err != nil {
 		return nil, err
@@ -923,6 +947,7 @@ func (h *roomHub) publicTournament(room *room) any {
 			"finished":         finished,
 		})
 	}
+	blindLevel := blindLevelForTournamentRound(value.Round)
 	return map[string]any{
 		"id":                       value.ID,
 		"status":                   value.Status,
@@ -935,6 +960,10 @@ func (h *roomHub) publicTournament(room *room) any {
 		"tableNumber":              room.TableNumber,
 		"maxPlayersPerTable":       maxTotalPlayers,
 		"round":                    value.Round,
+		"blindLevel":               blindLevel.Number,
+		"smallBlindAmount":         blindLevel.SmallBlindAmount,
+		"bigBlindAmount":           blindLevel.BigBlindAmount,
+		"maxBlindLevel":            maxTournamentBlindLevel,
 		"tables":                   tables,
 		"winnerId":                 value.WinnerID,
 		"winnerName":               winnerName,

@@ -37,6 +37,39 @@ func TestBalancedTableSizes(t *testing.T) {
 	}
 }
 
+func TestBlindLevelForTournamentRound(t *testing.T) {
+	tests := []struct {
+		round     int
+		wantLevel int
+		wantSmall int
+		wantBig   int
+	}{
+		{round: 0, wantLevel: 1, wantSmall: 2_000, wantBig: 5_000},
+		{round: 1, wantLevel: 1, wantSmall: 2_000, wantBig: 5_000},
+		{round: 2, wantLevel: 2, wantSmall: 4_000, wantBig: 10_000},
+		{round: 20, wantLevel: 20, wantSmall: 40_000, wantBig: 100_000},
+		{round: 21, wantLevel: 20, wantSmall: 40_000, wantBig: 100_000},
+	}
+
+	for _, test := range tests {
+		t.Run(strconvItoa(test.round), func(t *testing.T) {
+			got := blindLevelForTournamentRound(test.round)
+			if got.Number != test.wantLevel || got.SmallBlindAmount != test.wantSmall || got.BigBlindAmount != test.wantBig {
+				t.Fatalf(
+					"blindLevelForTournamentRound(%d) = level %d, %d/%d; want level %d, %d/%d",
+					test.round,
+					got.Number,
+					got.SmallBlindAmount,
+					got.BigBlindAmount,
+					test.wantLevel,
+					test.wantSmall,
+					test.wantBig,
+				)
+			}
+		})
+	}
+}
+
 func TestAllocateTournamentGroupsKeepsTablesBalancedAndParticipantsUnique(t *testing.T) {
 	participants := make([]*tournamentParticipant, 0, 15)
 	for index := 0; index < 15; index++ {
@@ -338,6 +371,16 @@ func TestTournamentWaitsForEveryTableThenRebalancesBetweenHands(t *testing.T) {
 	finalTable := hub.rooms[value.TableRoomIDs[0]]
 	if got := len(finalTable.Game.PlayerConfigs); got != 8 {
 		t.Fatalf("rebalanced table participant count = %d, want 8", got)
+	}
+	if got := intValue(finalTable.Game.State["smallBlindAmount"]); got != 4_000 {
+		t.Fatalf("round 2 small blind = %d, want 4000", got)
+	}
+	if got := intValue(finalTable.Game.State["bigBlindAmount"]); got != 10_000 {
+		t.Fatalf("round 2 big blind = %d, want 10000", got)
+	}
+	publicTournament := hub.publicTournament(finalTable).(map[string]any)
+	if got := intValue(publicTournament["blindLevel"]); got != 2 {
+		t.Fatalf("public blind level = %d, want 2", got)
 	}
 	if finalTable.AutomationTimer != nil {
 		finalTable.AutomationTimer.Stop()

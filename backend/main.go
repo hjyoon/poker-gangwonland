@@ -30,8 +30,10 @@ const (
 	defaultHumanActionTimeoutMs  = 15000
 	defaultStartingBalance       = 100000
 	minPlayableBalance           = 1
+	maxPlayerTotalBet            = 100000
 	smallBlindAmount             = 2000
 	bigBlindAmount               = 5000
+	maxTournamentBlindLevel      = maxPlayerTotalBet / bigBlindAmount
 	maxTotalPlayers              = 8
 	maxTournamentPlayers         = 128
 	maxHumanSlots                = maxTotalPlayers

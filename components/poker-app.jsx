@@ -23,6 +23,7 @@ import {
   startNewHand,
 } from "../lib/poker";
 import {
+  BIG_BLIND_AMOUNT,
   DEFAULT_COMPUTER_ACTION_DELAY_MS,
   DEFAULT_HUMAN_ACTION_TIMEOUT_MS,
   DEFAULT_NEXT_HAND_DELAY_MS,
@@ -32,6 +33,7 @@ import {
   MAX_MULTIPLAYER_HUMAN_SLOTS,
   MAX_NEXT_HAND_DELAY_MS,
   MAX_PLAYER_TOTAL_BET,
+  MAX_TOURNAMENT_BLIND_LEVEL,
   MAX_TOURNAMENT_PARTICIPANTS,
   MAX_TOTAL_PLAYERS,
   MIN_COMPUTER_ACTION_DELAY_MS,
@@ -39,6 +41,7 @@ import {
   MIN_MULTIPLAYER_HUMAN_SLOTS,
   MIN_NEXT_HAND_DELAY_MS,
   MULTIPLAYER_RECONNECT_DELAY_MS,
+  SMALL_BLIND_AMOUNT,
 } from "../lib/domain/game-rules";
 
 const SETUP_MODE_OPTIONS = [
@@ -3010,6 +3013,9 @@ export default function PokerApp() {
                   <p className="note">
                     참가자는 무작위로 섞은 뒤 테이블당 최대 {MAX_TOTAL_PLAYERS}명, 테이블별 인원 차이 1명 이하로 배치됩니다. 토너먼트 시작 후 신규 참가와 엔들리스 교체는 허용되지 않습니다.
                   </p>
+                  <p className="note">
+                    블라인드는 라운드마다 SB {formatMoney(SMALL_BLIND_AMOUNT)}, BB {formatMoney(BIG_BLIND_AMOUNT)}씩 상승하며 최대 레벨 {MAX_TOURNAMENT_BLIND_LEVEL}의 SB {formatMoney(SMALL_BLIND_AMOUNT * MAX_TOURNAMENT_BLIND_LEVEL)} / BB {formatMoney(BIG_BLIND_AMOUNT * MAX_TOURNAMENT_BLIND_LEVEL)}까지 적용됩니다.
+                  </p>
                   {isSingleplayerTournamentSetup ? (
                     <p className="note">다른 테이블은 서버에서 자동 진행되며, 로컬 인간 참가자의 차례에는 멀티플레이 제한 시간을 적용하지 않습니다.</p>
                   ) : (
@@ -3651,6 +3657,9 @@ export default function PokerApp() {
                 <span>생존 <strong>{activeTournament.activeParticipantCount}</strong></span>
                 <span>전체 <strong>{activeTournament.initialParticipantCount}</strong></span>
                 <span>테이블 <strong>{activeTournament.tableCount}</strong></span>
+                <span>
+                  블라인드 <strong>레벨 {activeTournament.blindLevel}</strong> · SB {formatMoney(activeTournament.smallBlindAmount)} / BB {formatMoney(activeTournament.bigBlindAmount)}
+                </span>
               </div>
             </div>
             <div className="tournament-table-watch">

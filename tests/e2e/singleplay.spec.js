@@ -277,6 +277,7 @@ test.describe("root singleplay table", () => {
     await expect(page.getByText("싱글플레이 멀티 테이블 토너먼트")).toBeVisible();
     await expect(page.locator(".tournament-overview h2")).toContainText(/라운드 1 · 테이블 [12]\/2/);
     await expect(page.locator(".tournament-metrics")).toContainText("생존 9");
+    await expect(page.locator(".tournament-metrics")).toContainText("블라인드 레벨 1 · SB ₩2,000 / BB ₩5,000");
     const ownTableMatch = /테이블 (\d+)\/2/.exec(await page.locator(".tournament-overview h2").innerText());
     const ownTableNumber = Number(ownTableMatch?.[1]);
     const watchedTableNumber = ownTableNumber === 1 ? 2 : 1;
