@@ -8,7 +8,6 @@ COPY index.html vite.config.mjs jsconfig.json ./
 COPY src ./src
 COPY components ./components
 COPY lib ./lib
-COPY public ./public
 RUN bun run build
 
 FROM golang:1.25-alpine3.23 AS backend
