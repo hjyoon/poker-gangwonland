@@ -457,7 +457,11 @@ func (h *roomHub) createRoom(client *wsClient, message clientMessage) {
 	humanSlots := clamp(message.HumanSlots, minHumanSlots, maxHumanSlots, minHumanSlots)
 	if tournamentMode {
 		initialCount := clampInt(message.Settings["initialParticipantCount"], 2, maxTournamentPlayers, 2)
-		humanSlots = clampInt(message.Settings["humanParticipantCount"], 1, initialCount, 1)
+		if boolValue(message.Settings["singlePlayerTournament"]) {
+			humanSlots = 1
+		} else {
+			humanSlots = clampInt(message.Settings["humanParticipantCount"], 1, initialCount, 1)
+		}
 	}
 	now := time.Now().UnixMilli()
 	room := &room{
@@ -502,8 +506,30 @@ func (h *roomHub) createRoom(client *wsClient, message clientMessage) {
 	client.playerID = playerID
 	h.mu.Unlock()
 
-	client.send(map[string]any{"type": "joinedRoom", "roomId": room.ID, "playerId": playerID})
-	h.broadcast(room)
+	singlePlayerTournament := room.Tournament != nil && boolValue(room.Settings["singlePlayerTournament"])
+	client.send(map[string]any{
+		"type":                   "joinedRoom",
+		"roomId":                 room.ID,
+		"playerId":               playerID,
+		"singlePlayerTournament": singlePlayerTournament,
+	})
+	if !singlePlayerTournament {
+		h.broadcast(room)
+		return
+	}
+
+	h.mu.Lock()
+	roomIDs, err := h.startTournamentLocked(room, room.Settings)
+	h.mu.Unlock()
+	if err != nil {
+		client.sendError(err.Error())
+		h.broadcast(room)
+		return
+	}
+	for _, tableRoomID := range roomIDs {
+		h.scheduleRoomAutomation(tableRoomID)
+	}
+	h.broadcastTournament(room.Tournament.ID)
 }
 
 func (h *roomHub) joinRoom(client *wsClient, message clientMessage) {
@@ -760,6 +786,30 @@ func (h *roomHub) detachLocked(client *wsClient, clearSeat bool) {
 		return
 	}
 	delete(room.clients, client)
+	if room.Tournament != nil && boolValue(room.Settings["singlePlayerTournament"]) && clearSeat {
+		value := room.Tournament
+		if value.AdvanceTimer != nil {
+			value.AdvanceTimer.Stop()
+		}
+		if value.CleanupTimer != nil {
+			value.CleanupTimer.Stop()
+		}
+		for _, tableRoomID := range value.TableRoomIDs {
+			if tableRoom := h.rooms[tableRoomID]; tableRoom != nil {
+				if tableRoom.AutomationTimer != nil {
+					tableRoom.AutomationTimer.Stop()
+				}
+				if tableRoom.ComputerPeekTimer != nil {
+					tableRoom.ComputerPeekTimer.Stop()
+				}
+			}
+			delete(h.rooms, tableRoomID)
+		}
+		delete(h.tournaments, value.ID)
+		client.roomID = ""
+		client.playerID = ""
+		return
+	}
 	keepTournamentSeat := room.Tournament != nil && room.Tournament.Status == tournamentStatusRunning
 	if room.Tournament != nil && room.Tournament.Status != tournamentStatusRegistering {
 		if participant := room.Tournament.Participants[client.playerID]; participant != nil {

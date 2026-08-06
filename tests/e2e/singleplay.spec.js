@@ -255,4 +255,37 @@ test.describe("root singleplay table", () => {
     await expect(page.locator(".seat")).toHaveCount(8);
     await recordMeaningfulCoverage("singleplay.computer-only-random-endless");
   });
+
+  test("starts a single-player multi-table tournament without a human action timer", async ({ page }) => {
+    await gotoRoot(page);
+    await page.getByLabel("멀티 테이블 토너먼트").check();
+    await page.getByLabel("표시 이름").fill("Solo Player");
+    await page.getByLabel("전체 참가자 수").fill("9");
+    await page.getByLabel("컴퓨터 행동 딜레이(ms)").fill("100");
+    await page.getByLabel("다음 핸드 딜레이(ms)").fill("500");
+
+    await expect(page.getByLabel("인간 참가자 수")).toHaveValue("1");
+    await expect(page.getByLabel("인간 참가자 수")).toHaveAttribute("readonly", "");
+    await expect(page.getByLabel("컴퓨터 참가자 수")).toHaveValue("8");
+    await expect(page.getByLabel("엔들리스 게임 모드")).toHaveCount(0);
+    await page.getByRole("button", { name: "토너먼트 시작" }).click();
+
+    await expect(page.getByRole("region", { name: "토너먼트 현황" })).toBeVisible();
+    await expect(page.getByText("싱글플레이 멀티 테이블 토너먼트")).toBeVisible();
+    await expect(page.locator(".tournament-overview h2")).toContainText(/라운드 1 · 테이블 [12]\/2/);
+    await expect(page.locator(".tournament-metrics")).toContainText("생존 9");
+    await page.getByText("전체 순위 및 배치").click();
+    await expect(page.locator(".tournament-standing")).toHaveCount(9);
+    await expect(page.locator(".tournament-standing").filter({ hasText: "Solo Player" })).toBeVisible();
+    await expect(page.getByLabel(/행동 제한 시간/)).toHaveCount(0);
+
+    await openActiveMenuItem(page, "게임 설정");
+    await expect(page.getByLabel("엔들리스 게임 모드")).toHaveCount(0);
+    await expect(page.getByLabel("멀티플레이 제한 시간(ms)")).toHaveCount(0);
+    await page.getByRole("button", { name: "새 게임 설정" }).click();
+    await expect(page.getByRole("heading", { name: "게임 시작 설정" })).toBeVisible();
+    await expect(page.getByRole("radio", { name: "싱글플레이" })).toHaveAttribute("aria-checked", "true");
+    await expect(page.getByLabel("멀티 테이블 토너먼트")).toBeChecked();
+    await recordMeaningfulCoverage("singleplay.multi-table-tournament");
+  });
 });

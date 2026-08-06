@@ -94,6 +94,20 @@ func TestNormalizeTournamentSettingsCountsHumansAndComputersTogether(t *testing.
 	if boolValue(settings["endlessMode"]) {
 		t.Fatal("tournament settings must always disable endless replacements")
 	}
+	singlePlayerSettings := normalizeTournamentSettings(map[string]any{
+		"singlePlayerTournament":  true,
+		"initialParticipantCount": 12,
+		"humanParticipantCount":   3,
+	}, nil)
+	if !boolValue(singlePlayerSettings["singlePlayerTournament"]) {
+		t.Fatal("single-player tournament setting was not preserved")
+	}
+	if got := intValue(singlePlayerSettings["humanParticipantCount"]); got != 1 {
+		t.Fatalf("single-player tournament human count = %d, want 1", got)
+	}
+	if got := intValue(singlePlayerSettings["computerParticipantCount"]); got != 11 {
+		t.Fatalf("single-player tournament computer count = %d, want 11", got)
+	}
 }
 
 func TestStartTournamentBuildsBalancedTables(t *testing.T) {
@@ -387,6 +401,113 @@ func TestDisconnectedTournamentHumanPaysBlindAndFoldsWithoutClients(t *testing.T
 	if value.AdvanceTimer != nil {
 		value.AdvanceTimer.Stop()
 		value.AdvanceTimer = nil
+	}
+}
+
+func TestConnectedSinglePlayerTournamentHumanHasNoActionTimer(t *testing.T) {
+	engine, err := newPokerEngine("../lib")
+	if err != nil {
+		t.Fatalf("load poker engine: %v", err)
+	}
+	settings := normalizeTournamentSettings(map[string]any{
+		"singlePlayerTournament":    true,
+		"initialParticipantCount":   2,
+		"humanParticipantCount":     1,
+		"tournamentStartingBalance": 100_000,
+	}, nil)
+	value := newTournament("ABC123", "human-1", settings)
+	value.Status = tournamentStatusRunning
+	value.Round = 1
+	computer := &tournamentParticipant{
+		ID:              "cpu-1",
+		Name:            "Computer",
+		EntryIndex:      0,
+		StartingBalance: 100_000,
+		ChipBalance:     100_000,
+		Connected:       true,
+		TableNumber:     1,
+		TableRoomID:     value.ID,
+	}
+	human := &tournamentParticipant{
+		ID:              "human-1",
+		Name:            "Player",
+		IsHuman:         true,
+		EntryIndex:      1,
+		StartingBalance: 100_000,
+		ChipBalance:     100_000,
+		Connected:       true,
+		TableNumber:     1,
+		TableRoomID:     value.ID,
+	}
+	value.Participants = map[string]*tournamentParticipant{computer.ID: computer, human.ID: human}
+	value.EntryOrder = []string{computer.ID, human.ID}
+	value.TableRoomIDs = []string{value.ID}
+	tableRoom := &room{
+		ID:           value.ID,
+		HostPlayerID: human.ID,
+		Settings:     settings,
+		Tournament:   value,
+		TableNumber:  1,
+		Seats: []seat{{
+			ID:        humanSlotID(0),
+			PlayerID:  human.ID,
+			Name:      human.Name,
+			Connected: true,
+		}},
+		clients: map[*wsClient]struct{}{},
+	}
+	hub := &roomHub{
+		rooms:       map[string]*room{value.ID: tableRoom},
+		tournaments: map[string]*tournament{value.ID: value},
+		engine:      engine,
+	}
+	tableRoom.Game, err = hub.buildTournamentGameLocked(tableRoom, []*tournamentParticipant{computer, human}, 1, computer.ID)
+	if err != nil {
+		t.Fatalf("build tournament game: %v", err)
+	}
+
+	hub.scheduleRoomAutomation(tableRoom.ID)
+
+	if boolValue(tableRoom.Game.State["finished"]) {
+		t.Fatal("single-player tournament acted for a connected human")
+	}
+	if tableRoom.Game.Timer != nil || tableRoom.AutomationTimer != nil {
+		t.Fatal("single-player tournament scheduled a human action timeout")
+	}
+}
+
+func TestLeavingSinglePlayerTournamentRemovesItsTables(t *testing.T) {
+	value := &tournament{
+		ID:           "ABC123",
+		Status:       tournamentStatusRunning,
+		Settings:     map[string]any{"singlePlayerTournament": true},
+		TableRoomIDs: []string{"ABC123", "ABC123-T2"},
+	}
+	client := &wsClient{roomID: value.ID, playerID: "human-1"}
+	firstRoom := &room{
+		ID:         value.ID,
+		Settings:   value.Settings,
+		Tournament: value,
+		clients:    map[*wsClient]struct{}{client: {}},
+	}
+	secondRoom := &room{
+		ID:         "ABC123-T2",
+		Settings:   value.Settings,
+		Tournament: value,
+		clients:    map[*wsClient]struct{}{},
+	}
+	hub := &roomHub{
+		rooms: map[string]*room{
+			firstRoom.ID:  firstRoom,
+			secondRoom.ID: secondRoom,
+		},
+		tournaments: map[string]*tournament{value.ID: value},
+	}
+
+	hub.detachLocked(client, true)
+
+	if len(hub.rooms) != 0 || len(hub.tournaments) != 0 {
+		t.Fatalf("single-player tournament remained after leaving: %d rooms, %d tournaments", len(hub.rooms), len(hub.tournaments))
 	}
 }
 

@@ -531,6 +531,11 @@ func (h *roomHub) scheduleRoomAutomation(roomID string) {
 		h.applyRoomAction(roomID, action, playerID(actor), false, "연결 끊김 자동 처리")
 		return
 	}
+	if room.Tournament != nil && boolValue(room.Settings["singlePlayerTournament"]) {
+		h.mu.Unlock()
+		h.broadcastByID(roomID)
+		return
+	}
 
 	actorID := playerID(actor)
 	h.scheduleRoomTimerLocked(room, "humanAction", actorID, playerName(actor), room.Game.HumanActionTimeoutMs, func() {

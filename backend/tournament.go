@@ -87,9 +87,14 @@ func normalizeTournamentSettings(settings map[string]any, fallback *tournament) 
 	}
 	initialCount := clampInt(settings["initialParticipantCount"], 2, maxTournamentPlayers, defaultInitial)
 	humanCount := clampInt(settings["humanParticipantCount"], 1, initialCount, defaultHuman)
+	singlePlayerTournament := boolValue(settings["singlePlayerTournament"])
+	if singlePlayerTournament {
+		humanCount = 1
+	}
 	startingBalance := clampInt(settings["tournamentStartingBalance"], minPlayableBalance, 1_000_000_000, defaultBalance)
 	return map[string]any{
 		"tournamentMode":                    true,
+		"singlePlayerTournament":            singlePlayerTournament,
 		"initialParticipantCount":           initialCount,
 		"humanParticipantCount":             humanCount,
 		"computerParticipantCount":          initialCount - humanCount,
@@ -254,7 +259,12 @@ func (h *roomHub) joinRunningTournament(client *wsClient, message clientMessage,
 	client.playerID = participant.ID
 	h.mu.Unlock()
 
-	client.send(map[string]any{"type": "joinedRoom", "roomId": value.ID, "playerId": participant.ID})
+	client.send(map[string]any{
+		"type":                   "joinedRoom",
+		"roomId":                 value.ID,
+		"playerId":               participant.ID,
+		"singlePlayerTournament": boolValue(value.Settings["singlePlayerTournament"]),
+	})
 	h.scheduleRoomAutomation(targetRoom.ID)
 	h.broadcastTournament(value.ID)
 	return true
@@ -811,6 +821,7 @@ func (h *roomHub) publicTournament(room *room) any {
 	return map[string]any{
 		"id":                       value.ID,
 		"status":                   value.Status,
+		"singlePlayer":             boolValue(value.Settings["singlePlayerTournament"]),
 		"initialParticipantCount":  value.InitialParticipantCount,
 		"humanParticipantCount":    value.HumanParticipantCount,
 		"computerParticipantCount": value.ComputerParticipantCount,

@@ -39,7 +39,7 @@ export async function openSetupTab(page, name) {
 
 export async function openActiveMenuItem(page, name) {
   await page.getByRole("button", { name: "게임 진행 메뉴 열기" }).click();
-  await page.getByRole("menuitem", { name }).click();
+  await page.getByRole("menuitem", { name, exact: true }).click();
 }
 
 export function setupCard(page, name) {
