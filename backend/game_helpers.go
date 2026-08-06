@@ -4,6 +4,9 @@ func (h *roomHub) nextHandRequiredPlayerIDs(room *room) []string {
 	if room == nil || room.Game == nil || room.Game.State == nil {
 		return []string{}
 	}
+	if room.Tournament != nil {
+		return []string{}
+	}
 	if !boolValue(room.Game.State["finished"]) || boolValue(room.Game.State["gameOver"]) {
 		return []string{}
 	}

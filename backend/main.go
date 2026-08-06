@@ -33,6 +33,7 @@ const (
 	smallBlindAmount             = 2000
 	bigBlindAmount               = 5000
 	maxTotalPlayers              = 8
+	maxTournamentPlayers         = 64
 	maxHumanSlots                = maxTotalPlayers
 	minHumanSlots                = 1
 	minComputerActionDelayMs     = 100
@@ -53,9 +54,10 @@ type server struct {
 }
 
 type roomHub struct {
-	mu     sync.Mutex
-	rooms  map[string]*room
-	engine *pokerEngine
+	mu          sync.Mutex
+	rooms       map[string]*room
+	tournaments map[string]*tournament
+	engine      *pokerEngine
 }
 
 type room struct {
@@ -80,6 +82,8 @@ type room struct {
 	CleanupTimer        *time.Timer            `json:"-"`
 	AutomationTimer     *time.Timer            `json:"-"`
 	ComputerPeekTimer   *time.Timer            `json:"-"`
+	Tournament          *tournament            `json:"-"`
+	TableNumber         int                    `json:"-"`
 }
 
 type roomGame struct {
@@ -195,8 +199,9 @@ func main() {
 	app := &server{
 		staticDir: staticDir,
 		hub: &roomHub{
-			rooms:  map[string]*room{},
-			engine: engine,
+			rooms:       map[string]*room{},
+			tournaments: map[string]*tournament{},
+			engine:      engine,
 		},
 	}
 
@@ -448,7 +453,12 @@ func (h *roomHub) createRoom(client *wsClient, message clientMessage) {
 
 	roomID := h.newRoomID()
 	playerID := newID()
+	tournamentMode := boolValue(message.Settings["tournamentMode"])
 	humanSlots := clamp(message.HumanSlots, minHumanSlots, maxHumanSlots, minHumanSlots)
+	if tournamentMode {
+		initialCount := clampInt(message.Settings["initialParticipantCount"], 2, maxTournamentPlayers, 2)
+		humanSlots = clampInt(message.Settings["humanParticipantCount"], 1, initialCount, 1)
+	}
 	now := time.Now().UnixMilli()
 	room := &room{
 		ID:                  roomID,
@@ -473,12 +483,21 @@ func (h *roomHub) createRoom(client *wsClient, message clientMessage) {
 	room.Seats[0].PlayerID = playerID
 	room.Seats[0].Name = sanitizeName(message.PlayerName, "방장")
 	room.Seats[0].Connected = true
-	room.Settings = normalizeRoomSettingsFor(room, message.Settings)
+	if tournamentMode {
+		room.Settings = normalizeTournamentSettings(message.Settings, nil)
+		room.Tournament = newTournament(room.ID, playerID, room.Settings)
+		room.TableNumber = 0
+	} else {
+		room.Settings = normalizeRoomSettingsFor(room, message.Settings)
+	}
 	room.ShowComputerStyles = boolValueDefault(room.Settings["showComputerStyles"], true)
 	room.ShowCumulativeWins = boolValueDefault(room.Settings["showCumulativeWins"], true)
 
 	h.mu.Lock()
 	h.rooms[room.ID] = room
+	if room.Tournament != nil {
+		h.tournaments[room.Tournament.ID] = room.Tournament
+	}
 	client.roomID = room.ID
 	client.playerID = playerID
 	h.mu.Unlock()
@@ -489,6 +508,9 @@ func (h *roomHub) createRoom(client *wsClient, message clientMessage) {
 
 func (h *roomHub) joinRoom(client *wsClient, message clientMessage) {
 	roomID := strings.ToUpper(strings.TrimSpace(message.RoomID))
+	if h.joinRunningTournament(client, message, roomID) {
+		return
+	}
 	h.mu.Lock()
 	room := h.rooms[roomID]
 	if room == nil {
@@ -632,8 +654,23 @@ func (h *roomHub) updatePlayerName(client *wsClient, playerName string) {
 			updateNamedEntries(anySlice(room.Game.State["showdownResults"]), client.playerID, nextName)
 		}
 	}
+	if room.Tournament != nil {
+		if participant := room.Tournament.Participants[client.playerID]; participant != nil {
+			participant.Name = nextName
+		}
+	}
+	tournamentID := ""
+	tournamentRunning := false
+	if room.Tournament != nil {
+		tournamentID = room.Tournament.ID
+		tournamentRunning = room.Tournament.Status != tournamentStatusRegistering
+	}
 	h.mu.Unlock()
-	h.broadcast(room)
+	if tournamentID != "" && tournamentRunning {
+		h.broadcastTournament(tournamentID)
+	} else {
+		h.broadcast(room)
+	}
 }
 
 func updateNamedEntries(entries []any, playerID string, name string) {
@@ -661,6 +698,16 @@ func (h *roomHub) updateRoomSettings(client *wsClient, settings map[string]any) 
 	if settings == nil {
 		settings = map[string]any{}
 	}
+	if room.Tournament != nil {
+		if err := h.updateTournamentRegistrationLocked(room, settings); err != nil {
+			h.mu.Unlock()
+			client.sendError(err.Error())
+			return
+		}
+		h.mu.Unlock()
+		h.broadcast(room)
+		return
+	}
 	if players := anySlice(settings["humanPlayers"]); len(players) > 0 {
 		if len(players) < len(room.Seats) {
 			for index := len(players); index < len(room.Seats); index++ {
@@ -687,8 +734,22 @@ func (h *roomHub) disconnect(client *wsClient) {
 
 func (h *roomHub) leaveRoom(client *wsClient, clearSeat bool) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	roomID := client.roomID
+	tournamentID := ""
+	if room := h.rooms[roomID]; room != nil && room.Tournament != nil {
+		tournamentID = room.Tournament.ID
+	}
 	h.detachLocked(client, clearSeat)
+	h.mu.Unlock()
+
+	if roomID != "" {
+		h.scheduleRoomAutomation(roomID)
+	}
+	if tournamentID != "" {
+		h.broadcastTournament(tournamentID)
+	} else if roomID != "" {
+		h.broadcastByID(roomID)
+	}
 }
 
 func (h *roomHub) detachLocked(client *wsClient, clearSeat bool) {
@@ -699,6 +760,15 @@ func (h *roomHub) detachLocked(client *wsClient, clearSeat bool) {
 		return
 	}
 	delete(room.clients, client)
+	keepTournamentSeat := room.Tournament != nil && room.Tournament.Status == tournamentStatusRunning
+	if room.Tournament != nil && room.Tournament.Status != tournamentStatusRegistering {
+		if participant := room.Tournament.Participants[client.playerID]; participant != nil {
+			participant.Connected = false
+		}
+	}
+	if keepTournamentSeat {
+		clearSeat = false
+	}
 	for index := range room.Seats {
 		if room.Seats[index].PlayerID != client.playerID {
 			continue
@@ -722,8 +792,12 @@ func (h *roomHub) detachLocked(client *wsClient, clearSeat bool) {
 		}
 	}
 	room.WaitingParticipants = nextWaiting
-	if len(room.clients) == 0 {
-		h.scheduleEmptyRoomCleanupLocked(room)
+	if len(room.clients) == 0 && !keepTournamentSeat {
+		if room.Tournament != nil && room.Tournament.Status == tournamentStatusFinished {
+			h.scheduleFinishedTournamentCleanupLocked(room.Tournament)
+		} else {
+			h.scheduleEmptyRoomCleanupLocked(room)
+		}
 	}
 	client.roomID = ""
 	client.playerID = ""
@@ -739,6 +813,9 @@ func (h *roomHub) scheduleEmptyRoomCleanupLocked(room *room) {
 		defer h.mu.Unlock()
 		room := h.rooms[roomID]
 		if room != nil && len(room.clients) == 0 {
+			if room.Tournament != nil && room.Tournament.Status == tournamentStatusRegistering {
+				delete(h.tournaments, room.Tournament.ID)
+			}
 			delete(h.rooms, roomID)
 		}
 	})

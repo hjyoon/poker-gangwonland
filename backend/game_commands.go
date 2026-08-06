@@ -13,6 +13,11 @@ func (h *roomHub) setSeatAway(client *wsClient, message clientMessage) {
 		client.sendError("먼저 멀티플레이 룸에 참가해야 합니다.")
 		return
 	}
+	if room.Tournament != nil {
+		h.mu.Unlock()
+		client.sendError("토너먼트 참가자는 자리 비움을 설정할 수 없습니다. 연결이 끊기면 자동 폴드됩니다.")
+		return
+	}
 	seat := room.seatByPlayerID(client.playerID)
 	if seat == nil {
 		h.mu.Unlock()
@@ -53,6 +58,11 @@ func (h *roomHub) standUpFromGame(client *wsClient, message clientMessage) {
 		client.sendError("진행 중인 멀티플레이 게임에 참가해야 합니다.")
 		return
 	}
+	if room.Tournament != nil {
+		h.mu.Unlock()
+		client.sendError("진행 중인 토너먼트에서는 게임 좌석에서 빠질 수 없습니다.")
+		return
+	}
 	seat := room.seatByPlayerID(client.playerID)
 	if seat == nil {
 		h.mu.Unlock()
@@ -89,6 +99,11 @@ func (h *roomHub) reserveEndlessSeat(client *wsClient, message clientMessage) {
 	if room == nil || room.Game == nil || client.playerID == "" {
 		h.mu.Unlock()
 		client.sendError("진행 중인 멀티플레이 룸에 참가해야 합니다.")
+		return
+	}
+	if room.Tournament != nil {
+		h.mu.Unlock()
+		client.sendError("토너먼트에서는 엔들리스 자리 예약을 사용할 수 없습니다.")
 		return
 	}
 	if !room.Game.EndlessMode || gameStateOver(room) {
@@ -144,6 +159,11 @@ func (h *roomHub) joinGameSeat(client *wsClient, message clientMessage) {
 	if room == nil || room.Game == nil || client.playerID == "" {
 		h.mu.Unlock()
 		client.sendError("먼저 멀티플레이 룸에 참가해야 합니다.")
+		return
+	}
+	if room.Tournament != nil {
+		h.mu.Unlock()
+		client.sendError("토너먼트 시작 후에는 빈 좌석에 새로 참가할 수 없습니다.")
 		return
 	}
 	tableSeatIndex := message.TableSeatIndex
@@ -266,6 +286,11 @@ func (h *roomHub) updateGameOptions(client *wsClient, message clientMessage) {
 	if room == nil || room.Game == nil {
 		h.mu.Unlock()
 		client.sendError("진행 중인 멀티플레이 게임이 없습니다.")
+		return
+	}
+	if room.Tournament != nil {
+		h.mu.Unlock()
+		client.sendError("진행 중인 토너먼트 설정은 변경할 수 없습니다.")
 		return
 	}
 	if room.HostPlayerID != client.playerID {

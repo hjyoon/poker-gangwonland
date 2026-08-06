@@ -32,6 +32,7 @@ import {
   MAX_MULTIPLAYER_HUMAN_SLOTS,
   MAX_NEXT_HAND_DELAY_MS,
   MAX_PLAYER_TOTAL_BET,
+  MAX_TOURNAMENT_PARTICIPANTS,
   MAX_TOTAL_PLAYERS,
   MIN_COMPUTER_ACTION_DELAY_MS,
   MIN_HUMAN_ACTION_TIMEOUT_MS,
@@ -1133,6 +1134,12 @@ export default function PokerApp() {
   const [computerActionDelayMs, setComputerActionDelayMs] = useState(DEFAULT_COMPUTER_ACTION_DELAY_MS);
   const [nextHandDelayMs, setNextHandDelayMs] = useState(DEFAULT_NEXT_HAND_DELAY_MS);
   const [humanActionTimeoutMs, setHumanActionTimeoutMs] = useState(DEFAULT_HUMAN_ACTION_TIMEOUT_MS);
+  const [tournamentMode, setTournamentMode] = useState(false);
+  const [tournamentParticipantCount, setTournamentParticipantCount] = useState(8);
+  const [tournamentHumanCount, setTournamentHumanCount] = useState(2);
+  const [tournamentStartingBalance, setTournamentStartingBalance] = useState(DEFAULT_STARTING_BALANCE);
+  const [tournamentComputerStyle, setTournamentComputerStyle] = useState("random");
+  const [tournamentComputerLevel, setTournamentComputerLevel] = useState("random");
   const [multiplayerName, setMultiplayerName] = useState("플레이어");
   const [multiplayerSlots, setMultiplayerSlots] = useState(2);
   const [randomizePlayerOrder, setRandomizePlayerOrder] = useState(false);
@@ -1459,6 +1466,8 @@ export default function PokerApp() {
     [showPocketNicknameInGame, showPocketRankInGame, showPocketWinRateInGame],
   );
   const isMultiplayerSetup = setupMode === "multiplayer" || Boolean(multiplayerRoom);
+  const isTournamentSetup = isMultiplayerSetup && (tournamentMode || Boolean(multiplayerRoom?.tournament));
+  const activeTournament = multiplayerRoom?.tournament ?? null;
   const isMultiplayerHost = Boolean(multiplayerRoom && multiplayerPlayerId && multiplayerRoom.hostPlayerId === multiplayerPlayerId);
   const isMultiplayerCreateFlow = isMultiplayerSetup && (multiplayerLobbyMode === "create" || isMultiplayerHost);
   const setupTabs = !isMultiplayerSetup
@@ -1469,41 +1478,64 @@ export default function PokerApp() {
         ? MULTIPLAYER_JOIN_SETUP_TABS
         : MULTIPLAYER_LOBBY_TABS;
   const setupIncludesLocalHuman = !isMultiplayerSetup && includeHuman;
-  const multiplayerHumanSlotCount = isMultiplayerHost && !multiplayerGameActive ? multiplayerSlots : multiplayerRoom?.humanSlots ?? multiplayerSlots;
-  const multiplayerConfiguredSeatCount = multiplayerHumanSlotCount + cpuCount;
+  const multiplayerHumanSlotCount = isTournamentSetup
+    ? multiplayerRoom?.tournament?.humanParticipantCount ?? tournamentHumanCount
+    : isMultiplayerHost && !multiplayerGameActive
+      ? multiplayerSlots
+      : multiplayerRoom?.humanSlots ?? multiplayerSlots;
+  const multiplayerConfiguredSeatCount = isTournamentSetup ? tournamentParticipantCount : multiplayerHumanSlotCount + cpuCount;
   const setupPlayers = useMemo(
-    () => buildSetupPlayersForMode(isMultiplayerSetup, cpuCount, setupIncludesLocalHuman, multiplayerHumanSlotCount, setupPlayerOrder),
-    [cpuCount, isMultiplayerSetup, multiplayerHumanSlotCount, setupIncludesLocalHuman, setupPlayerOrder],
+    () =>
+      isTournamentSetup
+        ? []
+        : buildSetupPlayersForMode(isMultiplayerSetup, cpuCount, setupIncludesLocalHuman, multiplayerHumanSlotCount, setupPlayerOrder),
+    [cpuCount, isMultiplayerSetup, isTournamentSetup, multiplayerHumanSlotCount, setupIncludesLocalHuman, setupPlayerOrder],
   );
   const displayedSetupPlayers = useMemo(
     () =>
-      buildSetupPlayersForMode(
-        isMultiplayerSetup,
-        cpuCount,
-        setupIncludesLocalHuman,
-        multiplayerHumanSlotCount,
-        draggedSetupPlayerId && dragPreviewPlayerOrder.length > 0 ? dragPreviewPlayerOrder : setupPlayerOrder,
-      ),
-    [cpuCount, dragPreviewPlayerOrder, draggedSetupPlayerId, isMultiplayerSetup, multiplayerHumanSlotCount, setupIncludesLocalHuman, setupPlayerOrder],
+      isTournamentSetup
+        ? []
+        : buildSetupPlayersForMode(
+            isMultiplayerSetup,
+            cpuCount,
+            setupIncludesLocalHuman,
+            multiplayerHumanSlotCount,
+            draggedSetupPlayerId && dragPreviewPlayerOrder.length > 0 ? dragPreviewPlayerOrder : setupPlayerOrder,
+          ),
+    [cpuCount, dragPreviewPlayerOrder, draggedSetupPlayerId, isMultiplayerSetup, isTournamentSetup, multiplayerHumanSlotCount, setupIncludesLocalHuman, setupPlayerOrder],
   );
   const resolvedMultiplayerTableSeats = useMemo(
     () => buildMultiplayerHumanSeatPlacements(setupPlayers, multiplayerHumanSlotCount),
     [multiplayerHumanSlotCount, setupPlayers],
   );
   const connectedMultiplayerHumans =
-    multiplayerRoom?.seats.filter((seat, index) => seat.playerId && seat.connected && (setupBalances[humanSlotId(index)] ?? 0) >= MIN_PLAYABLE_BALANCE).length ?? 0;
-  const playableComputerSetupCount = setupPlayers.filter((player) => !player.isHuman && (setupBalances[player.id] ?? 0) >= MIN_PLAYABLE_BALANCE).length;
+    multiplayerRoom?.seats.filter((seat, index) =>
+      isTournamentSetup ? seat.playerId && seat.connected : seat.playerId && seat.connected && (setupBalances[humanSlotId(index)] ?? 0) >= MIN_PLAYABLE_BALANCE,
+    ).length ?? 0;
+  const playableComputerSetupCount = isTournamentSetup
+    ? Math.max(0, tournamentParticipantCount - tournamentHumanCount)
+    : setupPlayers.filter((player) => !player.isHuman && (setupBalances[player.id] ?? 0) >= MIN_PLAYABLE_BALANCE).length;
   const multiplayerPlayableSetupCount = connectedMultiplayerHumans + playableComputerSetupCount;
   const multiplayerConfiguredPlayerCount = multiplayerRoom ? multiplayerConfiguredSeatCount : 0;
   const playableSetupCount = setupPlayers.filter((player) => (setupBalances[player.id] ?? 0) >= MIN_PLAYABLE_BALANCE).length;
   const canStartSetupGame = multiplayerRoom
-    ? multiplayerPlayableSetupCount >= 2 && multiplayerConfiguredPlayerCount <= MAX_TOTAL_PLAYERS
+    ? isTournamentSetup
+      ? connectedMultiplayerHumans === multiplayerHumanSlotCount && multiplayerConfiguredPlayerCount >= 2
+      : multiplayerPlayableSetupCount >= 2 && multiplayerConfiguredPlayerCount <= MAX_TOTAL_PLAYERS
     : isMultiplayerSetup
       ? isMultiplayerCreateFlow
       : playableSetupCount >= 2;
-  const setupStartButtonLabel = isMultiplayerSetup ? (multiplayerRoom ? "룸 게임 시작" : "룸 만들기") : "게임 시작";
+  const setupStartButtonLabel = isTournamentSetup
+    ? multiplayerRoom
+      ? "토너먼트 시작"
+      : "토너먼트 룸 만들기"
+    : isMultiplayerSetup
+      ? multiplayerRoom
+        ? "룸 게임 시작"
+        : "룸 만들기"
+      : "게임 시작";
   const canEditMultiplayerSettings = !isMultiplayerSetup || (isMultiplayerCreateFlow && (!multiplayerRoom || isMultiplayerHost));
-  const canEditActiveGameSettings = !multiplayerGameActive || isMultiplayerHost;
+  const canEditActiveGameSettings = !activeTournament && (!multiplayerGameActive || isMultiplayerHost);
   const showSetupStartAction = !isMultiplayerSetup || (isMultiplayerCreateFlow && (multiplayerRoom || setupTab !== "multiplayer"));
   const multiplayerTimer = multiplayerRoom?.timer ?? null;
   const multiplayerJoinUrl = useMemo(() => multiplayerRoomJoinUrl(multiplayerRoom?.id), [multiplayerRoom?.id]);
@@ -1514,18 +1546,19 @@ export default function PokerApp() {
   const canConfirmMultiplayerNextHand = Boolean(multiplayerPlayerId && multiplayerNextHandRequiredIds.includes(multiplayerPlayerId));
   const hasConfirmedMultiplayerNextHand = Boolean(multiplayerPlayerId && multiplayerNextHandReadyIds.includes(multiplayerPlayerId));
   const ownMultiplayerSeat = multiplayerRoom?.seats.find((seat) => seat.playerId === multiplayerPlayerId) ?? null;
+  const ownTournamentParticipant = activeTournament?.participants?.find((participant) => participant.id === multiplayerPlayerId) ?? null;
   const ownEndlessWaitingParticipant =
     multiplayerRoom?.waitingParticipants?.find((participant) => participant.playerId === multiplayerPlayerId && participant.pendingEndlessJoin) ?? null;
   const ownMultiplayerTableSeat = state?.tableSeats?.find((player) => player.id === multiplayerPlayerId) ?? null;
   const ownMultiplayerGamePlayer = state?.players.find((player) => player.id === multiplayerPlayerId && !player.eliminated) ?? null;
-  const ownMultiplayerCanJoinSeat = Boolean(multiplayerGameActive && multiplayerPlayerId && !ownMultiplayerGamePlayer && !state?.gameOver);
-  const ownSeatEliminated = Boolean(ownMultiplayerTableSeat?.eliminated);
+  const ownMultiplayerCanJoinSeat = Boolean(multiplayerGameActive && !activeTournament && multiplayerPlayerId && !ownMultiplayerGamePlayer && !state?.gameOver);
+  const ownSeatEliminated = Boolean(ownMultiplayerTableSeat?.eliminated || ownTournamentParticipant?.eliminated);
   const ownSeatAway = Boolean(ownMultiplayerSeat?.away);
   const ownSeatPendingAway = Boolean(ownMultiplayerSeat?.pendingAway);
   const ownSeatPendingReturn = Boolean(ownMultiplayerSeat?.pendingReturn);
   const ownSeatPendingStandUp = Boolean(ownMultiplayerSeat?.pendingStandUp);
   const ownSeatPendingEndlessJoin = Boolean(ownMultiplayerSeat?.pendingEndlessJoin);
-  const ownSeatCanReserveStandUp = Boolean(ownMultiplayerSeat && !state?.gameOver);
+  const ownSeatCanReserveStandUp = Boolean(!activeTournament && ownMultiplayerSeat && !state?.gameOver);
   const canReserveEndlessSeat = Boolean(
     multiplayerGameActive &&
       multiplayerPlayerId &&
@@ -1568,6 +1601,26 @@ export default function PokerApp() {
     : "게임에서 빠지기는 언제든 예약할 수 있으며, 내 딜러(D) 차례가 되면 자동으로 게임에서 빠집니다.";
   const multiplayerSettingsPayload = useMemo(
     () => {
+      if (isTournamentSetup) {
+        const initialParticipantCount = Math.min(MAX_TOURNAMENT_PARTICIPANTS, Math.max(2, Number(tournamentParticipantCount) || 2));
+        const humanParticipantCount = Math.min(initialParticipantCount, Math.max(1, Number(tournamentHumanCount) || 1));
+        return {
+          tournamentMode: true,
+          initialParticipantCount,
+          humanParticipantCount,
+          computerParticipantCount: initialParticipantCount - humanParticipantCount,
+          tournamentStartingBalance: Math.max(MIN_PLAYABLE_BALANCE, Number(tournamentStartingBalance) || DEFAULT_STARTING_BALANCE),
+          computerStyle: getComputerStyleSelection(tournamentComputerStyle).key,
+          computerLevel: getComputerLevelSelection(tournamentComputerLevel).key,
+          autoNextHand: true,
+          endlessMode: false,
+          showComputerStyles: showComputerStylesInGame,
+          showCumulativeWins: showCumulativeWinsInGame,
+          computerActionDelayMs,
+          nextHandDelayMs,
+          humanActionTimeoutMs,
+        };
+      }
       const payload = {
         humanStartingBalance: setupBalances[humanSlotId(0)] ?? DEFAULT_STARTING_BALANCE,
         humanPlayers: buildMultiplayerHumanSettings(multiplayerHumanSlotCount, setupBalances),
@@ -1610,6 +1663,7 @@ export default function PokerApp() {
       endlessReplacementStartingBalance,
       humanActionTimeoutMs,
       isMultiplayerSetup,
+      isTournamentSetup,
       multiplayerHumanSlotCount,
       nextHandDelayMs,
       randomizePlayerOrder,
@@ -1618,6 +1672,11 @@ export default function PokerApp() {
       setupPlayers,
       showComputerStylesInGame,
       showCumulativeWinsInGame,
+      tournamentComputerLevel,
+      tournamentComputerStyle,
+      tournamentHumanCount,
+      tournamentParticipantCount,
+      tournamentStartingBalance,
     ],
   );
 
@@ -1626,6 +1685,35 @@ export default function PokerApp() {
     if (!settings) {
       return;
     }
+
+    if (settings.tournamentMode || room.tournament) {
+      const initialCount = Math.min(
+        MAX_TOURNAMENT_PARTICIPANTS,
+        Math.max(2, Number(room.tournament?.initialParticipantCount ?? settings.initialParticipantCount) || 2),
+      );
+      const humanCount = Math.min(initialCount, Math.max(1, Number(room.tournament?.humanParticipantCount ?? settings.humanParticipantCount) || 1));
+      setTournamentMode(true);
+      setTournamentParticipantCount(initialCount);
+      setTournamentHumanCount(humanCount);
+      setTournamentStartingBalance(
+        Math.max(MIN_PLAYABLE_BALANCE, Number(settings.tournamentStartingBalance) || DEFAULT_STARTING_BALANCE),
+      );
+      setTournamentComputerStyle(getComputerStyleSelection(settings.computerStyle).key);
+      setTournamentComputerLevel(getComputerLevelSelection(settings.computerLevel).key);
+      setMultiplayerSlots(humanCount);
+      setCpuCount(initialCount - humanCount);
+      setRandomizePlayerOrder(true);
+      setAutoNextHand(true);
+      setEndlessMode(false);
+      setShowComputerStylesInGame(settings.showComputerStyles !== false);
+      setShowCumulativeWinsInGame(settings.showCumulativeWins !== false);
+      setComputerActionDelayMs(clampDelay(settings.computerActionDelayMs, MIN_COMPUTER_ACTION_DELAY_MS, MAX_COMPUTER_ACTION_DELAY_MS));
+      setNextHandDelayMs(clampDelay(settings.nextHandDelayMs, MIN_NEXT_HAND_DELAY_MS, MAX_NEXT_HAND_DELAY_MS));
+      setHumanActionTimeoutMs(clampDelay(settings.humanActionTimeoutMs, MIN_HUMAN_ACTION_TIMEOUT_MS, MAX_HUMAN_ACTION_TIMEOUT_MS));
+      return;
+    }
+
+    setTournamentMode(false);
 
     const computerPlayers = Array.isArray(settings.computerPlayers) ? settings.computerPlayers : [];
     const nextCpuCount = clampMultiplayerCpuCount(computerPlayers.length, room.humanSlots);
@@ -1730,7 +1818,7 @@ export default function PokerApp() {
   }, [setupTab, setupTabs]);
 
   useEffect(() => {
-    if (state || !isMultiplayerSetup || multiplayerRoom) {
+    if (state || !isMultiplayerSetup || isTournamentSetup || multiplayerRoom) {
       return;
     }
 
@@ -1738,10 +1826,10 @@ export default function PokerApp() {
     if (clampedCpuCount !== cpuCount) {
       applySetupShape(clampedCpuCount, includeHuman, false);
     }
-  }, [cpuCount, includeHuman, isMultiplayerSetup, multiplayerHumanSlotCount, multiplayerRoom, state]);
+  }, [cpuCount, includeHuman, isMultiplayerSetup, isTournamentSetup, multiplayerHumanSlotCount, multiplayerRoom, state]);
 
   useEffect(() => {
-    if (!multiplayerRoom || state) {
+    if (!multiplayerRoom || state || isTournamentSetup) {
       return;
     }
 
@@ -1749,7 +1837,7 @@ export default function PokerApp() {
     if (clampedCpuCount !== cpuCount) {
       applySetupShape(clampedCpuCount, includeHuman, false);
     }
-  }, [cpuCount, includeHuman, multiplayerRoom, state]);
+  }, [cpuCount, includeHuman, isTournamentSetup, multiplayerRoom, state]);
 
   useEffect(() => {
     if (!multiplayerTimer) {
@@ -2245,7 +2333,7 @@ export default function PokerApp() {
     sendMultiplayerMessage({
       type: "createRoom",
       playerName: multiplayerName,
-      humanSlots: multiplayerSlots,
+      humanSlots: isTournamentSetup ? tournamentHumanCount : multiplayerSlots,
       settings: multiplayerSettingsPayload,
     });
   }
@@ -2593,34 +2681,132 @@ export default function PokerApp() {
           {setupTab === "game" ? (
             <div className="setup-section setup-game-section" role="tabpanel">
               <div className="setup-controls">
+                {isMultiplayerSetup ? (
+                  <label className="toggle-input">
+                    <input
+                      type="checkbox"
+                      checked={isTournamentSetup}
+                      onChange={(event) => {
+                        const enabled = event.target.checked;
+                        setTournamentMode(enabled);
+                        if (enabled) {
+                          setAutoNextHand(true);
+                          setEndlessMode(false);
+                          setRandomizePlayerOrder(true);
+                        }
+                      }}
+                      disabled={Boolean(multiplayerRoom) || !canEditMultiplayerSettings}
+                    />
+                    멀티 테이블 토너먼트
+                  </label>
+                ) : null}
+                {isTournamentSetup ? (
+                  <>
+                    <label>
+                      전체 참가자 수
+                      <input
+                        min="2"
+                        max={MAX_TOURNAMENT_PARTICIPANTS}
+                        type="number"
+                        value={tournamentParticipantCount}
+                        onChange={(event) => {
+                          const nextCount = Math.min(MAX_TOURNAMENT_PARTICIPANTS, Math.max(2, Number(event.target.value) || 2));
+                          setTournamentParticipantCount(nextCount);
+                          setTournamentHumanCount((current) => Math.min(nextCount, Math.max(1, current)));
+                        }}
+                        disabled={!canEditMultiplayerSettings}
+                      />
+                    </label>
+                    <label>
+                      인간 참가자 수
+                      <input
+                        min="1"
+                        max={tournamentParticipantCount}
+                        type="number"
+                        value={tournamentHumanCount}
+                        onChange={(event) => {
+                          const nextCount = Math.min(tournamentParticipantCount, Math.max(1, Number(event.target.value) || 1));
+                          setTournamentHumanCount(nextCount);
+                          setMultiplayerSlots(nextCount);
+                        }}
+                        disabled={!canEditMultiplayerSettings}
+                      />
+                    </label>
+                    <label>
+                      컴퓨터 참가자 수
+                      <input readOnly type="number" value={Math.max(0, tournamentParticipantCount - tournamentHumanCount)} />
+                    </label>
+                    <label className="balance-input">
+                      공통 시작 금액
+                      <input
+                        min={MIN_PLAYABLE_BALANCE}
+                        step="1000"
+                        type="number"
+                        value={tournamentStartingBalance}
+                        onChange={(event) => setTournamentStartingBalance(Math.max(MIN_PLAYABLE_BALANCE, Number(event.target.value) || MIN_PLAYABLE_BALANCE))}
+                        disabled={!canEditMultiplayerSettings}
+                      />
+                    </label>
+                    <label>
+                      컴퓨터 플레이 성향
+                      <select
+                        value={getComputerStyleSelection(tournamentComputerStyle).key}
+                        onChange={(event) => setTournamentComputerStyle(event.target.value)}
+                        disabled={!canEditMultiplayerSettings || tournamentParticipantCount === tournamentHumanCount}
+                      >
+                        {COMPUTER_STYLE_OPTIONS.map((style) => (
+                          <option key={style.key} value={style.key}>
+                            {style.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      컴퓨터 판단 수준
+                      <select
+                        value={getComputerLevelSelection(tournamentComputerLevel).key}
+                        onChange={(event) => setTournamentComputerLevel(event.target.value)}
+                        disabled={!canEditMultiplayerSettings || tournamentParticipantCount === tournamentHumanCount}
+                      >
+                        {COMPUTER_LEVEL_OPTIONS.map((level) => (
+                          <option key={level.key} value={level.key}>
+                            {level.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
+                ) : null}
                 <label className="toggle-input">
                   <input
                     type="checkbox"
-                    checked={randomizePlayerOrder}
+                    checked={isTournamentSetup || randomizePlayerOrder}
                     onChange={(event) => setRandomizePlayerOrder(event.target.checked)}
-                    disabled={!canEditMultiplayerSettings}
+                    disabled={!canEditMultiplayerSettings || isTournamentSetup}
                   />
-                  모든 플레이어 랜덤 배치
+                  {isTournamentSetup ? "토너먼트 참가자 랜덤 균등 배치" : "모든 플레이어 랜덤 배치"}
                 </label>
                 <label className="toggle-input">
                   <input
                     type="checkbox"
-                    checked={autoNextHand}
+                    checked={isTournamentSetup || autoNextHand}
                     onChange={(event) => updateAutoNextHand(event.target.checked)}
-                    disabled={!canEditMultiplayerSettings}
+                    disabled={!canEditMultiplayerSettings || isTournamentSetup}
                   />
                   다음 핸드 자동 진행
                 </label>
-                <label className="toggle-input">
-                  <input
-                    type="checkbox"
-                    checked={endlessMode}
-                    onChange={(event) => updateEndlessMode(event.target.checked)}
-                    disabled={!canEditMultiplayerSettings}
-                  />
-                  엔들리스 게임 모드
-                </label>
-                {endlessMode ? (
+                {!isTournamentSetup ? (
+                  <label className="toggle-input">
+                    <input
+                      type="checkbox"
+                      checked={endlessMode}
+                      onChange={(event) => updateEndlessMode(event.target.checked)}
+                      disabled={!canEditMultiplayerSettings}
+                    />
+                    엔들리스 게임 모드
+                  </label>
+                ) : null}
+                {!isTournamentSetup && endlessMode ? (
                   <>
                     <label>
                       엔들리스 신규 컴퓨터 성향
@@ -2720,6 +2906,22 @@ export default function PokerApp() {
                   </label>
                 ) : null}
               </div>
+              {isTournamentSetup ? (
+                <div className="setup-player-section tournament-setup-summary">
+                  <div className="setup-player-section-header">
+                    <h3>토너먼트 구성</h3>
+                  </div>
+                  <p>
+                    인간 {tournamentHumanCount}명과 컴퓨터 {Math.max(0, tournamentParticipantCount - tournamentHumanCount)}명을 합쳐 총 {tournamentParticipantCount}명으로 시작합니다.
+                  </p>
+                  <p className="note">
+                    참가자는 무작위로 섞은 뒤 테이블당 최대 {MAX_TOTAL_PLAYERS}명, 테이블별 인원 차이 1명 이하로 배치됩니다. 토너먼트 시작 후 신규 참가와 엔들리스 교체는 허용되지 않습니다.
+                  </p>
+                  <p className="note">
+                    연결이 끊긴 인간 참가자는 좌석과 칩을 유지하며, 재접속 전까지 자신의 차례마다 자동 폴드됩니다.
+                  </p>
+                </div>
+              ) : (
               <div className="setup-player-section">
                 <div className="setup-player-section-header">
                   <h3>플레이어 설정</h3>
@@ -2857,13 +3059,14 @@ export default function PokerApp() {
                   엔들리스 게임 모드를 켜면 다음 핸드 시작 시 탈락 좌석에 새 컴퓨터가 입장합니다.
                 </p>
               </div>
+              )}
             </div>
           ) : null}
 
           {setupTab === "multiplayer" ? (
             <section className="multiplayer-lobby setup-section" role="tabpanel">
               <div>
-                <h3>멀티플레이 룸</h3>
+                <h3>{isTournamentSetup ? "토너먼트 로비" : "멀티플레이 룸"}</h3>
                 <p className="note">연결 상태: {multiplayerStatus}</p>
               </div>
               <div className="setup-mode-switch multiplayer-room-choice" role="radiogroup" aria-label="멀티플레이 룸 선택">
@@ -2915,7 +3118,7 @@ export default function PokerApp() {
                   <div className="setup-actions">
                     {!multiplayerRoom && multiplayerLobbyMode === "create" ? (
                       <button type="button" onClick={createMultiplayerRoom}>
-                        룸 만들기
+                        {isTournamentSetup ? "토너먼트 룸 만들기" : "룸 만들기"}
                       </button>
                     ) : null}
                     {!multiplayerRoom && multiplayerLobbyMode === "join" ? (
@@ -2987,8 +3190,10 @@ export default function PokerApp() {
                     </div>
                   </div>
                   <p className="note">
-                    멀티플레이에서는 인간용 자리 {multiplayerRoom.humanSlots}개와 컴퓨터 {cpuCount}명을 합쳐 최대 {MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.
-                    {randomizePlayerOrder ? " 게임 시작 시 모든 플레이어 순서는 랜덤으로 확정됩니다." : " 플레이어 설정 카드 순서가 게임 시작 순서로 반영됩니다."}
+                    {isTournamentSetup
+                      ? `전체 ${tournamentParticipantCount}명(인간 ${tournamentHumanCount}명, 컴퓨터 ${Math.max(0, tournamentParticipantCount - tournamentHumanCount)}명)을 테이블당 최대 ${MAX_TOTAL_PLAYERS}명으로 균등 배치합니다. 연결된 인간 ${connectedMultiplayerHumans}/${multiplayerHumanSlotCount}명.`
+                      : `멀티플레이에서는 인간용 자리 ${multiplayerRoom.humanSlots}개와 컴퓨터 ${cpuCount}명을 합쳐 최대 ${MAX_TOTAL_PLAYERS}명까지만 구성할 수 있습니다.`}
+                    {!isTournamentSetup && (randomizePlayerOrder ? " 게임 시작 시 모든 플레이어 순서는 랜덤으로 확정됩니다." : " 플레이어 설정 카드 순서가 게임 시작 순서로 반영됩니다.")}
                     {isMultiplayerHost ? " 방장만 게임 설정을 변경할 수 있습니다." : " 참가자는 방장이 정한 설정으로 진행합니다."}
                   </p>
                 </>
@@ -3022,7 +3227,9 @@ export default function PokerApp() {
               </button>
               {!canStartSetupGame ? (
                 <p className="note">
-                  {isMultiplayerSetup && !multiplayerRoom
+                  {isTournamentSetup && multiplayerRoom
+                    ? `설정한 인간 참가자 전원이 연결되어야 합니다. 현재 ${connectedMultiplayerHumans}/${multiplayerHumanSlotCount}명 연결됨.`
+                    : isMultiplayerSetup && !multiplayerRoom
                     ? "멀티플레이는 룸을 만든 뒤 방장이 시작합니다."
                     : "진행 가능한 플레이어가 2명 이상 필요합니다."}
                 </p>
@@ -3058,7 +3265,13 @@ export default function PokerApp() {
       .filter(Boolean)
       .join(" → ") || "즉시 종료";
   let statusText = "컴퓨터 진행 중입니다.";
-  if (state.gameOver) {
+  if (activeTournament?.status === "finished") {
+    statusText = activeTournament.winnerName ? `토너먼트 우승: ${activeTournament.winnerName}` : "토너먼트가 종료되었습니다.";
+  } else if (ownTournamentParticipant?.eliminated) {
+    statusText = `토너먼트에서 ${ownTournamentParticipant.placement || "-"}위로 탈락했습니다. 현재 테이블을 관전 중입니다.`;
+  } else if (state.finished && activeTournament) {
+    statusText = "현재 테이블의 핸드가 끝났습니다. 다른 테이블 종료 후 자동으로 재배치됩니다.";
+  } else if (state.gameOver) {
     statusText = "게임이 종료되었습니다.";
   } else if (state.finished && multiplayerGameActive && !hasRequiredMultiplayerNextHandConfirmation) {
     statusText = "핸드가 종료되었습니다. 참가 중인 인간 플레이어가 없어 자동 진행을 대기 중입니다.";
@@ -3102,7 +3315,7 @@ export default function PokerApp() {
   const handFee = state.finished ? state.currentHandFee ?? 0 : calculateFee(state.pot);
   const handFeeLabel = state.finished ? "이번 핸드 수수료" : "이번 핸드 예상 수수료";
   const cumulativeFee = state.feeTotal ?? 0;
-  const isNextHandReadyPhase = state.finished && !state.gameOver;
+  const isNextHandReadyPhase = state.finished && !state.gameOver && !activeTournament;
   const nextHandButtonDisabled = multiplayerGameActive && (!canConfirmMultiplayerNextHand || hasConfirmedMultiplayerNextHand);
   const nextHandButtonLabel =
     multiplayerGameActive && !hasRequiredMultiplayerNextHandConfirmation
@@ -3318,6 +3531,44 @@ export default function PokerApp() {
 
       {activeGameTab === "table" ? (
       <section className="active-game-section game-table-section" role="tabpanel">
+        {activeTournament ? (
+          <section className="tournament-overview" aria-label="토너먼트 현황">
+            <div className="tournament-overview-header">
+              <div>
+                <span className="eyebrow">멀티 테이블 토너먼트</span>
+                <h2>
+                  {activeTournament.status === "finished"
+                    ? `${activeTournament.winnerName || "최종 참가자"} 우승`
+                    : `라운드 ${activeTournament.round} · 테이블 ${activeTournament.tableNumber}/${activeTournament.tableCount}`}
+                </h2>
+              </div>
+              <div className="tournament-metrics">
+                <span>생존 <strong>{activeTournament.activeParticipantCount}</strong></span>
+                <span>전체 <strong>{activeTournament.initialParticipantCount}</strong></span>
+                <span>테이블 <strong>{activeTournament.tableCount}</strong></span>
+              </div>
+            </div>
+            <details>
+              <summary>전체 순위 및 배치</summary>
+              <div className="tournament-standings">
+                {activeTournament.participants.map((participant, index) => (
+                  <div
+                    className={`tournament-standing${participant.id === multiplayerPlayerId ? " is-self" : ""}${participant.eliminated ? " is-eliminated" : ""}`}
+                    key={participant.id}
+                  >
+                    <span>{participant.eliminated ? `${participant.placement || "-"}위` : `${index + 1}위`}</span>
+                    <strong>{participant.name}</strong>
+                    <small>
+                      {participant.eliminated
+                        ? "탈락"
+                        : `테이블 ${participant.tableNumber} · ${formatMoney(participant.chipBalance)}${participant.isHuman && !participant.connected ? " · 연결 끊김" : ""}`}
+                    </small>
+                  </div>
+                ))}
+              </div>
+            </details>
+          </section>
+        ) : null}
         <header className="table-header">
           <div>
             <h2>{activeStreet.label}</h2>
@@ -3381,7 +3632,7 @@ export default function PokerApp() {
             <p>{statusText}</p>
           </div>
           {multiplayerGameActive && multiplayerTimer ? <TimerProgress timer={multiplayerTimer} nowMs={timerNowMs} /> : null}
-          {multiplayerGameActive && ownMultiplayerSeat ? (
+          {multiplayerGameActive && ownMultiplayerSeat && !activeTournament ? (
             <div className="seat-participation-control">
               <div>
                 <strong>내 참가 상태</strong>
@@ -3408,6 +3659,21 @@ export default function PokerApp() {
                 {ownSeatStandUpButtonLabel}
               </button>
               <p className="note">{ownSeatStandUpHelpText}</p>
+            </div>
+          ) : null}
+          {multiplayerGameActive && activeTournament && ownTournamentParticipant ? (
+            <div className="seat-participation-control tournament-participation-control">
+              <div>
+                <strong>내 토너먼트 상태</strong>
+                <p className="note">
+                  {ownTournamentParticipant.eliminated
+                    ? `${ownTournamentParticipant.placement || "-"}위로 탈락했습니다. 토너먼트 종료까지 관전할 수 있습니다.`
+                    : `테이블 ${ownTournamentParticipant.tableNumber}에서 진행 중입니다.${ownTournamentParticipant.connected ? "" : " 연결이 끊기면 재접속 전까지 자동 폴드됩니다."}`}
+                </p>
+              </div>
+              <button className="secondary danger-lite" type="button" onClick={leaveMultiplayerRoom}>
+                룸 나가기
+              </button>
             </div>
           ) : null}
           {multiplayerGameActive && !ownMultiplayerSeat && ownEndlessWaitingParticipant ? (

@@ -1,9 +1,15 @@
 package main
 
+import "strings"
+
 func (h *roomHub) publicRoom(room *room, client *wsClient) map[string]any {
 	settings := publicRoomSettings(room)
+	publicID := room.ID
+	if room.Tournament != nil {
+		publicID = room.Tournament.ID
+	}
 	return map[string]any{
-		"id":                        room.ID,
+		"id":                        publicID,
 		"humanSlots":                room.HumanSlots,
 		"hostPlayerId":              room.HostPlayerID,
 		"seats":                     publicSeats(room),
@@ -15,10 +21,11 @@ func (h *roomHub) publicRoom(room *room, client *wsClient) map[string]any {
 		"nextHandRequiredPlayerIds": h.nextHandRequiredPlayerIDs(room),
 		"nextHandReadyPlayerIds":    h.nextHandReadyPlayerIDs(room),
 		"nextHandDealerPlayerId":    nil,
-		"canReserveStandUpFromGame": room.Game != nil && room.Game.State != nil && client != nil && client.playerID != "",
+		"canReserveStandUpFromGame": room.Tournament == nil && room.Game != nil && room.Game.State != nil && client != nil && client.playerID != "",
 		"cardPeekPlayerIds":         publicCardPeekPlayerIDs(room),
 		"timer":                     publicRoomTimer(room),
 		"gameState":                 h.publicGameState(room, client),
+		"tournament":                h.publicTournament(room),
 	}
 }
 
@@ -39,6 +46,17 @@ func publicRoomSettings(room *room) map[string]any {
 	}
 	if room.Game == nil {
 		return settings
+	}
+	if room.Tournament != nil {
+		return mergeSettings(settings, map[string]any{
+			"tournamentMode":            true,
+			"initialParticipantCount":   room.Tournament.InitialParticipantCount,
+			"humanParticipantCount":     room.Tournament.HumanParticipantCount,
+			"computerParticipantCount":  room.Tournament.ComputerParticipantCount,
+			"tournamentStartingBalance": room.Tournament.StartingBalance,
+			"autoNextHand":              true,
+			"endlessMode":               false,
+		})
 	}
 	next := mergeSettings(settings, map[string]any{
 		"autoNextHand":                      room.Game.AutoNextHand,
@@ -183,14 +201,17 @@ func emptyTableSeat(index int, label string, entry map[string]any) map[string]an
 	if label == "" {
 		label = "빈 자리"
 	}
+	setupPlayerID := stringValue(entry["setupPlayerId"])
 	return map[string]any{
-		"id":            "empty-seat-" + strconvItoa(index+1),
-		"setupPlayerId": entry["setupPlayerId"],
-		"playerId":      nil,
-		"name":          label,
-		"label":         label,
-		"isEmptySeat":   true,
-		"stateIndex":    -1,
+		"id":                  "empty-seat-" + strconvItoa(index+1),
+		"setupPlayerId":       entry["setupPlayerId"],
+		"playerId":            nil,
+		"name":                label,
+		"label":               label,
+		"isEmptySeat":         true,
+		"isJoinableHumanSeat": strings.HasPrefix(setupPlayerID, "human-slot-"),
+		"stateIndex":          -1,
+		"tableSeatIndex":      index,
 	}
 }
 

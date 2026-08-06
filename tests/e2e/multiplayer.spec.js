@@ -5,6 +5,7 @@ import {
   createRoom,
   expectActiveGameSettingsEditable,
   gotoRoot,
+  installDeterministicRandom,
   joinActiveRoomInContext,
   joinRoomInContext,
   openActiveMenuItem,
@@ -304,5 +305,68 @@ test.describe("root multiplayer flows", () => {
 
     await hostContext.close();
     await guestContext.close();
+  });
+
+  test("starts a balanced multi-table tournament and restores a disconnected participant", async ({ browser }) => {
+    const hostContext = await browser.newContext();
+    const guestContext = await browser.newContext();
+    const lateContext = await browser.newContext();
+    const hostPage = await hostContext.newPage();
+
+    await gotoRoot(hostPage);
+    await hostPage.getByRole("radio", { name: "멀티플레이" }).click();
+    await hostPage.getByRole("radio", { name: "룸 만들기" }).click();
+    await openSetupTab(hostPage, "게임 설정");
+    await hostPage.getByLabel("멀티 테이블 토너먼트").check();
+    await hostPage.getByLabel("전체 참가자 수").fill("9");
+    await hostPage.getByLabel("인간 참가자 수").fill("2");
+    await hostPage.getByLabel("컴퓨터 행동 딜레이(ms)").fill("100");
+    await hostPage.getByLabel("다음 핸드 딜레이(ms)").fill("500");
+    await hostPage.getByLabel("멀티플레이 제한 시간(ms)").fill("10000");
+    await expect(hostPage.getByLabel("컴퓨터 참가자 수")).toHaveValue("7");
+    await expect(hostPage.getByLabel("다음 핸드 자동 진행")).toBeChecked();
+    await expect(hostPage.getByLabel("엔들리스 게임 모드")).toHaveCount(0);
+
+    await openSetupTab(hostPage, "멀티플레이");
+    await hostPage.getByLabel("표시 이름").fill("Host");
+    await hostPage.keyboard.press("Tab");
+    await hostPage.getByRole("button", { name: "토너먼트 룸 만들기" }).click();
+    const roomText = await hostPage.locator(".room-state strong").first().innerText();
+    const roomCode = /([A-F0-9]{6})/.exec(roomText)?.[1];
+    expect(roomCode).toBeTruthy();
+
+    const guestPage = await joinRoomInContext(guestContext, roomCode, { name: "Guest", viaDeepLink: true });
+    await expect(hostPage.getByText("연결된 인간 2/2명.")).toBeVisible();
+    await hostPage.getByRole("button", { name: "토너먼트 시작" }).click();
+
+    for (const page of [hostPage, guestPage]) {
+      await expect(page.getByRole("region", { name: "토너먼트 현황" })).toBeVisible();
+      await expect(page.locator(".tournament-overview h2")).toContainText(/라운드 1 · 테이블 [12]\/2/);
+      await expect(page.locator(".tournament-metrics")).toContainText("생존 9");
+      await expect(page.locator(".seat")).toHaveCount(8);
+      await page.getByText("전체 순위 및 배치").click();
+      await expect(page.locator(".tournament-standing")).toHaveCount(9);
+    }
+
+    await guestPage.close();
+    await expect(hostPage.locator(".tournament-standing").filter({ hasText: "Guest" })).toContainText("연결 끊김");
+
+    const reconnectedPage = await guestContext.newPage();
+    await installDeterministicRandom(reconnectedPage);
+    await reconnectedPage.goto(`/?room=${roomCode}`);
+    await expect(reconnectedPage.getByRole("region", { name: "토너먼트 현황" })).toBeVisible();
+    await reconnectedPage.getByText("전체 순위 및 배치").click();
+    await expect(reconnectedPage.locator(".tournament-standing").filter({ hasText: "Guest" })).not.toContainText("연결 끊김");
+    await expect(hostPage.locator(".tournament-standing").filter({ hasText: "Guest" })).not.toContainText("연결 끊김");
+
+    const latePage = await lateContext.newPage();
+    await installDeterministicRandom(latePage);
+    await latePage.goto(`/?room=${roomCode}`);
+    await expect(latePage.getByText("토너먼트 시작 후에는 새로운 참가자가 입장할 수 없습니다.")).toBeVisible();
+    await recordMeaningfulCoverage("multiplayer.tournament-balance-disconnect-rejoin");
+
+    await hostContext.close();
+    await guestContext.close();
+    await lateContext.close();
   });
 });

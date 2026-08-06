@@ -24,6 +24,21 @@ func (h *roomHub) startRoomGame(client *wsClient, message clientMessage) {
 	if message.Settings != nil {
 		settingsPayload = mergeSettings(settingsPayload, message.Settings)
 	}
+	if room.Tournament != nil {
+		roomIDs, err := h.startTournamentLocked(room, settingsPayload)
+		if err != nil {
+			h.mu.Unlock()
+			client.sendError(err.Error())
+			return
+		}
+		tournamentID := room.Tournament.ID
+		h.mu.Unlock()
+		for _, roomID := range roomIDs {
+			h.scheduleRoomAutomation(roomID)
+		}
+		h.broadcastTournament(tournamentID)
+		return
+	}
 	if players := anySlice(settingsPayload["humanPlayers"]); len(players) > 0 {
 		room.HumanSlots = clamp(len(players), minHumanSlots, maxHumanSlots, room.HumanSlots)
 		h.syncSeatsToSettings(room)
@@ -271,6 +286,9 @@ func (h *roomHub) applyRoomAction(roomID string, action string, actorPlayerID st
 	if levels := anyMap(nextState["computerLevels"]); len(levels) > 0 {
 		room.Game.ComputerLevels = levels
 	}
+	if room.Tournament != nil {
+		h.syncTournamentParticipantsLocked(room.Tournament)
+	}
 	roomID = room.ID
 	h.mu.Unlock()
 
@@ -284,6 +302,11 @@ func (h *roomHub) requestNextHand(client *wsClient) {
 	if room == nil || room.Game == nil || room.Game.State == nil {
 		h.mu.Unlock()
 		client.sendError("진행 중인 멀티플레이 게임이 없습니다.")
+		return
+	}
+	if room.Tournament != nil {
+		h.mu.Unlock()
+		client.sendError("토너먼트의 다음 핸드는 모든 테이블이 끝난 뒤 자동으로 시작됩니다.")
 		return
 	}
 	if !boolValue(room.Game.State["finished"]) || boolValue(room.Game.State["gameOver"]) {
@@ -313,6 +336,12 @@ func (h *roomHub) startNextRoomHand(roomID string) {
 	room := h.rooms[roomID]
 	if room == nil || room.Game == nil || room.Game.State == nil || boolValue(room.Game.State["gameOver"]) {
 		h.mu.Unlock()
+		return
+	}
+	if room.Tournament != nil {
+		tournamentID := room.Tournament.ID
+		h.mu.Unlock()
+		h.scheduleTournamentAdvance(tournamentID)
 		return
 	}
 	currentState := room.Game.State
@@ -419,7 +448,13 @@ func (h *roomHub) scheduleRoomAutomation(roomID string) {
 	}
 	room.Game.Timer = nil
 	state := room.Game.State
-	if len(room.clients) == 0 {
+	if room.Tournament != nil && boolValue(state["finished"]) {
+		tournamentID := room.Tournament.ID
+		h.mu.Unlock()
+		h.scheduleTournamentAdvance(tournamentID)
+		return
+	}
+	if len(room.clients) == 0 && room.Tournament == nil {
 		h.mu.Unlock()
 		return
 	}
@@ -490,11 +525,8 @@ func (h *roomHub) scheduleRoomAutomation(roomID string) {
 		return
 	}
 
-	if seat := room.seatByPlayerID(playerID(actor)); seat != nil && !seat.Connected && seat.PendingStandUp {
-		action := "fold"
-		if boolValue(state["showdownPending"]) {
-			action = "muck"
-		}
+	if seat := room.seatByPlayerID(playerID(actor)); seat != nil && !seat.Connected && (room.Tournament != nil || seat.PendingStandUp) {
+		action := automaticHumanAction(h.engine, state, actorIndex)
 		h.mu.Unlock()
 		h.applyRoomAction(roomID, action, playerID(actor), false, "연결 끊김 자동 처리")
 		return
@@ -515,10 +547,22 @@ func timeoutActionForRoom(roomID string, h *roomHub) string {
 	if room == nil || room.Game == nil || room.Game.State == nil {
 		return "fold"
 	}
-	if boolValue(room.Game.State["showdownPending"]) {
-		return "muck"
+	return automaticHumanAction(h.engine, room.Game.State, intValue(room.Game.State["currentPlayerIndex"]))
+}
+
+func automaticHumanAction(engine *pokerEngine, state map[string]any, actorIndex int) string {
+	if !boolValue(state["showdownPending"]) {
+		return "fold"
 	}
-	return "fold"
+	actions, err := engine.getAvailableActions(state, actorIndex)
+	if err == nil {
+		for _, action := range actions {
+			if stringValue(action["key"]) == "muck" && boolValue(action["enabled"]) {
+				return "muck"
+			}
+		}
+	}
+	return "show"
 }
 
 func (h *roomHub) scheduleRoomTimerLocked(room *room, phase string, playerID string, playerName string, durationMs int, callback func()) {
