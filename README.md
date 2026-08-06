@@ -21,6 +21,28 @@ npm run dev:local
 PORT=3100 npm run dev:local
 ```
 
+통합 실행 스크립트를 옵션 없이 실행하면 Docker와 로컬 개발 서버를 관리하는 인터랙티브 메뉴가 열립니다.
+
+```bash
+./run.sh
+```
+
+메뉴를 거치지 않고 Docker 컨테이너 시작·중지·상태 확인·로그 조회 등을 직접 실행할 수도 있습니다.
+
+```bash
+./run.sh start
+./run.sh stop
+./run.sh restart
+./run.sh status
+./run.sh logs --follow --tail 200
+./run.sh build
+./run.sh rebuild
+./run.sh remove
+./run.sh doctor
+```
+
+호스트 포트는 `./run.sh start --port 3100`처럼 지정합니다. 전체 명령과 `POKER_IMAGE`, `POKER_CONTAINER`, `POKER_HOST`, `POKER_PORT` 등의 환경 변수는 `./run.sh --help`에서 확인할 수 있습니다.
+
 ## Docker
 
 Docker 이미지는 Bun으로 React/Vite 정적 프론트엔드를 빌드하고, Go 서버를 정적 바이너리로 컴파일한 뒤, `gcr.io/distroless/static-debian12:nonroot` 런타임에서 실행합니다.
